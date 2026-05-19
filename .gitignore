@@ -1,0 +1,27 @@
+.DS_Store
+Thumbs.db
+
+# Editor and local OS noise
+.idea/
+.vscode/
+
+# Swift / Xcode build outputs
+.build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Apple platform archives and symbols
+*.dSYM/
+*.ipa
+*.xcarchive/
+
+# Swift Package Manager
+.swiftpm/
+
+# Local logs and temp files
+*.log
+*.tmp
+*.temp
+

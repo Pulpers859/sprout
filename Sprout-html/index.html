@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Sprout">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="180x180" href="icon-180.png">
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiU3Byb3V0IiwiZGVzY3JpcHRpb24iOiJCdWRnZXQgYmVhdXRpZnVsbHkuIiwic3RhcnRfdXJsIjoiLyIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwiYmFja2dyb3VuZF9jb2xvciI6IiNmZGZiZjgiLCJ0aGVtZV9jb2xvciI6IiM4ZmFlOGIiLCJpY29ucyI6W3sic3JjIjoiaWNvbi0xODAucG5nIiwic2l6ZXMiOiIxODB4MTgwIiwidHlwZSI6ImltYWdlL3BuZyJ9XX0=">
+  <meta name="theme-color" content="#8fae8b">
+  <meta name="msapplication-TileColor" content="#8fae8b">
+<title>Sprout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fdfbf8;
+    --card: #ffffff;
+    --text1: #3d3630;
+    --text2: #8a7f74;
+    --text3: #a09788;
+    --text4: #c4b8ab;
+    --sage: #8fae8b;
+    --sage-dark: #7a9d76;
+    --sage-light: #eef4ed;
+    --green: #6a9e66;
+    --green-dark: #5a8c56;
+    --green-bg: #f0f6ef;
+    --green-border: #c5dcc3;
+    --amber: #d4a96a;
+    --red: #c97a7a;
+    --border: #ece7e0;
+    --input-border: #e0d9d0;
+    --chip: #f5f0ea;
+    --chip-hover: #ece7e0;
+    --divider: #f0ebe4;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'DM Sans', system-ui, sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body { background: var(--bg); font-family: var(--font-body); color: var(--text1); }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+  button { font-family: var(--font-body); }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d4cdc4; border-radius: 99px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── App Shell ── */
+  #app {
+    max-width: 440px; margin: 0 auto; height: 100vh; height: 100dvh;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .header { padding: 24px 20px 0; animation: fadeIn 0.4s ease; flex-shrink: 0; }
+  .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .header h1 { font-family: var(--font-display); font-size: 26px; font-weight: 500; color: var(--text1); letter-spacing: -0.5px; }
+  .header-date { font-size: 13px; color: var(--text3); margin-bottom: 4px; }
+  .btn-reset {
+    background: var(--chip); border: 1px solid var(--border); border-radius: 10px;
+    padding: 7px 12px; cursor: pointer; font-size: 13px; color: var(--text2);
+    transition: all 0.15s ease; display: flex; align-items: center; gap: 4px;
+  }
+  .btn-reset:hover { border-color: var(--red); color: var(--red); }
+
+  .content { flex: 1; padding: 12px 20px 0; overflow-y: auto; padding-bottom: 80px; }
+  .content > div { animation: slideUp 0.3s ease; }
+
+  /* ── Tab Bar ── */
+  .tab-bar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(253,251,248,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border); display: flex; padding: 8px 16px 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .tab-btn {
+    flex: 1; background: none; border: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 0; transition: all 0.15s ease;
+  }
+  .tab-btn .tab-icon { font-size: 20px; }
+  .tab-btn .tab-label { font-size: 11px; color: var(--text3); font-weight: 400; }
+  .tab-btn.active { opacity: 1; }
+  .tab-btn.active .tab-label { color: var(--sage); font-weight: 600; }
+  .tab-btn:not(.active) { opacity: 0.5; }
+
+  /* ── Summary Card ── */
+  .summary-card {
+    background: var(--card); border-radius: 18px; padding: 18px;
+    margin-bottom: 14px; border: 1px solid var(--border);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+  }
+  .summary-top { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 10px; }
+  .budget-setter { display: flex; align-items: center; gap: 4px; background: none; border: none; cursor: pointer; font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--text2); }
+  .budget-setter .edit-icon { font-size: 10px; color: var(--text4); }
+  .budget-edit { display: flex; align-items: center; gap: 6px; }
+  .budget-edit-input {
+    width: 100px; padding: 5px 8px; border: 2px solid var(--sage); border-radius: 8px;
+    font-size: 16px; font-family: var(--font-mono); color: var(--text1); outline: none; background: #fff;
+  }
+  .budget-edit-save {
+    background: var(--sage); border: none; border-radius: 6px; padding: 5px 12px;
+    color: #fff; font-size: 12px; cursor: pointer; font-weight: 600;
+  }
+  .budget-edit-cancel { background: none; border: none; color: var(--text3); font-size: 14px; cursor: pointer; }
+  .carryover-note { margin-top: -2px; margin-bottom: 10px; text-align: right; font-size: 11px; color: var(--text3); }
+
+  /* ── Progress Bar ── */
+  .bar-labels { display: flex; justify-content: space-between; font-size: 13px; color: #7a7067; margin-bottom: 4px; }
+  .bar-remaining { font-weight: 600; }
+  .bar-remaining.positive { color: #5a6e58; }
+  .bar-remaining.negative { color: var(--red); }
+  .bar-track { position: relative; height: 10px; border-radius: 99px; background: #e8e2da; overflow: hidden; }
+  .bar-pace {
+    position: absolute; inset: 0 auto 0 0; height: 100%;
+    border-radius: 99px; background: #d3cdc5; transition: width 0.5s ease;
+  }
+  .bar-fill {
+    position: absolute; inset: 0 auto 0 0; height: 100%;
+    border-radius: 99px; transition: width 0.5s ease, background 0.4s ease;
+  }
+
+  .remaining-display { text-align: center; padding: 10px 0 4px; border-top: 1px solid var(--divider); margin-top: 10px; }
+  .remaining-amount { font-family: var(--font-mono); font-size: 28px; font-weight: 600; }
+  .remaining-amount.negative { color: var(--red); }
+  .remaining-label { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+  /* ── Daily Allowance ── */
+  .daily-allowance {
+    text-align: center; padding: 8px 0 2px;
+    animation: fadeIn 0.3s ease;
+  }
+  .daily-amount {
+    font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--sage-dark);
+  }
+  .daily-amount.negative { color: var(--red); }
+  .daily-label { font-size: 11px; color: var(--text4); margin-top: 1px; }
+
+  /* ── Calendar Toggle ── */
+  .calendar-toggle {
+    width: 100%; margin-bottom: 14px; padding: 9px 14px;
+    border-radius: 12px; cursor: pointer; font-size: 13px;
+    transition: all 0.15s ease; display: flex; align-items: center;
+    justify-content: center; gap: 6px; border: 1px solid var(--border);
+    background: var(--chip); color: var(--text2);
+  }
+  .calendar-toggle.active { background: var(--sage-light); border-color: var(--sage); color: #5a6e58; }
+
+  /* ── Calendar ── */
+  .calendar-card {
+    background: var(--card); border-radius: 18px; padding: 16px; margin-bottom: 14px;
+    border: 1px solid var(--border); animation: fadeIn 0.2s ease;
+  }
+  .cal-month { text-align: center; font-family: var(--font-display); font-size: 18px; color: var(--text1); margin-bottom: 14px; font-weight: 500; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal-day-label { text-align: center; font-size: 11px; color: var(--text3); padding: 4px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cal-day {
+    aspect-ratio: 1; border: 1px solid transparent; border-radius: 10px;
+    background: transparent; cursor: pointer; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 2px; transition: all 0.15s ease;
+    font-family: var(--font-body);
+  }
+  .cal-day:hover { background: var(--chip); }
+  .cal-day.has-items { background: var(--chip); }
+  .cal-day.today { border: 2px solid var(--amber); }
+  .cal-day.today .cal-num { color: var(--amber); font-weight: 700; }
+  .cal-day.selected { border: 2px solid var(--sage); background: var(--sage-light); }
+  .cal-num { font-size: 13px; color: var(--text1); }
+  .cal-amount { font-size: 9px; font-family: var(--font-mono); font-weight: 600; margin-top: 1px; color: var(--text2); }
+  .cal-amount.refund { color: var(--green); }
+  .cal-detail {
+    margin-top: 14px; background: var(--chip); border-radius: 14px;
+    padding: 14px; border: 1px solid var(--border); animation: fadeIn 0.2s ease;
+  }
+  .cal-detail-date { font-size: 13px; color: var(--text2); margin-bottom: 8px; font-weight: 500; }
+  .cal-detail-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .cal-detail-net { display: flex; justify-content: flex-end; margin-top: 8px; font-size: 14px; font-weight: 600; color: #5a6e58; font-family: var(--font-mono); }
+
+  /* ── Quick Add ── */
+  .quick-add-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 6px; }
+  .quick-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .quick-chip {
+    background: var(--chip); border: 1px solid var(--border); border-radius: 99px;
+    padding: 5px 12px; cursor: pointer; font-size: 13px; color: #5a5048;
+    transition: all 0.15s ease; display: flex; align-items: center; gap: 4px;
+  }
+  .quick-chip:hover { background: var(--chip-hover); }
+
+  /* ── Add Buttons ── */
+  .add-buttons { display: flex; gap: 8px; margin-bottom: 14px; }
+  .btn-add {
+    flex: 1; padding: 12px; border: 2px dashed #d4cdc4; border-radius: 14px;
+    background: transparent; cursor: pointer; font-size: 14px; color: var(--text2);
+    transition: all 0.2s ease;
+  }
+  .btn-add:hover { border-color: var(--sage); color: #5a6e58; }
+  .btn-add.payment:hover { border-color: var(--green); color: var(--green); }
+
+  /* ── Add Form ── */
+  .add-form {
+    border-radius: 16px; padding: 16px; margin-bottom: 14px;
+    border: 1px solid var(--border); background: var(--chip);
+  }
+  .add-form.payment { background: var(--green-bg); border-color: var(--green-border); }
+  .form-header { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; color: var(--text2); }
+  .add-form.payment .form-header { color: var(--green); }
+  .emoji-picker { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+  .emoji-btn {
+    background: var(--chip-hover); color: #5a5048; border: none; border-radius: 99px;
+    padding: 5px 10px; cursor: pointer; font-size: 13px; transition: all 0.15s ease;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .emoji-btn.selected { background: var(--sage); color: #fff; }
+  .emoji-btn span:last-child { font-size: 11px; }
+  .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .form-input {
+    flex: 1; padding: 10px 12px; border: 1px solid var(--input-border);
+    border-radius: 10px; font-size: 14px; font-family: var(--font-body);
+    background: #fff; color: var(--text1); outline: none;
+  }
+  .form-input:focus { border-color: var(--sage); }
+  .add-form.payment .form-input:focus { border-color: var(--green); }
+  .form-input.mono { font-family: var(--font-mono); width: 90px; flex: none; }
+  .form-input.small { font-size: 13px; }
+  .form-input.date { width: 130px; flex: none; font-size: 13px; }
+  .form-actions { display: flex; gap: 8px; margin-top: 2px; }
+  .btn-submit {
+    flex: 1; padding: 10px; border: none; border-radius: 10px;
+    background: var(--sage); color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s ease;
+  }
+  .btn-submit:hover { background: var(--sage-dark); }
+  .add-form.payment .btn-submit { background: var(--green); }
+  .add-form.payment .btn-submit:hover { background: var(--green-dark); }
+  .btn-cancel {
+    padding: 10px 16px; border: 1px solid var(--input-border); border-radius: 10px;
+    background: #fff; color: var(--text2); font-size: 14px; cursor: pointer;
+  }
+
+  /* ── Transaction List ── */
+  .tx-header { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; margin-top: 2px; }
+  .tx-empty { text-align: center; padding: 28px 0; color: var(--text4); font-size: 14px; font-style: italic; }
+  .tx-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .tx-emoji { font-size: 22px; line-height: 1.2; }
+  .tx-body { flex: 1; min-width: 0; }
+  .tx-top { display: flex; justify-content: space-between; align-items: center; }
+  .tx-name { font-weight: 500; color: var(--text1); font-size: 14px; }
+  .tx-amount { font-family: var(--font-mono); font-weight: 500; font-size: 14px; white-space: nowrap; margin-left: 8px; color: #5a6e58; }
+  .tx-amount.payment { color: var(--green); }
+  .tx-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
+  .tx-meta { font-size: 12px; color: var(--text3); }
+  .tx-meta .payment-tag { color: var(--green); font-weight: 500; }
+  .tx-remove { background: none; border: none; cursor: pointer; color: var(--text4); font-size: 12px; padding: 2px 4px; }
+  .tx-remove:hover { color: var(--red); }
+
+  /* ── Login Screen ── */
+  .login-screen {
+    height: 100vh; height: 100dvh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; background: var(--bg); padding: 40px;
+  }
+  .login-sprout { font-size: 56px; margin-bottom: 16px; }
+  .login-title { font-family: var(--font-display); font-size: 32px; font-weight: 500; color: var(--text1); margin-bottom: 6px; }
+  .login-sub { font-size: 15px; color: var(--text3); margin-bottom: 32px; }
+  .btn-google {
+    display: flex; align-items: center; gap: 10px; padding: 12px 28px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    cursor: pointer; font-size: 15px; font-weight: 500; color: var(--text1);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06); transition: all 0.2s ease;
+  }
+  .btn-google:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); transform: translateY(-1px); }
+  .btn-google svg { width: 20px; height: 20px; }
+  .login-loading { font-size: 16px; color: var(--text3); }
+
+  /* ── User Bar ── */
+  .user-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0 2px; margin-bottom: 0;
+  }
+  .user-info { display: flex; align-items: center; gap: 8px; }
+  .user-avatar { width: 24px; height: 24px; border-radius: 99px; object-fit: cover; }
+  .user-name { font-size: 12px; color: var(--text3); }
+  .btn-signout { background: none; border: none; font-size: 11px; color: var(--text4); cursor: pointer; }
+  .btn-signout:hover { color: var(--red); }
+
+  /* ── Reset Modal ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(61,54,48,0.3);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  .modal {
+    background: var(--bg); border-radius: 20px; padding: 28px; max-width: 340px; width: calc(100% - 40px);
+    text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  }
+  .modal-icon { font-size: 36px; margin-bottom: 12px; }
+  .modal-title { font-family: var(--font-display); font-size: 18px; color: var(--text1); margin-bottom: 8px; }
+  .modal-text { font-size: 13px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; }
+  .modal-actions { display: flex; gap: 8px; }
+  .modal-btn {
+    flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; cursor: pointer;
+  }
+  .modal-btn.keep { background: #fff; border: 1px solid var(--input-border); color: var(--text2); }
+  .modal-btn.reset { background: var(--sage); border: none; color: #fff; font-weight: 600; }
+
+  /* ── Settings Modal ── */
+  .settings-modal {
+    background: var(--bg); border-radius: 20px; padding: 24px; max-width: 360px; width: calc(100% - 40px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: left; max-height: 80vh; overflow-y: auto;
+  }
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;
+  }
+  .settings-title { font-family: var(--font-display); font-size: 20px; color: var(--text1); font-weight: 500; }
+  .settings-close { background: none; border: none; font-size: 22px; color: var(--text3); cursor: pointer; padding: 4px; }
+  .settings-section-label {
+    font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px;
+    margin-bottom: 8px; margin-top: 16px;
+  }
+  .settings-section-label:first-of-type { margin-top: 0; }
+  .cat-list { display: flex; flex-direction: column; gap: 6px; }
+  .cat-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .cat-emoji-btn {
+    font-size: 20px; background: none; border: none; cursor: pointer;
+    padding: 2px 4px; border-radius: 8px; transition: background 0.15s;
+  }
+  .cat-emoji-btn:hover { background: var(--chip-hover); }
+  .cat-name-input {
+    flex: 1; border: none; background: transparent; font-size: 14px;
+    font-family: var(--font-body); color: var(--text1); outline: none;
+    padding: 2px 0;
+  }
+  .cat-name-input:focus { border-bottom: 1px solid var(--sage); }
+  .cat-remove-btn {
+    background: none; border: none; cursor: pointer; color: var(--text4);
+    font-size: 16px; padding: 2px 6px; border-radius: 6px; transition: all 0.15s;
+  }
+  .cat-remove-btn:hover { color: var(--red); background: rgba(201,122,122,0.1); }
+  .cat-add-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; padding: 10px; border: 2px dashed var(--border); border-radius: 12px;
+    background: transparent; cursor: pointer; font-size: 13px; color: var(--text3);
+    margin-top: 6px; transition: all 0.15s;
+  }
+  .cat-add-btn:hover { border-color: var(--sage); color: var(--sage); }
+
+  /* ── Emoji Picker Grid (for changing category emoji) ── */
+  .emoji-grid-overlay {
+    position: fixed; inset: 0; background: rgba(61,54,48,0.3);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1100; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  .emoji-grid-modal {
+    background: var(--bg); border-radius: 20px; padding: 20px; max-width: 300px; width: calc(100% - 40px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  }
+  .emoji-grid-title {
+    font-family: var(--font-display); font-size: 16px; color: var(--text1);
+    margin-bottom: 14px; text-align: center; font-weight: 500;
+  }
+  .emoji-grid {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+  }
+  .emoji-grid button {
+    font-size: 22px; padding: 8px; background: none; border: none;
+    border-radius: 10px; cursor: pointer; transition: background 0.15s;
+  }
+  .emoji-grid button:hover { background: var(--chip-hover); }
+
+  /* ── Settings gear button ── */
+  .btn-settings {
+    background: var(--chip); border: 1px solid var(--border); border-radius: 10px;
+    padding: 7px 10px; cursor: pointer; font-size: 15px; color: var(--text2);
+    transition: all 0.15s ease; margin-left: 6px;
+  }
+  .btn-settings:hover { border-color: var(--sage); color: var(--sage); }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  // ── Firebase Config ──
+  const firebaseConfig = {
+    apiKey: "AIzaSyBQId5uNF19Fh3_Aw4srXrK6XhWACT_Y3w",
+    authDomain: "sprout-budgeting.firebaseapp.com",
+    projectId: "sprout-budgeting",
+    storageBucket: "sprout-budgeting.firebasestorage.app",
+    messagingSenderId: "1030182595600",
+    appId: "1:1030182595600:web:7a113eb2ec1a9dade8ae95"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+  const db = getFirestore(fbApp);
+  const provider = new GoogleAuthProvider();
+
+  // ── Default Categories ──
+  const DEFAULT_PERSONAL_CATEGORIES = [
+    { emoji: "🛍️", label: "Shopping" },
+    { emoji: "🎁", label: "Gifts" },
+    { emoji: "💄", label: "Beauty" },
+    { emoji: "🍕", label: "Dining" },
+    { emoji: "🚗", label: "Gas" },
+  ];
+
+  const EMOJI_OPTIONS = [
+    "🛍️","🎁","💄","🍕","🚗","☕","🍔","🎬","🎮","💊",
+    "🏥","✂️","🐕","🐈","🏠","🔧","📱","💻","📚","🎵",
+    "✈️","🏋️","🧹","👕","👟","🎨","🌮","🍺","🍷","🧃",
+    "🛒","💡","📦","🎲","🪴","🧴","💇","🎂","🎉","⛽",
+    "🚌","🚕","🅿️","💰","🏦","📝","🔑","🧊","🍿","🎧",
+  ];
+
+  // ── State ──
+  let state = {
+    user: null,
+    authLoading: true,
+    activeTab: "personal",
+    groceryBudget: 400,
+    personalBudget: 200,
+    transactions: [],
+    personalCategories: [...DEFAULT_PERSONAL_CATEGORIES],
+    currentMonth: getCurrentMonth(),
+    showCalendar: false,
+    showForm: null, // null | "expense" | "payment"
+    showReset: false,
+    pendingDeleteId: null,
+    showSettings: false,
+    editingBudget: false,
+    selectedCalDay: null,
+    formName: "",
+    formAmount: "",
+    formNote: "",
+    formEmoji: "🛍️",
+    formDate: getToday(),
+    personalCarryover: 0,
+    groceryCarryover: 0,
+    // Emoji picker state for settings
+    emojiPickerForIndex: null, // index of category being edited
+  };
+
+  // ── Helpers ──
+  function getCurrentMonth() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  }
+  function getToday() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function fmtCurrency(n) {
+    return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
+  }
+  function fmtDate(s) {
+    const d = new Date(s+"T12:00:00");
+    return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  }
+  function fmtFullDay(s) {
+    const d = new Date(s+"T12:00:00");
+    return d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+  }
+  function fmtMonthYear() {
+    return new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  }
+  function getDaysLeftInMonth() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = now.getDate();
+    return daysInMonth - today + 1; // includes today
+  }
+  function getMonthPaceProgress() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = now.getDate();
+    return daysInMonth > 0 ? Math.min(Math.max(today / daysInMonth, 0), 1) : 0;
+  }
+  function getProgressColor(actualPct, pacePct) {
+    const tolerance = 0.02;
+    if (actualPct > pacePct + tolerance) return "var(--red)";
+    if (actualPct < pacePct - tolerance) return "var(--sage)";
+    return "var(--amber)";
+  }
+  function compareTxByDateOnly(a, b) {
+    if (a.date < b.date) return -1;
+    if (a.date > b.date) return 1;
+    return 0;
+  }
+  function getCarryover(cat) { return cat === "grocery" ? state.groceryCarryover : state.personalCarryover; }
+  function getCarryoverPreview() {
+    return {
+      personal: Math.max(0, getRemaining("personal")),
+      grocery: Math.max(0, getRemaining("grocery"))
+    };
+  }
+
+  const LOCAL_CACHE_KEY = "sprout-cache-v1";
+  let saveTimer = null;
+
+  function stateSnapshot() {
+    return {
+      groceryBudget: state.groceryBudget,
+      personalBudget: state.personalBudget,
+      groceryCarryover: state.groceryCarryover,
+      personalCarryover: state.personalCarryover,
+      transactions: state.transactions,
+      currentMonth: state.currentMonth,
+      personalCategories: state.personalCategories,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function applyPersistedData(d = {}) {
+    state.groceryBudget = d.groceryBudget ?? 400;
+    state.personalBudget = d.personalBudget ?? 200;
+    state.groceryCarryover = d.groceryCarryover ?? 0;
+    state.personalCarryover = d.personalCarryover ?? 0;
+    state.transactions = Array.isArray(d.transactions) ? d.transactions : [];
+    state.currentMonth = d.currentMonth ?? getCurrentMonth();
+    if (Array.isArray(d.personalCategories) && d.personalCategories.length > 0) {
+      state.personalCategories = d.personalCategories;
+    } else {
+      state.personalCategories = [...DEFAULT_PERSONAL_CATEGORIES];
+    }
+    if (state.currentMonth !== getCurrentMonth()) {
+      state.showReset = true;
+    }
+    state.formEmoji = state.personalCategories[0]?.emoji || "🛍️";
+  }
+
+  function cacheKeyForUser(uid) {
+    return `${LOCAL_CACHE_KEY}:${uid}`;
+  }
+
+  function loadLocalCache(uid) {
+    if (!uid) return null;
+    try {
+      const raw = localStorage.getItem(cacheKeyForUser(uid));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      console.error("Local cache load error:", e);
+      return null;
+    }
+  }
+
+  function saveLocalCache() {
+    if (!state.user) return;
+    try {
+      localStorage.setItem(cacheKeyForUser(state.user.uid), JSON.stringify(stateSnapshot()));
+    } catch (e) {
+      console.error("Local cache save error:", e);
+    }
+  }
+
+  function persistedTimestamp(data) {
+    const t = new Date(data?.updatedAt || 0).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  function scheduleSave() {
+    saveLocalCache();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveData();
+    }, 500);
+  }
+
+  // ── Firebase Persistence ──
+  async function loadData() {
+    if (!state.user) return;
+    const local = loadLocalCache(state.user.uid);
+    if (local) {
+      applyPersistedData(local);
+    }
+
+    try {
+      const ref = doc(db, "budgets", state.user.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        if (local) {
+          await setDoc(ref, stateSnapshot(), { merge: true });
+        }
+        return;
+      }
+
+      const cloud = snap.data() || {};
+      const localTs = persistedTimestamp(local);
+      const cloudTs = persistedTimestamp(cloud);
+
+      if (!local || cloudTs > localTs) {
+        applyPersistedData(cloud);
+        saveLocalCache();
+      } else if (localTs > cloudTs) {
+        await setDoc(ref, stateSnapshot(), { merge: true });
+      }
+    } catch(e) { console.error("Load error:", e); }
+  }
+
+  async function saveData() {
+    if (!state.user) return;
+    try {
+      saveLocalCache();
+      await setDoc(doc(db, "budgets", state.user.uid), stateSnapshot(), { merge: true });
+    } catch(e) { console.error("Save error:", e); }
+  }
+
+  // ── Auth ──
+  onAuthStateChanged(auth, async (user) => {
+    state.user = user;
+    state.authLoading = false;
+    if (user) {
+      await loadData();
+    }
+    render();
+  });
+
+  function handleSignIn() {
+    signInWithPopup(auth, provider).catch(e => console.error("Sign-in error:", e));
+  }
+
+  function handleSignOut() {
+    signOut(auth);
+    state.transactions = [];
+    state.activeTab = "personal";
+  }
+
+  // ── Actions ──
+  function getTx(cat) { return state.transactions.filter(t => t.type === cat).sort(compareTxByDateOnly); }
+  function netSpent(cat) { return getTx(cat).reduce((s,t) => s + (t.isRefund ? -t.amount : t.amount), 0); }
+  function getBaseBudget(cat) { return cat === "grocery" ? state.groceryBudget : state.personalBudget; }
+  function getBudget(cat) { return getBaseBudget(cat) + getCarryover(cat); }
+  function getRemaining(cat) { return getBudget(cat) - netSpent(cat); }
+
+  function getRecent(cat) {
+    const seen = new Set();
+      return getTx(cat).filter(t=>!t.isRefund).reverse().filter(t => {
+      if (seen.has(t.name)) return false;
+      seen.add(t.name); return true;
+    }).slice(0,5);
+  }
+
+  function addTransaction(isRefund) {
+    const amt = parseFloat(state.formAmount);
+    if (!state.formName || isNaN(amt) || amt <= 0) return;
+    state.transactions.push({
+      id: Date.now().toString(),
+      name: state.formName,
+      amount: amt,
+      note: state.formNote,
+      emoji: isRefund ? "💸" : (state.activeTab === "grocery" ? "🛒" : state.formEmoji),
+      date: state.formDate,
+      type: state.activeTab,
+      isRefund,
+    });
+    state.formName = ""; state.formAmount = ""; state.formNote = "";
+    state.formEmoji = state.personalCategories[0]?.emoji || "🛍️";
+    state.formDate = getToday(); state.showForm = null;
+    scheduleSave(); render();
+  }
+
+  function deleteTransaction(id) {
+    state.transactions = state.transactions.filter(t => t.id !== id);
+    state.pendingDeleteId = null;
+    scheduleSave(); render();
+  }
+
+  function resetMonth(carryOverRemainders = false) {
+    const carry = carryOverRemainders ? getCarryoverPreview() : { personal: 0, grocery: 0 };
+    state.personalCarryover = carry.personal;
+    state.groceryCarryover = carry.grocery;
+    state.transactions = [];
+    state.currentMonth = getCurrentMonth();
+    state.showReset = false;
+    state.selectedCalDay = null;
+    scheduleSave(); render();
+  }
+
+  // ── Render ──
+  function render() {
+    const app = document.getElementById("app");
+
+    if (state.authLoading) {
+      app.innerHTML = `<div class="login-screen"><div class="login-loading">Loading...</div></div>`;
+      return;
+    }
+
+    if (!state.user) {
+      app.innerHTML = `
+        <div class="login-screen">
+          <div class="login-sprout">🌱</div>
+          <div class="login-title">Sprout</div>
+          <div class="login-sub">Budget beautifully.</div>
+          <button class="btn-google" id="signInBtn">
+            <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            Sign in with Google
+          </button>
+        </div>`;
+      document.getElementById("signInBtn").onclick = handleSignIn;
+      return;
+    }
+
+    const cat = state.activeTab;
+    const txs = getTx(cat);
+    const spent = netSpent(cat);
+    const budget = getBudget(cat);
+    const remaining = getRemaining(cat);
+    const pct = budget > 0 ? Math.min(Math.max(spent,0) / budget, 1) : 0;
+    const pacePct = getMonthPaceProgress();
+    const barColor = getProgressColor(pct, pacePct);
+
+    const title = cat === "grocery" ? "Groceries" : "Personal Expenses";
+
+    // Daily allowance calculation
+    const daysLeft = getDaysLeftInMonth();
+    const dailyAllowance = remaining / daysLeft;
+
+    // Build HTML
+    let html = "";
+
+    // Reset modal
+    if (state.showReset) {
+      const carryPreview = getCarryoverPreview();
+      html += `<div class="modal-overlay">
+        <div class="modal">
+          <div class="modal-icon">🌱</div>
+          <div class="modal-title">New month, fresh start?</div>
+          <div class="modal-text">This will clear all transactions for the current period. Your budget amounts stay the same.</div>
+          <div class="modal-text">Carry over available: Personal ${fmtCurrency(carryPreview.personal)} · Grocery ${fmtCurrency(carryPreview.grocery)}</div>
+          <div class="modal-actions">
+            <button class="modal-btn keep" id="resetKeep">Keep</button>
+            <button class="modal-btn keep" id="resetFresh">Reset Fresh</button>
+            <button class="modal-btn reset" id="resetCarry">Carry Over</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    if (state.pendingDeleteId) {
+      const tx = state.transactions.find(t => t.id === state.pendingDeleteId);
+      html += `<div class="modal-overlay">
+        <div class="modal">
+          <div class="modal-icon">🗑️</div>
+          <div class="modal-title">Remove transaction?</div>
+          <div class="modal-text">${tx ? `${tx.name} on ${fmtDate(tx.date)} will be removed.` : "This transaction will be removed."}</div>
+          <div class="modal-actions">
+            <button class="modal-btn keep" id="deleteCancel">Cancel</button>
+            <button class="modal-btn reset" id="deleteConfirm">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // Settings modal
+    if (state.showSettings) {
+      html += renderSettingsModal();
+    }
+
+    // Emoji picker overlay (for changing a category emoji)
+    if (state.emojiPickerForIndex !== null) {
+      html += renderEmojiPicker();
+    }
+
+    // Header
+    html += `<div class="header">
+      <div class="user-bar">
+        <div class="user-info">
+          <img class="user-avatar" src="${state.user.photoURL || ''}" alt="" onerror="this.style.display='none'">
+          <span class="user-name">${state.user.displayName || 'You'}</span>
+        </div>
+        <button class="btn-signout" id="signOutBtn">Sign out</button>
+      </div>
+      <div class="header-row">
+        <h1>${title}</h1>
+        <div style="display:flex;align-items:center;">
+          <button class="btn-reset" id="resetBtn">🌱 Reset</button>
+          <button class="btn-settings" id="settingsBtn">⚙️</button>
+        </div>
+      </div>
+      <div class="header-date">${fmtMonthYear()}</div>
+    </div>`;
+
+    // Content
+    html += `<div class="content"><div>`;
+
+    // Summary card
+    const carryover = getCarryover(cat);
+    html += `<div class="summary-card">
+      <div class="summary-top">`;
+
+    if (state.editingBudget) {
+      html += `<div class="budget-edit">
+        <span style="font-size:16px;color:var(--text2);font-family:var(--font-mono)">$</span>
+        <input class="budget-edit-input" type="number" step="0.01" id="budgetInput" value="${budget}">
+        <button class="budget-edit-save" id="budgetSave">Set</button>
+        <button class="budget-edit-cancel" id="budgetCancel">×</button>
+      </div>`;
+    } else {
+      html += `<button class="budget-setter" id="budgetEdit">Budget: ${fmtCurrency(budget)} <span class="edit-icon">✎</span></button>`;
+    }
+
+    html += `</div>`;
+    if (carryover > 0) {
+      html += `<div class="carryover-note">Includes ${fmtCurrency(carryover)} carried over from last month</div>`;
+    }
+    html += `
+      <div class="bar-labels">
+        <span>${fmtCurrency(Math.max(spent,0))} spent</span>
+        <span class="bar-remaining ${remaining < 0 ? 'negative' : 'positive'}">
+          ${remaining < 0 ? "Over by " + fmtCurrency(Math.abs(remaining)) : fmtCurrency(remaining) + " left"}
+        </span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-pace" style="width:${pacePct*100}%;"></div>
+        <div class="bar-fill" style="width:${pct*100}%;background:${barColor}"></div>
+      </div>
+      <div class="remaining-display">
+        <div class="remaining-amount ${remaining < 0 ? 'negative' : ''}">${fmtCurrency(remaining)}</div>
+        <div class="remaining-label">remaining</div>
+      </div>
+      <div class="daily-allowance">
+        <div class="daily-amount ${dailyAllowance < 0 ? 'negative' : ''}">${fmtCurrency(Math.abs(dailyAllowance))}/day</div>
+        <div class="daily-label">${dailyAllowance < 0 ? 'over budget' : `for the next ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}</div>
+      </div>
+    </div>`;
+
+    // Calendar toggle
+    html += `<button class="calendar-toggle ${state.showCalendar ? 'active' : ''}" id="calToggle">
+      📅 ${state.showCalendar ? "Hide calendar" : "View calendar"}
+    </button>`;
+
+    // Calendar
+    if (state.showCalendar) {
+      html += renderCalendar(cat);
+    }
+
+    // Quick add + buttons
+    if (!state.showForm) {
+      const recent = getRecent(cat);
+      if (recent.length) {
+        html += `<div class="quick-add-label">Quick add</div><div class="quick-chips">`;
+        recent.forEach(r => {
+          html += `<button class="quick-chip" data-quickname="${r.name}" data-quickemoji="${r.emoji}">${r.emoji} ${r.name}</button>`;
+        });
+        html += `</div>`;
+      }
+      html += `<div class="add-buttons">
+        <button class="btn-add" id="addExpense">+ Add expense</button>
+        <button class="btn-add payment" id="addPayment">+ Add payment</button>
+      </div>`;
+    }
+
+    // Add form
+    if (state.showForm === "expense") {
+      html += renderAddForm(false, cat);
+    } else if (state.showForm === "payment") {
+      html += renderAddForm(true, cat);
+    }
+
+    // Transaction list
+    html += `<div class="tx-header">Transactions</div>`;
+    if (txs.length === 0) {
+      html += `<div class="tx-empty">No transactions yet — you're doing great! 🌿</div>`;
+    } else {
+      const reversed = [...txs].reverse();
+      reversed.forEach(t => {
+        html += `<div class="tx-row">
+          <span class="tx-emoji">${t.isRefund ? "💸" : t.emoji}</span>
+          <div class="tx-body">
+            <div class="tx-top">
+              <span class="tx-name">${t.name}</span>
+              <span class="tx-amount ${t.isRefund ? 'payment' : ''}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
+            </div>
+            <div class="tx-bottom">
+              <span class="tx-meta">${fmtDate(t.date)}${t.isRefund ? ' <span class="payment-tag">· payment</span>' : ''}${t.note ? " · " + t.note : ""}</span>
+              <button class="tx-remove" data-txid="${t.id}">remove</button>
+            </div>
+          </div>
+        </div>`;
+      });
+    }
+
+    html += `</div></div>`; // close content
+
+    // Tab bar
+    html += `<div class="tab-bar">
+      <button class="tab-btn ${cat === 'personal' ? 'active' : ''}" data-tab="personal">
+        <span class="tab-icon">🛍️</span><span class="tab-label">Personal</span>
+      </button>
+      <button class="tab-btn ${cat === 'grocery' ? 'active' : ''}" data-tab="grocery">
+        <span class="tab-icon">🛒</span><span class="tab-label">Grocery</span>
+      </button>
+    </div>`;
+
+    app.innerHTML = html;
+    bindEvents();
+  }
+
+  function renderAddForm(isPayment, cat) {
+    let h = `<div class="add-form ${isPayment ? 'payment' : ''}">
+      <div class="form-header">${isPayment ? "💸 Add payment" : "Add expense"}</div>`;
+
+    // Emoji picker only for personal expenses (not payments, not grocery)
+    if (!isPayment && cat === "personal") {
+      h += `<div class="emoji-picker">`;
+      state.personalCategories.forEach(c => {
+        h += `<button class="emoji-btn ${state.formEmoji === c.emoji ? 'selected' : ''}" data-emoji="${c.emoji}">
+          <span>${c.emoji}</span><span>${c.label}</span>
+        </button>`;
+      });
+      h += `</div>`;
+    }
+
+    h += `<div class="form-row">
+      <input class="form-input" placeholder="${isPayment ? 'What was returned?' : 'What was it?'}" id="formName" value="${state.formName}">
+      <input class="form-input mono" placeholder="$0.00" type="number" step="0.01" id="formAmount" value="${state.formAmount}">
+    </div>
+    <div class="form-row">
+      <input class="form-input small" placeholder="Note (optional)" id="formNote" value="${state.formNote}">
+      <input class="form-input date" type="date" id="formDate" value="${state.formDate}">
+    </div>
+    <div class="form-actions">
+      <button class="btn-submit" id="formSubmit">${isPayment ? "Add Payment" : "Add Expense"}</button>
+      <button class="btn-cancel" id="formCancel">Cancel</button>
+    </div></div>`;
+    return h;
+  }
+
+  function renderSettingsModal() {
+    let h = `<div class="modal-overlay" id="settingsOverlay">
+      <div class="settings-modal">
+        <div class="settings-header">
+          <div class="settings-title">⚙️ Categories</div>
+          <button class="settings-close" id="settingsClose">×</button>
+        </div>
+        <div class="settings-section-label">Personal expense categories</div>
+        <div class="cat-list">`;
+
+    state.personalCategories.forEach((cat, i) => {
+      h += `<div class="cat-row">
+        <button class="cat-emoji-btn" data-catidx="${i}">${cat.emoji}</button>
+        <input class="cat-name-input" data-catnameidx="${i}" value="${cat.label}" placeholder="Category name">
+        ${state.personalCategories.length > 1 ? `<button class="cat-remove-btn" data-catremoveidx="${i}">×</button>` : ''}
+      </div>`;
+    });
+
+    h += `</div>`;
+
+    if (state.personalCategories.length < 10) {
+      h += `<button class="cat-add-btn" id="catAddBtn">+ Add category</button>`;
+    }
+
+    h += `</div></div>`;
+    return h;
+  }
+
+  function renderEmojiPicker() {
+    let h = `<div class="emoji-grid-overlay" id="emojiGridOverlay">
+      <div class="emoji-grid-modal">
+        <div class="emoji-grid-title">Pick an emoji</div>
+        <div class="emoji-grid">`;
+    EMOJI_OPTIONS.forEach(em => {
+      h += `<button data-pickemoji="${em}">${em}</button>`;
+    });
+    h += `</div></div></div>`;
+    return h;
+  }
+
+  function renderCalendar(cat) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const mon = now.getMonth();
+    const daysInMonth = new Date(year, mon+1, 0).getDate();
+    const firstDow = new Date(year, mon, 1).getDay();
+    const today = getToday();
+    const monthName = new Date(year, mon).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+
+    const txByDay = {};
+    getTx(cat).forEach(t => {
+      if (!txByDay[t.date]) txByDay[t.date] = [];
+      txByDay[t.date].push(t);
+    });
+
+    let h = `<div class="calendar-card"><div class="cal-month">${monthName}</div><div class="cal-grid">`;
+    ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d => {
+      h += `<div class="cal-day-label">${d}</div>`;
+    });
+    for (let i = 0; i < firstDow; i++) h += `<div></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = `${year}-${String(mon+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const items = txByDay[ds] || [];
+      const hasItems = items.length > 0;
+      const net = items.reduce((s,e) => s + (e.isRefund ? -e.amount : e.amount), 0);
+      const isToday = ds === today;
+      const isSel = ds === state.selectedCalDay;
+      let cls = "cal-day";
+      if (hasItems) cls += " has-items";
+      if (isToday) cls += " today";
+      if (isSel) cls += " selected";
+      h += `<button class="${cls}" data-calday="${ds}">
+        <span class="cal-num">${d}</span>
+        ${hasItems ? `<span class="cal-amount ${net < 0 ? 'refund' : ''}">${net < 0 ? "+$" : "$"}${Math.abs(net).toFixed(0)}</span>` : ""}
+      </button>`;
+    }
+    h += `</div>`;
+
+    // Selected day detail
+    if (state.selectedCalDay) {
+      const items = txByDay[state.selectedCalDay] || [];
+      h += `<div class="cal-detail">
+        <div class="cal-detail-date">${fmtFullDay(state.selectedCalDay)}</div>`;
+      if (items.length === 0) {
+        h += `<div style="font-size:13px;color:var(--text4);font-style:italic">No transactions this day</div>`;
+      } else {
+        items.forEach(t => {
+          h += `<div class="cal-detail-row">
+            <span style="color:var(--text1)">${t.isRefund ? "💸" : t.emoji} ${t.name}${t.isRefund ? '<span style="color:var(--green);font-weight:500"> (payment)</span>' : ""}${t.note ? '<span style="color:var(--text3)"> · '+t.note+'</span>' : ""}</span>
+            <span style="font-family:var(--font-mono);font-weight:500;color:${t.isRefund ? 'var(--green)' : '#5a6e58'}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
+          </div>`;
+        });
+        const netTotal = items.reduce((s,e) => s + (e.isRefund ? -e.amount : e.amount), 0);
+        h += `<div class="cal-detail-net">Net: ${fmtCurrency(netTotal)}</div>`;
+      }
+      h += `</div>`;
+    }
+    h += `</div>`;
+    return h;
+  }
+
+  // ── Event Binding ──
+  function bindEvents() {
+    // Sign out
+    document.getElementById("signOutBtn")?.addEventListener("click", handleSignOut);
+
+    // Reset
+    document.getElementById("resetBtn")?.addEventListener("click", () => { state.showReset = true; render(); });
+    document.getElementById("resetKeep")?.addEventListener("click", () => { state.showReset = false; state.currentMonth = getCurrentMonth(); scheduleSave(); render(); });
+    document.getElementById("resetFresh")?.addEventListener("click", () => resetMonth(false));
+    document.getElementById("resetCarry")?.addEventListener("click", () => resetMonth(true));
+    document.getElementById("deleteCancel")?.addEventListener("click", () => { state.pendingDeleteId = null; render(); });
+    document.getElementById("deleteConfirm")?.addEventListener("click", () => {
+      if (state.pendingDeleteId) deleteTransaction(state.pendingDeleteId);
+    });
+
+    // Settings
+    document.getElementById("settingsBtn")?.addEventListener("click", () => { state.showSettings = true; render(); });
+    document.getElementById("settingsClose")?.addEventListener("click", () => { state.showSettings = false; scheduleSave(); render(); });
+    document.getElementById("settingsOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "settingsOverlay") { state.showSettings = false; scheduleSave(); render(); }
+    });
+
+    // Category emoji change (open emoji picker)
+    document.querySelectorAll("[data-catidx]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.emojiPickerForIndex = parseInt(btn.dataset.catidx);
+        render();
+      });
+    });
+
+    // Category name change
+    document.querySelectorAll("[data-catnameidx]").forEach(inp => {
+      inp.addEventListener("change", () => {
+        const idx = parseInt(inp.dataset.catnameidx);
+        if (inp.value.trim()) {
+          state.personalCategories[idx].label = inp.value.trim();
+          // Don't re-render, just save on close
+        }
+      });
+    });
+
+    // Category remove
+    document.querySelectorAll("[data-catremoveidx]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.catremoveidx);
+        state.personalCategories.splice(idx, 1);
+        render();
+      });
+    });
+
+    // Category add
+    document.getElementById("catAddBtn")?.addEventListener("click", () => {
+      // Pick a random emoji not already used
+      const used = new Set(state.personalCategories.map(c => c.emoji));
+      const available = EMOJI_OPTIONS.filter(e => !used.has(e));
+      const emoji = available.length > 0 ? available[0] : "📌";
+      state.personalCategories.push({ emoji, label: "New" });
+      render();
+    });
+
+    // Emoji grid picker
+    document.querySelectorAll("[data-pickemoji]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (state.emojiPickerForIndex !== null && state.personalCategories[state.emojiPickerForIndex]) {
+          state.personalCategories[state.emojiPickerForIndex].emoji = btn.dataset.pickemoji;
+          state.emojiPickerForIndex = null;
+          render();
+        }
+      });
+    });
+    document.getElementById("emojiGridOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "emojiGridOverlay") { state.emojiPickerForIndex = null; render(); }
+    });
+
+    // Tabs
+    document.querySelectorAll("[data-tab]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.activeTab = btn.dataset.tab;
+        state.showCalendar = false; state.showForm = null;
+        state.selectedCalDay = null; state.editingBudget = false;
+        state.formEmoji = state.activeTab === "personal" ? (state.personalCategories[0]?.emoji || "🛍️") : "🛒";
+        render();
+      });
+    });
+
+    // Budget setter
+    document.getElementById("budgetEdit")?.addEventListener("click", () => { state.editingBudget = true; render(); });
+    document.getElementById("budgetSave")?.addEventListener("click", () => {
+      const v = parseFloat(document.getElementById("budgetInput").value);
+      if (!isNaN(v) && v >= 0) {
+        const adjustedBase = Math.max(0, v - getCarryover(state.activeTab));
+        if (state.activeTab === "grocery") state.groceryBudget = adjustedBase;
+        else state.personalBudget = adjustedBase;
+        state.editingBudget = false;
+        scheduleSave(); render();
+      }
+    });
+    document.getElementById("budgetCancel")?.addEventListener("click", () => { state.editingBudget = false; render(); });
+    document.getElementById("budgetInput")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("budgetSave")?.click();
+    });
+
+    // Calendar
+    document.getElementById("calToggle")?.addEventListener("click", () => {
+      state.showCalendar = !state.showCalendar; state.selectedCalDay = null; render();
+    });
+    document.querySelectorAll("[data-calday]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.selectedCalDay = state.selectedCalDay === btn.dataset.calday ? null : btn.dataset.calday;
+        render();
+      });
+    });
+
+    // Quick add
+    document.querySelectorAll("[data-quickname]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.formName = btn.dataset.quickname;
+        state.formEmoji = btn.dataset.quickemoji;
+        state.showForm = "expense";
+        render();
+        document.getElementById("formAmount")?.focus();
+      });
+    });
+
+    // Add buttons
+    document.getElementById("addExpense")?.addEventListener("click", () => { state.showForm = "expense"; render(); });
+    document.getElementById("addPayment")?.addEventListener("click", () => { state.showForm = "payment"; render(); });
+
+    // Emoji picker
+    document.querySelectorAll("[data-emoji]").forEach(btn => {
+      btn.addEventListener("click", () => { state.formEmoji = btn.dataset.emoji; render(); });
+    });
+
+    // Form inputs (sync to state)
+    document.getElementById("formName")?.addEventListener("input", (e) => { state.formName = e.target.value; });
+    document.getElementById("formAmount")?.addEventListener("input", (e) => { state.formAmount = e.target.value; });
+    document.getElementById("formNote")?.addEventListener("input", (e) => { state.formNote = e.target.value; });
+    document.getElementById("formDate")?.addEventListener("input", (e) => { state.formDate = e.target.value; });
+
+    // Form submit / cancel
+    document.getElementById("formSubmit")?.addEventListener("click", () => {
+      addTransaction(state.showForm === "payment");
+    });
+    document.getElementById("formCancel")?.addEventListener("click", () => {
+      state.showForm = null; state.formName = ""; state.formAmount = ""; state.formNote = "";
+      state.formDate = getToday(); render();
+    });
+
+    // Delete transaction
+    document.querySelectorAll("[data-txid]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.pendingDeleteId = btn.dataset.txid;
+        render();
+      });
+    });
+  }
+
+  // Initial render
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "Sprout",
+  "short_name": "Sprout",
+  "description": "Budget beautifully.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fdfbf8",
+  "theme_color": "#8fae8b",
+  "icons": [
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
