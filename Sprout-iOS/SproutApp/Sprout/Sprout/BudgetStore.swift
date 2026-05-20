@@ -174,7 +174,7 @@ final class BudgetStore: ObservableObject {
 
     func makeDraft(for tab: BudgetTab, mode _: TransactionMode, seed: TransactionEntry? = nil) -> TransactionDraft {
         let entryDate = Date()
-        TransactionDraft(
+        return TransactionDraft(
             name: seed?.name ?? "",
             amountText: "",
             note: "",
