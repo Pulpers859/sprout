@@ -1,12 +1,5 @@
 #!/bin/sh
 
-branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-
-if [ "$branch" = "main" ]; then
-  echo "Direct commits to main are blocked. Switch to dev or another working branch."
-  exit 1
-fi
-
 secret_patterns='AIza[0-9A-Za-z_-]{35}|ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{20,}|sk-[0-9A-Za-z_-]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
 found_secret=0
@@ -14,12 +7,6 @@ found_secret=0
 if [ -n "$staged_files" ]; then
   while IFS= read -r path; do
     [ -z "$path" ] && continue
-
-    # Firebase web config is public client config for this deployed app. Keep
-    # blocking all other secret-like values in staged files.
-    if [ "$path" = "Sprout-html/sprout-firebase-config.js" ]; then
-      continue
-    fi
 
     if git grep --cached -nI -E "$secret_patterns" -- "$path" >/tmp/sprout-secret-scan.txt 2>/dev/null; then
       echo "Potential secret detected in staged file: $path"

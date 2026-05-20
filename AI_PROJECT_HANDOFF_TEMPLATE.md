@@ -46,11 +46,13 @@ Each project should have:
 - If a placeholder GitHub repo exists, replace it carefully with the real project history.
 
 ### 4. Branching Standard
-- `main` = stable branch
-- `dev` = default working branch
-- normal day-to-day work happens on `dev`
-- direct commits to `main` should be blocked locally with a pre-commit hook
-- if server-side protection is added later, protect `main` on GitHub too
+- The branch strategy must be explicit per repo.
+- If a repo benefits from two branches, use:
+  - `main` = stable branch
+  - `dev` = default working branch
+- If a repo does not benefit from that split, use `main` as both the stable and default working branch.
+- Do not keep a second branch around just out of habit if it is creating drift or confusion.
+- Only block direct commits to `main` when the repo actually uses a separate working branch.
 
 ### 5. PowerShell / Terminal Standard
 - Do not globally force every PowerShell session into one repo using the profile.
@@ -80,6 +82,8 @@ If a project currently lives in OneDrive/Desktop:
 
 The AI agent should operate like this by default:
 - the user describes the issue in chat
+- the agent starts by fetching from Git so it is not working from stale repo state
+- if the repo is clean and on the intended branch, the agent pulls with `git pull --ff-only` before editing
 - the agent investigates the code directly
 - the agent makes root-cause fixes, not surface patches
 - the agent audits adjacent risks after the fix
@@ -96,6 +100,7 @@ The AI agent should operate like this by default:
 - preserve product quality over merely satisfying rigid validation
 - do not silently accept poor architecture if it is now causing risk
 - do not assume the repo path or branch without checking
+- do not begin feature work from stale Git state when a simple fetch or fast-forward pull would update the repo safely
 
 ### Before Doing Work
 The agent should first confirm:
@@ -103,8 +108,10 @@ The agent should first confirm:
 2. current branch
 3. repo cleanliness/status
 4. GitHub remote
-5. whether a stale OneDrive/Desktop copy exists
-6. whether the active repo is the true source of truth
+5. whether a fresh `git fetch` has been done
+6. whether a fast-forward `git pull --ff-only` should happen before editing
+7. whether a stale OneDrive/Desktop copy exists
+8. whether the active repo is the true source of truth
 
 ---
 
@@ -157,10 +164,12 @@ Important:
 - Treat the active repo path above as the source of truth.
 - Do not assume a Desktop or OneDrive copy is the real working repo.
 - Inspect the current repo state before making assumptions.
+- Fetch from origin before starting substantive work.
+- If the repo is clean and on the intended branch, pull with `git pull --ff-only` before editing.
 - Use direct code edits and root-cause fixes.
 - Handle Git operations for me when appropriate.
-- Keep normal work on `dev`, not `main`.
-- Do not commit directly to `main` unless explicitly instructed.
+- Keep normal work on the repo's actual default working branch instead of assuming every project uses `dev`.
+- Do not commit directly to `main` when the repo uses a separate working branch.
 - Preserve repo-local Git config, line-ending rules, hooks, and shortcuts.
 - If duplicate or nested repos exist, resolve that carefully before continuing.
 - Prefer dedicated PowerShell shortcuts per project instead of globally pinning PowerShell to one repo.
@@ -186,7 +195,7 @@ Use this as the filled reference example for the `Transform` app.
 - Stable branch:
   - `main`
 - Working branch:
-  - `dev`
+  - `dev` for this example, but some repos may intentionally use `main`
 - Dedicated shortcut:
   - `Transform PowerShell`
 - Shortcut should open in:
@@ -210,6 +219,7 @@ Working branch: dev
 Important:
 - `C:\Dev\Transform` is the source of truth.
 - Do not use `C:\Users\Patrick's Computer\OneDrive - WV School of Osteopathic Medicine\Desktop\Transform` as the active repo unless explicitly asked to inspect the stale copy.
+- Start sessions by fetching from origin, and pull with `git pull --ff-only` before editing when the working tree is clean and the branch is correct.
 - A dedicated shortcut named `Transform PowerShell` should open the repo at `C:\Dev\Transform`.
 - The PowerShell profile should stay normal; do not globally pin every shell to this project again.
 - Repo-local Git setup should remain in place:
@@ -224,7 +234,7 @@ Default behavior:
 - Audit adjacent risks
 - Run local checks where possible
 - Handle Git operations when appropriate
-- Keep work on `dev` by default
+- Keep work on the repo's actual default working branch
 ```
 
 ---
@@ -238,7 +248,8 @@ When onboarding a new app, follow this sequence:
 5. create `dev`
 6. add main-blocking local hook
 7. create dedicated PowerShell shortcut
-8. confirm the active working branch is `dev`
+8. confirm the active working branch matches the repo's intended default workflow
 9. document the app-specific handoff state
+10. in normal future sessions, fetch first and pull with `git pull --ff-only` before editing when safe
 
 This should be the default pattern for all future local app projects unless there is a strong reason to deviate.

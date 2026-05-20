@@ -18,7 +18,8 @@ The iOS app is the higher-value product surface. The web app still matters becau
 Practical constraints in this workspace:
 
 - The source-of-truth repo is `C:\Dev\Sprout`; the older OneDrive/Desktop copy should be treated as stale unless explicitly needed.
-- `Sprout-iOS/` is source-only here, not a full Xcode project/workspace.
+- The buildable iOS project now lives at `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`.
+- Normal Git work for this repo happens on `main`; do not create or preserve a redundant `dev` branch unless explicitly asked.
 
 ## Real Failure Modes
 
@@ -44,6 +45,10 @@ Optimize work around these risks first:
 - Never auto-commit, auto-push, auto-deploy, or add silent mutating hooks.
 - Do not introduce broad background automation.
 - Do not assume the current folder is the source of truth without checking; normal work should happen in `C:\Dev\Sprout`.
+- Start each new task by fetching from Git so repo assumptions are current.
+- If the working tree is clean and the correct working branch is checked out, pull with `git pull --ff-only` before editing.
+- If the repo is dirty or on the wrong branch, fetch first and inspect rather than pulling blindly.
+- Treat `main` as the default working branch for this repo.
 - Do not assume local Xcode/simulator validation is available from this Windows workspace.
 - If working on Swift from Windows, do not claim to have validated SwiftUI runtime behavior or Xcode-only behavior unless that validation actually happened on macOS/Xcode.
 - When a change touches shared product behavior, compare the iOS logic against the web prototype before declaring the work done.
