@@ -13,6 +13,7 @@ Thumbs.db
 *.local.*
 !*.local.example
 *Secrets*.xcconfig
+Sprout-html/sprout-firebase-config.js
 Sprout-html/sprout-firebase-config.local.js
 
 # Swift / Xcode build outputs
