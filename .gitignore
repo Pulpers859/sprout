@@ -5,6 +5,16 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+!*.local.example
+*Secrets*.xcconfig
+Sprout-html/sprout-firebase-config.local.js
+
 # Swift / Xcode build outputs
 .build/
 DerivedData/
@@ -24,4 +34,3 @@ DerivedData/
 *.log
 *.tmp
 *.temp
-

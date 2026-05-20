@@ -392,20 +392,27 @@
 
 <div id="app"></div>
 
+<script src="./sprout-firebase-config.local.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ── Firebase Config ──
-  const firebaseConfig = {
-    apiKey: "AIzaSyBQId5uNF19Fh3_Aw4srXrK6XhWACT_Y3w",
-    authDomain: "sprout-budgeting.firebaseapp.com",
-    projectId: "sprout-budgeting",
-    storageBucket: "sprout-budgeting.firebasestorage.app",
-    messagingSenderId: "1030182595600",
-    appId: "1:1030182595600:web:7a113eb2ec1a9dade8ae95"
-  };
+  const firebaseConfig = window.SPROUT_FIREBASE;
+
+  if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("REPLACE_WITH_")) {
+    document.getElementById("app").innerHTML = `
+      <main style="max-width: 720px; margin: 48px auto; padding: 24px; font-family: Georgia, serif; color: #3f3a34;">
+        <h1 style="margin-bottom: 12px;">Sprout needs a local Firebase config</h1>
+        <p style="font: 16px/1.5 system-ui, sans-serif; color: #6f675f;">
+          Copy <code>sprout-firebase-config.example.js</code> to <code>sprout-firebase-config.local.js</code>
+          and fill in your Firebase web app settings before loading the web prototype.
+        </p>
+      </main>
+    `;
+    throw new Error("Missing local Firebase config. Expected Sprout-html/sprout-firebase-config.local.js.");
+  }
 
   const fbApp = initializeApp(firebaseConfig);
   const auth = getAuth(fbApp);
