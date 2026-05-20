@@ -21,118 +21,123 @@ struct QuickCaptureSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                header
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
 
-                if mode == .expense && tab == .personal {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Category")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.sproutTextMuted)
-                            .textCase(.uppercase)
+                    if mode == .expense && tab == .personal {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Category")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.sproutTextMuted)
+                                .textCase(.uppercase)
 
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(store.categories(for: tab)) { category in
-                                    Button {
-                                        draft.selectedEmoji = category.emoji
-                                    } label: {
-                                        Text("\(category.emoji) \(category.label)")
-                                            .font(.subheadline.weight(.medium))
-                                            .foregroundStyle(draft.selectedEmoji == category.emoji ? Color.white : Color.sproutText)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .background(
-                                                Capsule()
-                                                    .fill(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutCard)
-                                            )
-                                            .overlay(
-                                                Capsule()
-                                                    .stroke(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutBorder, lineWidth: 1)
-                                            )
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(store.categories(for: tab)) { category in
+                                        Button {
+                                            draft.selectedEmoji = category.emoji
+                                        } label: {
+                                            Text("\(category.emoji) \(category.label)")
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(draft.selectedEmoji == category.emoji ? Color.white : Color.sproutText)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 8)
+                                                .background(
+                                                    Capsule()
+                                                        .fill(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutCard)
+                                                )
+                                                .overlay(
+                                                    Capsule()
+                                                        .stroke(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutBorder, lineWidth: 1)
+                                                )
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
                                 }
                             }
                         }
                     }
-                }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("$")
-                            .font(.system(size: 24, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.sproutTextSecondary)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("$")
+                                .font(.system(size: 24, weight: .medium, design: .rounded))
+                                .foregroundStyle(Color.sproutTextSecondary)
 
-                        TextField("0.00", text: $draft.amountText)
-                            .keyboardType(.decimalPad)
-                            .font(.system(size: 40, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.sproutText)
-                            .focused($focusedField, equals: .amount)
+                            TextField("0.00", text: $draft.amountText)
+                                .keyboardType(.decimalPad)
+                                .font(.system(size: 40, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color.sproutText)
+                                .focused($focusedField, equals: .amount)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Color.sproutCard)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.sproutBorder, lineWidth: 1)
+                        )
+
+                        TextField(mode.prompt, text: $draft.name)
+                            .textInputAutocapitalization(.words)
+                            .focused($focusedField, equals: .name)
+                            .font(.headline)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.sproutCard)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.sproutBorder, lineWidth: 1)
+                            )
+
+                        TextField("Note (optional)", text: $draft.note)
+                            .focused($focusedField, equals: .note)
+                            .font(.subheadline)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.sproutCard)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.sproutBorder, lineWidth: 1)
+                            )
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.sproutCard)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.sproutBorder, lineWidth: 1)
-                    )
 
-                    TextField(mode.prompt, text: $draft.name)
-                        .textInputAutocapitalization(.words)
-                        .focused($focusedField, equals: .name)
-                        .font(.headline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.sproutCard)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.sproutBorder, lineWidth: 1)
-                        )
+                    HStack(spacing: 12) {
+                        Label(tab.shortTitle, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.sproutTextSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(Capsule().fill(Color.sproutCard))
+                            .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
 
-                    TextField("Note (optional)", text: $draft.note)
-                        .focused($focusedField, equals: .note)
-                        .font(.subheadline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.sproutCard)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.sproutBorder, lineWidth: 1)
-                        )
+                        Spacer()
+
+                        DatePicker("", selection: $draft.date, displayedComponents: .date)
+                            .labelsHidden()
+                            .datePickerStyle(.compact)
+                    }
+
+                    if let validationMessage {
+                        Text(validationMessage)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(Color.sproutRed)
+                    }
                 }
-
-                HStack(spacing: 12) {
-                    Label(tab.shortTitle, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.sproutTextSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Capsule().fill(Color.sproutCard))
-                        .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
-
-                    Spacer()
-
-                    DatePicker("", selection: $draft.date, displayedComponents: .date)
-                        .labelsHidden()
-                        .datePickerStyle(.compact)
-                }
-
-                if let validationMessage {
-                    Text(validationMessage)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(Color.sproutRed)
-                }
-
+                .padding(20)
+                .padding(.bottom, 12)
+            }
+            .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 10) {
                     Button("Cancel") {
                         dismiss()
@@ -165,17 +170,19 @@ struct QuickCaptureSheet: View {
                         .background(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 .fill(mode == .payment ? Color.sageDark : Color.sage)
-                        )
+                        }
                     }
                     .buttonStyle(.plain)
                 }
-
-                Spacer(minLength: 0)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .background(.ultraThinMaterial)
             }
-            .padding(20)
             .background(Color.sproutBackground.ignoresSafeArea())
             .navigationBarBackButtonHidden()
-            .presentationDetents([.fraction(0.56), .medium])
+            .scrollDismissesKeyboard(.interactively)
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
             .onAppear {

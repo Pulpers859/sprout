@@ -9,6 +9,7 @@ struct BudgetDashboardView: View {
     let onOpenTransaction: (TransactionMode, TransactionEntry?) -> Void
 
     @State private var isShowingCalendar = false
+    @State private var pendingDeleteRecurringRule: RecurringTransactionRule?
 
     var body: some View {
         ScrollView {
@@ -85,6 +86,8 @@ struct BudgetDashboardView: View {
                 }
                 .buttonStyle(.plain)
 
+                recurringSection
+
                 transactionsSection
             }
             .padding(.horizontal, 20)
@@ -92,6 +95,18 @@ struct BudgetDashboardView: View {
             .padding(.bottom, 100)
         }
         .background(Color.sproutBackground.ignoresSafeArea())
+        .alert("Remove recurring item?", isPresented: Binding(
+            get: { pendingDeleteRecurringRule != nil },
+            set: { if !$0 { pendingDeleteRecurringRule = nil } }
+        ), presenting: pendingDeleteRecurringRule) { rule in
+            Button("Keep", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                store.removeRecurringRule(rule)
+                pendingDeleteRecurringRule = nil
+            }
+        } message: { rule in
+            Text("\(rule.name) will stop posting automatically.")
+        }
     }
 
     private var header: some View {
@@ -135,6 +150,85 @@ struct BudgetDashboardView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var recurringSection: some View {
+        let recurringRules = store.recurringRules(for: tab)
+
+        if !recurringRules.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Recurring")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .textCase(.uppercase)
+
+                ForEach(recurringRules) { rule in
+                    recurringRuleRow(rule)
+                }
+            }
+        }
+    }
+
+    private func recurringRuleRow(_ rule: RecurringTransactionRule) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "repeat")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.sageDark)
+                .frame(width: 42, height: 42)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.sageLight)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(rule.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Color.sproutText)
+
+                    Spacer()
+
+                    Text("\(rule.isRefund ? "+" : "−")\(SproutFormatters.currency(rule.amount))")
+                        .font(.system(.subheadline, design: .monospaced, weight: .semibold))
+                        .foregroundStyle(rule.isRefund ? Color.sageDark : Color.sproutText)
+                }
+
+                HStack(spacing: 6) {
+                    Text(rule.frequency.title)
+                    Text("•")
+                    Text("Next \(SproutDate.shortDate(rule.nextOccurrenceDate))")
+                }
+                .font(.footnote)
+                .foregroundStyle(Color.sproutTextMuted)
+
+                if !rule.note.isEmpty {
+                    Text(rule.note)
+                        .font(.footnote)
+                        .foregroundStyle(Color.sproutTextMuted)
+                }
+            }
+
+            Button {
+                pendingDeleteRecurringRule = rule
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .padding(8)
+                    .background(Circle().fill(Color.sproutCardSoft))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.sproutCard)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.sproutBorder, lineWidth: 1)
+        )
     }
 }
 
