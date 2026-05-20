@@ -76,6 +76,49 @@ enum TransactionMode: String, Identifiable, CaseIterable, Codable {
     }
 }
 
+enum RecurrenceFrequency: String, Codable, CaseIterable, Identifiable {
+    case weekly
+    case monthly
+    case yearly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .weekly:
+            "Every week"
+        case .monthly:
+            "Every month"
+        case .yearly:
+            "Every year"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .weekly:
+            "Weekly"
+        case .monthly:
+            "Monthly"
+        case .yearly:
+            "Yearly"
+        }
+    }
+
+    func advanced(from date: Date, calendar: Calendar = .current) -> Date {
+        let startOfDay = calendar.startOfDay(for: date)
+
+        switch self {
+        case .weekly:
+            return calendar.date(byAdding: .day, value: 7, to: startOfDay) ?? startOfDay
+        case .monthly:
+            return calendar.date(byAdding: .month, value: 1, to: startOfDay) ?? startOfDay
+        case .yearly:
+            return calendar.date(byAdding: .year, value: 1, to: startOfDay) ?? startOfDay
+        }
+    }
+}
+
 struct PersonalCategory: Codable, Hashable, Identifiable {
     var id: UUID
     var emoji: String
@@ -135,12 +178,47 @@ struct TransactionEntry: Codable, Hashable, Identifiable {
     }
 }
 
+struct RecurringTransactionRule: Codable, Hashable, Identifiable {
+    var id: UUID
+    var name: String
+    var amount: Double
+    var note: String
+    var emoji: String
+    var tab: BudgetTab
+    var isRefund: Bool
+    var frequency: RecurrenceFrequency
+    var nextOccurrenceDate: Date
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        amount: Double,
+        note: String = "",
+        emoji: String,
+        tab: BudgetTab,
+        isRefund: Bool,
+        frequency: RecurrenceFrequency,
+        nextOccurrenceDate: Date
+    ) {
+        self.id = id
+        self.name = name
+        self.amount = amount
+        self.note = note
+        self.emoji = emoji
+        self.tab = tab
+        self.isRefund = isRefund
+        self.frequency = frequency
+        self.nextOccurrenceDate = nextOccurrenceDate
+    }
+}
+
 struct BudgetSnapshot: Codable {
     var groceryBudget: Double
     var personalBudget: Double
     var groceryCarryover: Double
     var personalCarryover: Double
     var transactions: [TransactionEntry]
+    var recurringRules: [RecurringTransactionRule]
     var currentMonth: String
     var personalCategories: [PersonalCategory]
     var updatedAt: Date
@@ -151,6 +229,7 @@ struct BudgetSnapshot: Codable {
         groceryCarryover: 0,
         personalCarryover: 0,
         transactions: [],
+        recurringRules: [],
         currentMonth: SproutDate.currentMonthKey(),
         personalCategories: PersonalCategory.defaults,
         updatedAt: .now
@@ -162,6 +241,7 @@ struct BudgetSnapshot: Codable {
         case groceryCarryover
         case personalCarryover
         case transactions
+        case recurringRules
         case currentMonth
         case personalCategories
         case updatedAt
@@ -173,6 +253,7 @@ struct BudgetSnapshot: Codable {
         groceryCarryover: Double,
         personalCarryover: Double,
         transactions: [TransactionEntry],
+        recurringRules: [RecurringTransactionRule],
         currentMonth: String,
         personalCategories: [PersonalCategory],
         updatedAt: Date
@@ -182,6 +263,7 @@ struct BudgetSnapshot: Codable {
         self.groceryCarryover = groceryCarryover
         self.personalCarryover = personalCarryover
         self.transactions = transactions
+        self.recurringRules = recurringRules
         self.currentMonth = currentMonth
         self.personalCategories = personalCategories
         self.updatedAt = updatedAt
@@ -194,6 +276,7 @@ struct BudgetSnapshot: Codable {
         groceryCarryover = try container.decodeIfPresent(Double.self, forKey: .groceryCarryover) ?? 0
         personalCarryover = try container.decodeIfPresent(Double.self, forKey: .personalCarryover) ?? 0
         transactions = try container.decodeIfPresent([TransactionEntry].self, forKey: .transactions) ?? []
+        recurringRules = try container.decodeIfPresent([RecurringTransactionRule].self, forKey: .recurringRules) ?? []
         currentMonth = try container.decodeIfPresent(String.self, forKey: .currentMonth) ?? SproutDate.currentMonthKey()
         personalCategories = try container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories) ?? PersonalCategory.defaults
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
@@ -206,6 +289,9 @@ struct TransactionDraft: Equatable {
     var note = ""
     var selectedEmoji = BudgetTab.personal.icon
     var date = Date()
+    var isRecurring = false
+    var recurringFrequency: RecurrenceFrequency = .monthly
+    var recurringNextDate = RecurrenceFrequency.monthly.advanced(from: Date())
 
     var parsedAmount: Double? {
         let formatter = NumberFormatter()
@@ -216,6 +302,15 @@ struct TransactionDraft: Equatable {
         }
         let sanitized = amountText.replacingOccurrences(of: ",", with: "")
         return Double(sanitized)
+    }
+
+    var minimumRecurringDate: Date {
+        let startOfDay = Calendar.current.startOfDay(for: date)
+        return Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
+    }
+
+    static func defaultRecurringNextDate(from date: Date, frequency: RecurrenceFrequency) -> Date {
+        frequency.advanced(from: date)
     }
 }
 

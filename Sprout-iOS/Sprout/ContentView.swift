@@ -111,6 +111,7 @@ struct ContentView: View {
             quickEntryCoordinator.present(.init(tab: route.tab, mode: route.mode))
         }
         .onAppear {
+            store.processRecurringTransactionsIfNeeded()
             quickEntryCoordinator.consumePendingRequestIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
@@ -118,6 +119,7 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
+            store.processRecurringTransactionsIfNeeded()
             quickEntryCoordinator.consumePendingRequestIfNeeded()
         }
         .onChange(of: quickEntryCoordinator.activeRequest) { _, request in
