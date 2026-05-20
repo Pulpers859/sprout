@@ -15,6 +15,12 @@ if [ -n "$staged_files" ]; then
   while IFS= read -r path; do
     [ -z "$path" ] && continue
 
+    # Firebase web config is public client config for this deployed app. Keep
+    # blocking all other secret-like values in staged files.
+    if [ "$path" = "Sprout-html/sprout-firebase-config.js" ]; then
+      continue
+    fi
+
     if git grep --cached -nI -E "$secret_patterns" -- "$path" >/tmp/sprout-secret-scan.txt 2>/dev/null; then
       echo "Potential secret detected in staged file: $path"
       cat /tmp/sprout-secret-scan.txt
