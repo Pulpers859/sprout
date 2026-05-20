@@ -170,7 +170,7 @@ struct QuickCaptureSheet: View {
                         .background(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 .fill(mode == .payment ? Color.sageDark : Color.sage)
-                        }
+                        )
                     }
                     .buttonStyle(.plain)
                 }
