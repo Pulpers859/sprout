@@ -12,10 +12,12 @@ final class BudgetStore: ObservableObject {
     private let saveURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let calendar: Calendar
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, calendar: Calendar = .current) {
         self.fileManager = fileManager
         self.saveURL = Self.makeSaveURL(fileManager: fileManager)
+        self.calendar = calendar
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -150,6 +152,17 @@ final class BudgetStore: ObservableObject {
         tab == .personal ? snapshot.personalCategories : []
     }
 
+    func recurringRules(for tab: BudgetTab) -> [RecurringTransactionRule] {
+        snapshot.recurringRules
+            .filter { $0.tab == tab }
+            .sorted { lhs, rhs in
+                if lhs.nextOccurrenceDate == rhs.nextOccurrenceDate {
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                return lhs.nextOccurrenceDate < rhs.nextOccurrenceDate
+            }
+    }
+
     func defaultEmoji(for tab: BudgetTab) -> String {
         switch tab {
         case .personal:
@@ -160,12 +173,16 @@ final class BudgetStore: ObservableObject {
     }
 
     func makeDraft(for tab: BudgetTab, mode _: TransactionMode, seed: TransactionEntry? = nil) -> TransactionDraft {
+        let entryDate = Date()
         TransactionDraft(
             name: seed?.name ?? "",
             amountText: "",
             note: "",
             selectedEmoji: seed?.emoji ?? defaultEmoji(for: tab),
-            date: Date()
+            date: entryDate,
+            isRecurring: false,
+            recurringFrequency: .monthly,
+            recurringNextDate: TransactionDraft.defaultRecurringNextDate(from: entryDate, frequency: .monthly)
         )
     }
 
@@ -198,6 +215,24 @@ final class BudgetStore: ObservableObject {
         )
 
         snapshot.transactions.append(entry)
+        if draft.isRecurring {
+            snapshot.recurringRules.append(
+                RecurringTransactionRule(
+                    name: entry.name,
+                    amount: entry.amount,
+                    note: entry.note,
+                    emoji: entry.emoji,
+                    tab: tab,
+                    isRefund: mode.isRefund,
+                    frequency: draft.recurringFrequency,
+                    nextOccurrenceDate: validatedRecurringDate(
+                        proposed: draft.recurringNextDate,
+                        after: draft.date,
+                        frequency: draft.recurringFrequency
+                    )
+                )
+            )
+        }
         persist()
         return true
     }
@@ -205,6 +240,41 @@ final class BudgetStore: ObservableObject {
     func deleteTransaction(_ entry: TransactionEntry) {
         snapshot.transactions.removeAll { $0.id == entry.id }
         persist()
+    }
+
+    func removeRecurringRule(_ rule: RecurringTransactionRule) {
+        snapshot.recurringRules.removeAll { $0.id == rule.id }
+        persist()
+    }
+
+    func processRecurringTransactionsIfNeeded(referenceDate: Date = .now) {
+        let cutoffDate = calendar.startOfDay(for: referenceDate)
+        var hasChanges = false
+
+        for index in snapshot.recurringRules.indices {
+            while calendar.startOfDay(for: snapshot.recurringRules[index].nextOccurrenceDate) <= cutoffDate {
+                let rule = snapshot.recurringRules[index]
+                let occurrenceDate = calendar.startOfDay(for: rule.nextOccurrenceDate)
+
+                snapshot.transactions.append(
+                    TransactionEntry(
+                        name: rule.name,
+                        amount: rule.amount,
+                        note: rule.note,
+                        emoji: rule.emoji,
+                        date: occurrenceDate,
+                        tab: rule.tab,
+                        isRefund: rule.isRefund
+                    )
+                )
+                snapshot.recurringRules[index].nextOccurrenceDate = rule.frequency.advanced(from: occurrenceDate, calendar: calendar)
+                hasChanges = true
+            }
+        }
+
+        if hasChanges {
+            persist()
+        }
     }
 
     func addCategory() {
@@ -240,6 +310,7 @@ final class BudgetStore: ObservableObject {
         snapshot.currentMonth = SproutDate.currentMonthKey()
         selectedCalendarDate = nil
         needsMonthResetPrompt = false
+        processRecurringTransactionsIfNeeded()
         persist()
     }
 
@@ -253,6 +324,7 @@ final class BudgetStore: ObservableObject {
         snapshot = decoded
         selectedCalendarDate = nil
         needsMonthResetPrompt = snapshot.currentMonth != SproutDate.currentMonthKey()
+        processRecurringTransactionsIfNeeded()
         persist()
     }
 
@@ -271,6 +343,7 @@ final class BudgetStore: ObservableObject {
             snapshot = .empty
         }
 
+        processRecurringTransactionsIfNeeded()
         needsMonthResetPrompt = snapshot.currentMonth != SproutDate.currentMonthKey()
     }
 
@@ -294,6 +367,17 @@ final class BudgetStore: ObservableObject {
             .filter { !$0.label.isEmpty }
 
         return cleaned.isEmpty ? PersonalCategory.defaults : cleaned
+    }
+
+    private func validatedRecurringDate(proposed: Date, after entryDate: Date, frequency: RecurrenceFrequency) -> Date {
+        let normalizedEntryDate = calendar.startOfDay(for: entryDate)
+        let normalizedProposed = calendar.startOfDay(for: proposed)
+
+        if normalizedProposed > normalizedEntryDate {
+            return normalizedProposed
+        }
+
+        return frequency.advanced(from: normalizedEntryDate, calendar: calendar)
     }
 
     private static func makeSaveURL(fileManager: FileManager) -> URL {
