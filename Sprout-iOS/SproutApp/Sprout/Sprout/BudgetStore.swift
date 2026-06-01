@@ -36,6 +36,10 @@ final class BudgetStore: ObservableObject {
         SproutDate.monthYearTitle()
     }
 
+    var archivedMonths: [ArchivedBudgetMonth] {
+        snapshot.monthHistory
+    }
+
     func transactions(for tab: BudgetTab) -> [TransactionEntry] {
         snapshot.transactions
             .enumerated()
@@ -161,6 +165,16 @@ final class BudgetStore: ObservableObject {
                 }
                 return lhs.nextOccurrenceDate < rhs.nextOccurrenceDate
             }
+    }
+
+    func refreshForCurrentDate(referenceDate: Date = .now) {
+        if requiresMonthReset(referenceDate: referenceDate) {
+            processRecurringTransactionsThroughCurrentStoredMonthIfNeeded()
+            needsMonthResetPrompt = true
+            return
+        }
+
+        processRecurringTransactionsIfNeeded(referenceDate: referenceDate)
     }
 
     func defaultEmoji(for tab: BudgetTab) -> String {
@@ -298,16 +312,19 @@ final class BudgetStore: ObservableObject {
     }
 
     func keepCurrentTransactions() {
-        snapshot.currentMonth = SproutDate.currentMonthKey()
+        snapshot.currentMonth = SproutDate.currentMonthKey(now: .now, calendar: calendar)
+        selectedCalendarDate = nil
         needsMonthResetPrompt = false
+        processRecurringTransactionsIfNeeded()
         persist()
     }
 
     func resetMonth(carryOverRemainders: Bool) {
+        archiveCurrentMonthIfNeeded()
         snapshot.personalCarryover = carryOverRemainders ? max(0, remaining(for: .personal)) : 0
         snapshot.groceryCarryover = carryOverRemainders ? max(0, remaining(for: .grocery)) : 0
         snapshot.transactions = []
-        snapshot.currentMonth = SproutDate.currentMonthKey()
+        snapshot.currentMonth = SproutDate.currentMonthKey(now: .now, calendar: calendar)
         selectedCalendarDate = nil
         needsMonthResetPrompt = false
         processRecurringTransactionsIfNeeded()
@@ -321,10 +338,10 @@ final class BudgetStore: ObservableObject {
     func importBackupData(_ data: Data) throws {
         var decoded = try decoder.decode(BudgetSnapshot.self, from: data)
         decoded.personalCategories = normalizedCategories(decoded.personalCategories)
+        decoded.monthHistory = normalizedMonthHistory(decoded.monthHistory)
         snapshot = decoded
         selectedCalendarDate = nil
-        needsMonthResetPrompt = snapshot.currentMonth != SproutDate.currentMonthKey()
-        processRecurringTransactionsIfNeeded()
+        refreshForCurrentDate()
         persist()
     }
 
@@ -334,6 +351,7 @@ final class BudgetStore: ObservableObject {
                 let data = try Data(contentsOf: saveURL)
                 var decoded = try decoder.decode(BudgetSnapshot.self, from: data)
                 decoded.personalCategories = normalizedCategories(decoded.personalCategories)
+                decoded.monthHistory = normalizedMonthHistory(decoded.monthHistory)
                 snapshot = decoded
             } else {
                 snapshot = .empty
@@ -343,12 +361,13 @@ final class BudgetStore: ObservableObject {
             snapshot = .empty
         }
 
-        processRecurringTransactionsIfNeeded()
-        needsMonthResetPrompt = snapshot.currentMonth != SproutDate.currentMonthKey()
+        snapshot.monthHistory = normalizedMonthHistory(snapshot.monthHistory)
+        refreshForCurrentDate()
     }
 
     private func persist() {
         snapshot.personalCategories = normalizedCategories(snapshot.personalCategories)
+        snapshot.monthHistory = normalizedMonthHistory(snapshot.monthHistory)
         snapshot.updatedAt = .now
 
         do {
@@ -378,6 +397,65 @@ final class BudgetStore: ObservableObject {
         }
 
         return frequency.advanced(from: normalizedEntryDate, calendar: calendar)
+    }
+
+    private func requiresMonthReset(referenceDate: Date) -> Bool {
+        snapshot.currentMonth != SproutDate.currentMonthKey(now: referenceDate, calendar: calendar)
+    }
+
+    private func archiveCurrentMonthIfNeeded() {
+        guard shouldArchiveCurrentMonth else { return }
+
+        let archivedMonth = ArchivedBudgetMonth(
+            monthKey: snapshot.currentMonth,
+            personalBudget: snapshot.personalBudget,
+            groceryBudget: snapshot.groceryBudget,
+            personalCarryover: snapshot.personalCarryover,
+            groceryCarryover: snapshot.groceryCarryover,
+            transactions: snapshot.transactions,
+            archivedAt: .now
+        )
+
+        snapshot.monthHistory.removeAll { $0.monthKey == archivedMonth.monthKey }
+        snapshot.monthHistory.append(archivedMonth)
+    }
+
+    private var shouldArchiveCurrentMonth: Bool {
+        !snapshot.transactions.isEmpty || snapshot.personalCarryover > 0 || snapshot.groceryCarryover > 0
+    }
+
+    private func processRecurringTransactionsThroughCurrentStoredMonthIfNeeded() {
+        guard let lastDate = SproutDate.lastDate(forMonthKey: snapshot.currentMonth, calendar: calendar) else {
+            return
+        }
+
+        processRecurringTransactionsIfNeeded(referenceDate: lastDate)
+    }
+
+    private func normalizedMonthHistory(_ history: [ArchivedBudgetMonth]) -> [ArchivedBudgetMonth] {
+        var monthsByKey: [String: ArchivedBudgetMonth] = [:]
+
+        for month in history.sorted(by: {
+            if $0.monthKey == $1.monthKey {
+                return $0.archivedAt > $1.archivedAt
+            }
+            return $0.monthKey > $1.monthKey
+        }) {
+            if let existing = monthsByKey[month.monthKey], existing.archivedAt >= month.archivedAt {
+                continue
+            }
+            monthsByKey[month.monthKey] = month
+        }
+
+        return monthsByKey.values
+            .sorted { lhs, rhs in
+                if lhs.monthKey == rhs.monthKey {
+                    return lhs.archivedAt > rhs.archivedAt
+                }
+                return lhs.monthKey > rhs.monthKey
+            }
+            .prefix(2)
+            .map { $0 }
     }
 
     private static func makeSaveURL(fileManager: FileManager) -> URL {

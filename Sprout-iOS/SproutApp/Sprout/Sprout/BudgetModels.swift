@@ -212,6 +212,52 @@ struct RecurringTransactionRule: Codable, Hashable, Identifiable {
     }
 }
 
+struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
+    var monthKey: String
+    var personalBudget: Double
+    var groceryBudget: Double
+    var personalCarryover: Double
+    var groceryCarryover: Double
+    var transactions: [TransactionEntry]
+    var archivedAt: Date
+
+    var id: String { monthKey }
+
+    func budget(for tab: BudgetTab) -> Double {
+        switch tab {
+        case .personal:
+            personalBudget + personalCarryover
+        case .grocery:
+            groceryBudget + groceryCarryover
+        }
+    }
+
+    func netSpent(for tab: BudgetTab) -> Double {
+        transactions(for: tab).reduce(0) { partialResult, item in
+            partialResult + (item.isRefund ? -item.amount : item.amount)
+        }
+    }
+
+    func remaining(for tab: BudgetTab) -> Double {
+        budget(for: tab) - netSpent(for: tab)
+    }
+
+    func transactions(for tab: BudgetTab) -> [TransactionEntry] {
+        transactions
+            .enumerated()
+            .filter { $0.element.tab == tab }
+            .sorted { lhs, rhs in
+                let lhsKey = SproutDate.dayKey(for: lhs.element.date)
+                let rhsKey = SproutDate.dayKey(for: rhs.element.date)
+                if lhsKey == rhsKey {
+                    return lhs.offset < rhs.offset
+                }
+                return lhsKey > rhsKey
+            }
+            .map(\.element)
+    }
+}
+
 struct BudgetSnapshot: Codable {
     var groceryBudget: Double
     var personalBudget: Double
@@ -219,6 +265,7 @@ struct BudgetSnapshot: Codable {
     var personalCarryover: Double
     var transactions: [TransactionEntry]
     var recurringRules: [RecurringTransactionRule]
+    var monthHistory: [ArchivedBudgetMonth]
     var currentMonth: String
     var personalCategories: [PersonalCategory]
     var updatedAt: Date
@@ -230,6 +277,7 @@ struct BudgetSnapshot: Codable {
         personalCarryover: 0,
         transactions: [],
         recurringRules: [],
+        monthHistory: [],
         currentMonth: SproutDate.currentMonthKey(),
         personalCategories: PersonalCategory.defaults,
         updatedAt: .now
@@ -242,6 +290,7 @@ struct BudgetSnapshot: Codable {
         case personalCarryover
         case transactions
         case recurringRules
+        case monthHistory
         case currentMonth
         case personalCategories
         case updatedAt
@@ -254,6 +303,7 @@ struct BudgetSnapshot: Codable {
         personalCarryover: Double,
         transactions: [TransactionEntry],
         recurringRules: [RecurringTransactionRule],
+        monthHistory: [ArchivedBudgetMonth],
         currentMonth: String,
         personalCategories: [PersonalCategory],
         updatedAt: Date
@@ -264,6 +314,7 @@ struct BudgetSnapshot: Codable {
         self.personalCarryover = personalCarryover
         self.transactions = transactions
         self.recurringRules = recurringRules
+        self.monthHistory = monthHistory
         self.currentMonth = currentMonth
         self.personalCategories = personalCategories
         self.updatedAt = updatedAt
@@ -277,6 +328,7 @@ struct BudgetSnapshot: Codable {
         personalCarryover = try container.decodeIfPresent(Double.self, forKey: .personalCarryover) ?? 0
         transactions = try container.decodeIfPresent([TransactionEntry].self, forKey: .transactions) ?? []
         recurringRules = try container.decodeIfPresent([RecurringTransactionRule].self, forKey: .recurringRules) ?? []
+        monthHistory = try container.decodeIfPresent([ArchivedBudgetMonth].self, forKey: .monthHistory) ?? []
         currentMonth = try container.decodeIfPresent(String.self, forKey: .currentMonth) ?? SproutDate.currentMonthKey()
         personalCategories = try container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories) ?? PersonalCategory.defaults
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now

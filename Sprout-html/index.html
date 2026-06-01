@@ -355,6 +355,58 @@
     margin-top: 6px; transition: all 0.15s;
   }
   .cat-add-btn:hover { border-color: var(--sage); color: var(--sage); }
+  .settings-help {
+    font-size: 12px; color: var(--text3); line-height: 1.45; margin-bottom: 10px;
+  }
+  .history-empty {
+    font-size: 13px; color: var(--text3); line-height: 1.5;
+    padding: 12px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  }
+  .history-list { display: flex; flex-direction: column; gap: 10px; }
+  .history-row {
+    width: 100%; text-align: left; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px; cursor: pointer; transition: all 0.15s ease;
+  }
+  .history-row:hover { border-color: var(--sage); }
+  .history-row.active { border-color: var(--sage); background: var(--sage-light); }
+  .history-row-top {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px;
+  }
+  .history-month { font-family: var(--font-display); font-size: 18px; color: var(--text1); font-weight: 500; }
+  .history-meta { font-size: 11px; color: var(--text3); margin-top: 3px; }
+  .history-pill-row { display: flex; gap: 8px; }
+  .history-pill {
+    flex: 1; background: var(--chip); border-radius: 12px; padding: 10px 12px;
+    font-size: 12px; color: var(--text2); line-height: 1.35;
+  }
+  .history-pill strong { display: block; font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .history-pill.negative { color: var(--red); }
+  .history-detail {
+    margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .history-detail-title {
+    font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.1px; margin-bottom: 10px;
+  }
+  .history-stats { display: flex; gap: 8px; margin-bottom: 12px; }
+  .history-stat {
+    flex: 1; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px;
+  }
+  .history-stat-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 4px; }
+  .history-stat-value { font-size: 13px; color: var(--text1); font-weight: 600; font-family: var(--font-mono); }
+  .history-stat-value.negative { color: var(--red); }
+  .history-tx-list { display: flex; flex-direction: column; gap: 8px; }
+  .history-tx-row {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .history-tx-emoji { font-size: 20px; line-height: 1.2; }
+  .history-tx-body { flex: 1; min-width: 0; }
+  .history-tx-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .history-tx-name { font-size: 13px; color: var(--text1); font-weight: 500; }
+  .history-tx-amount { font-size: 13px; font-family: var(--font-mono); font-weight: 600; color: #5a6e58; white-space: nowrap; }
+  .history-tx-amount.payment { color: var(--green); }
+  .history-tx-meta { font-size: 11px; color: var(--text3); margin-top: 3px; line-height: 1.4; }
 
   /* ── Emoji Picker Grid (for changing category emoji) ── */
   .emoji-grid-overlay {
@@ -446,6 +498,7 @@
     groceryBudget: 400,
     personalBudget: 200,
     transactions: [],
+    monthHistory: [],
     personalCategories: [...DEFAULT_PERSONAL_CATEGORIES],
     currentMonth: getCurrentMonth(),
     showCalendar: false,
@@ -455,6 +508,7 @@
     showSettings: false,
     editingBudget: false,
     selectedCalDay: null,
+    selectedHistoryMonthKey: null,
     formName: "",
     formAmount: "",
     formNote: "",
@@ -489,6 +543,12 @@
   function fmtMonthYear() {
     return new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"});
   }
+  function fmtMonthKey(monthKey) {
+    if (typeof monthKey !== "string") return "";
+    const [year, month] = monthKey.split("-").map(Number);
+    if (!year || !month) return monthKey;
+    return new Date(year, month - 1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  }
   function getDaysLeftInMonth() {
     const now = new Date();
     const year = now.getFullYear();
@@ -516,12 +576,80 @@
     if (a.date > b.date) return 1;
     return 0;
   }
+  function compareMonthKeyDesc(a, b) {
+    if (a.monthKey > b.monthKey) return -1;
+    if (a.monthKey < b.monthKey) return 1;
+    return 0;
+  }
   function getCarryover(cat) { return cat === "grocery" ? state.groceryCarryover : state.personalCarryover; }
   function getCarryoverPreview() {
     return {
       personal: Math.max(0, getRemaining("personal")),
       grocery: Math.max(0, getRemaining("grocery"))
     };
+  }
+  function normalizeMonthHistory(history = []) {
+    const byKey = new Map();
+    history
+      .filter(month => month && typeof month.monthKey === "string")
+      .sort((a, b) => {
+        if (a.monthKey === b.monthKey) {
+          return new Date(b.archivedAt || 0).getTime() - new Date(a.archivedAt || 0).getTime();
+        }
+        return a.monthKey > b.monthKey ? -1 : 1;
+      })
+      .forEach(month => {
+        if (!byKey.has(month.monthKey)) {
+          byKey.set(month.monthKey, {
+            monthKey: month.monthKey,
+            personalBudget: month.personalBudget ?? 200,
+            groceryBudget: month.groceryBudget ?? 400,
+            personalCarryover: month.personalCarryover ?? 0,
+            groceryCarryover: month.groceryCarryover ?? 0,
+            transactions: Array.isArray(month.transactions) ? month.transactions : [],
+            archivedAt: month.archivedAt || new Date().toISOString(),
+          });
+        }
+      });
+    return [...byKey.values()].sort(compareMonthKeyDesc).slice(0, 2);
+  }
+  function getArchivedMonth(monthKey) {
+    return state.monthHistory.find(month => month.monthKey === monthKey) || null;
+  }
+  function getArchivedTx(month, cat) {
+    return (month?.transactions || [])
+      .filter(t => t.type === cat)
+      .sort(compareTxByDateOnly)
+      .reverse();
+  }
+  function getArchivedBudget(month, cat) {
+    const base = cat === "grocery" ? month.groceryBudget : month.personalBudget;
+    const carry = cat === "grocery" ? month.groceryCarryover : month.personalCarryover;
+    return base + carry;
+  }
+  function getArchivedNetSpent(month, cat) {
+    return getArchivedTx(month, cat).reduce((sum, t) => sum + (t.isRefund ? -t.amount : t.amount), 0);
+  }
+  function getArchivedRemaining(month, cat) {
+    return getArchivedBudget(month, cat) - getArchivedNetSpent(month, cat);
+  }
+  function shouldArchiveCurrentMonth() {
+    return state.transactions.length > 0 || state.personalCarryover > 0 || state.groceryCarryover > 0;
+  }
+  function archiveCurrentMonthIfNeeded() {
+    if (!shouldArchiveCurrentMonth()) return;
+    state.monthHistory = normalizeMonthHistory([
+      {
+        monthKey: state.currentMonth,
+        personalBudget: state.personalBudget,
+        groceryBudget: state.groceryBudget,
+        personalCarryover: state.personalCarryover,
+        groceryCarryover: state.groceryCarryover,
+        transactions: state.transactions.map(tx => ({ ...tx })),
+        archivedAt: new Date().toISOString(),
+      },
+      ...state.monthHistory.filter(month => month.monthKey !== state.currentMonth),
+    ]);
   }
 
   const LOCAL_CACHE_KEY = "sprout-cache-v1";
@@ -534,6 +662,7 @@
       groceryCarryover: state.groceryCarryover,
       personalCarryover: state.personalCarryover,
       transactions: state.transactions,
+      monthHistory: state.monthHistory,
       currentMonth: state.currentMonth,
       personalCategories: state.personalCategories,
       updatedAt: new Date().toISOString()
@@ -546,11 +675,15 @@
     state.groceryCarryover = d.groceryCarryover ?? 0;
     state.personalCarryover = d.personalCarryover ?? 0;
     state.transactions = Array.isArray(d.transactions) ? d.transactions : [];
+    state.monthHistory = normalizeMonthHistory(Array.isArray(d.monthHistory) ? d.monthHistory : []);
     state.currentMonth = d.currentMonth ?? getCurrentMonth();
     if (Array.isArray(d.personalCategories) && d.personalCategories.length > 0) {
       state.personalCategories = d.personalCategories;
     } else {
       state.personalCategories = [...DEFAULT_PERSONAL_CATEGORIES];
+    }
+    if (!getArchivedMonth(state.selectedHistoryMonthKey)) {
+      state.selectedHistoryMonthKey = null;
     }
     if (state.currentMonth !== getCurrentMonth()) {
       state.showReset = true;
@@ -733,6 +866,7 @@
   }
 
   function resetMonth(carryOverRemainders = false) {
+    archiveCurrentMonthIfNeeded();
     const carry = carryOverRemainders ? getCarryoverPreview() : { personal: 0, grocery: 0 };
     state.personalCarryover = carry.personal;
     state.groceryCarryover = carry.grocery;
@@ -740,6 +874,7 @@
     state.currentMonth = getCurrentMonth();
     state.showReset = false;
     state.selectedCalDay = null;
+    state.selectedHistoryMonthKey = null;
     scheduleSave(); render();
   }
 
@@ -998,10 +1133,47 @@
     let h = `<div class="modal-overlay" id="settingsOverlay">
       <div class="settings-modal">
         <div class="settings-header">
-          <div class="settings-title">⚙️ Categories</div>
+          <div class="settings-title">⚙️ Settings</div>
           <button class="settings-close" id="settingsClose">×</button>
         </div>
-        <div class="settings-section-label">Personal expense categories</div>
+        <div class="settings-section-label">Recent months</div>
+        <div class="settings-help">Reference the last two closed months without mixing them into your current budget.</div>`;
+
+    if (state.monthHistory.length === 0) {
+      h += `<div class="history-empty">Closed months will appear here after you choose Reset Fresh or Carry Over at month rollover.</div>`;
+    } else {
+      h += `<div class="history-list">`;
+      state.monthHistory.forEach(month => {
+        const personalRemaining = getArchivedRemaining(month, "personal");
+        const groceryRemaining = getArchivedRemaining(month, "grocery");
+        h += `<button class="history-row ${state.selectedHistoryMonthKey === month.monthKey ? 'active' : ''}" data-historymonth="${month.monthKey}">
+          <div class="history-row-top">
+            <div>
+              <div class="history-month">${fmtMonthKey(month.monthKey)}</div>
+              <div class="history-meta">${month.transactions.length} transaction${month.transactions.length === 1 ? "" : "s"} saved</div>
+            </div>
+            <div class="history-meta">View</div>
+          </div>
+          <div class="history-pill-row">
+            <div class="history-pill ${personalRemaining < 0 ? "negative" : ""}">
+              <strong>Personal</strong>
+              ${personalRemaining < 0 ? `Over ${fmtCurrency(Math.abs(personalRemaining))}` : `${fmtCurrency(personalRemaining)} left`}
+            </div>
+            <div class="history-pill ${groceryRemaining < 0 ? "negative" : ""}">
+              <strong>Grocery</strong>
+              ${groceryRemaining < 0 ? `Over ${fmtCurrency(Math.abs(groceryRemaining))}` : `${fmtCurrency(groceryRemaining)} left`}
+            </div>
+          </div>
+        </button>`;
+        if (state.selectedHistoryMonthKey === month.monthKey) {
+          h += renderHistoryDetail(month);
+        }
+      });
+      h += `</div>`;
+    }
+
+    h += `<div class="settings-section-label">Personal expense categories</div>
+        <div class="settings-help">Choose clean labels and icons so quick entry stays easy to scan.</div>
         <div class="cat-list">`;
 
     state.personalCategories.forEach((cat, i) => {
@@ -1019,6 +1191,66 @@
     }
 
     h += `</div></div>`;
+    return h;
+  }
+
+  function renderHistoryDetail(month) {
+    let h = `<div class="history-detail">
+      <div class="history-detail-title">${fmtMonthKey(month.monthKey)} details</div>`;
+
+    [
+      { key: "personal", title: "Personal" },
+      { key: "grocery", title: "Grocery" },
+    ].forEach(section => {
+      const remaining = getArchivedRemaining(month, section.key);
+      const spent = Math.max(getArchivedNetSpent(month, section.key), 0);
+      const carryover = section.key === "grocery" ? month.groceryCarryover : month.personalCarryover;
+      const transactions = getArchivedTx(month, section.key);
+
+      h += `<div style="margin-bottom:14px;">
+        <div class="settings-section-label" style="margin-top:0;margin-bottom:8px;">${section.title}</div>
+        <div class="history-stats">
+          <div class="history-stat">
+            <div class="history-stat-label">Budget</div>
+            <div class="history-stat-value">${fmtCurrency(getArchivedBudget(month, section.key))}</div>
+          </div>
+          <div class="history-stat">
+            <div class="history-stat-label">Spent</div>
+            <div class="history-stat-value">${fmtCurrency(spent)}</div>
+          </div>
+          <div class="history-stat">
+            <div class="history-stat-label">Remaining</div>
+            <div class="history-stat-value ${remaining < 0 ? "negative" : ""}">${fmtCurrency(remaining)}</div>
+          </div>
+          <div class="history-stat">
+            <div class="history-stat-label">Carryover</div>
+            <div class="history-stat-value">${fmtCurrency(carryover)}</div>
+          </div>
+        </div>`;
+
+      if (transactions.length === 0) {
+        h += `<div class="history-empty">No ${section.title.toLowerCase()} transactions were saved for this month.</div>`;
+      } else {
+        h += `<div class="history-tx-list">`;
+        transactions.forEach(t => {
+          h += `<div class="history-tx-row">
+            <span class="history-tx-emoji">${t.isRefund ? "💸" : t.emoji}</span>
+            <div class="history-tx-body">
+              <div class="history-tx-top">
+                <span class="history-tx-name">${t.name}</span>
+                <span class="history-tx-amount ${t.isRefund ? "payment" : ""}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
+              </div>
+              <div class="history-tx-meta">${fmtDate(t.date)}${t.isRefund ? " · payment" : ""}${t.note ? " · " + t.note : ""}</div>
+            </div>
+          </div>`;
+        });
+        h += `</div>`;
+      }
+
+      h += `</div>`;
+    });
+
+    h += `</div>`;
     return h;
   }
 
@@ -1102,7 +1334,13 @@
 
     // Reset
     document.getElementById("resetBtn")?.addEventListener("click", () => { state.showReset = true; render(); });
-    document.getElementById("resetKeep")?.addEventListener("click", () => { state.showReset = false; state.currentMonth = getCurrentMonth(); scheduleSave(); render(); });
+    document.getElementById("resetKeep")?.addEventListener("click", () => {
+      state.showReset = false;
+      state.currentMonth = getCurrentMonth();
+      state.selectedCalDay = null;
+      scheduleSave();
+      render();
+    });
     document.getElementById("resetFresh")?.addEventListener("click", () => resetMonth(false));
     document.getElementById("resetCarry")?.addEventListener("click", () => resetMonth(true));
     document.getElementById("deleteCancel")?.addEventListener("click", () => { state.pendingDeleteId = null; render(); });
@@ -1112,9 +1350,25 @@
 
     // Settings
     document.getElementById("settingsBtn")?.addEventListener("click", () => { state.showSettings = true; render(); });
-    document.getElementById("settingsClose")?.addEventListener("click", () => { state.showSettings = false; scheduleSave(); render(); });
+    document.getElementById("settingsClose")?.addEventListener("click", () => {
+      state.showSettings = false;
+      state.selectedHistoryMonthKey = null;
+      scheduleSave();
+      render();
+    });
     document.getElementById("settingsOverlay")?.addEventListener("click", (e) => {
-      if (e.target.id === "settingsOverlay") { state.showSettings = false; scheduleSave(); render(); }
+      if (e.target.id === "settingsOverlay") {
+        state.showSettings = false;
+        state.selectedHistoryMonthKey = null;
+        scheduleSave();
+        render();
+      }
+    });
+    document.querySelectorAll("[data-historymonth]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.selectedHistoryMonthKey = state.selectedHistoryMonthKey === btn.dataset.historymonth ? null : btn.dataset.historymonth;
+        render();
+      });
     });
 
     // Category emoji change (open emoji picker)

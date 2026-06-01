@@ -20,6 +20,39 @@ enum SproutDate {
         date.formatted(.dateTime.month(.wide).year())
     }
 
+    static func firstDate(forMonthKey monthKey: String, calendar: Calendar = .current) -> Date? {
+        let components = monthKey.split(separator: "-")
+        guard
+            components.count == 2,
+            let year = Int(components[0]),
+            let month = Int(components[1])
+        else {
+            return nil
+        }
+
+        return calendar.date(from: DateComponents(year: year, month: month, day: 1))
+    }
+
+    static func lastDate(forMonthKey monthKey: String, calendar: Calendar = .current) -> Date? {
+        guard
+            let firstDate = firstDate(forMonthKey: monthKey, calendar: calendar),
+            let nextMonth = calendar.date(byAdding: .month, value: 1, to: firstDate),
+            let lastDate = calendar.date(byAdding: .day, value: -1, to: nextMonth)
+        else {
+            return nil
+        }
+
+        return lastDate
+    }
+
+    static func monthYearTitle(forMonthKey monthKey: String, calendar: Calendar = .current) -> String {
+        guard let date = firstDate(forMonthKey: monthKey, calendar: calendar) else {
+            return monthKey
+        }
+
+        return monthYearTitle(date: date)
+    }
+
     static func shortDate(_ date: Date) -> String {
         date.formatted(.dateTime.month(.abbreviated).day())
     }
