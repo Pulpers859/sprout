@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var budgetEditorTab: BudgetTab?
     @State private var isShowingSettings = false
     @State private var pendingDeleteTransaction: TransactionEntry?
+    @State private var shouldRestoreMonthResetPrompt = false
 
     var body: some View {
         NavigationStack {
@@ -123,16 +124,45 @@ struct ContentView: View {
             quickEntryCoordinator.consumePendingRequestIfNeeded()
         }
         .onChange(of: quickEntryCoordinator.activeRequest) { _, request in
-            guard let request else { return }
-            store.activeTab = request.tab
-            transactionSheet = TransactionSheetRequest(
-                tab: request.tab,
-                mode: request.mode,
-                draft: store.makeDraft(for: request.tab, mode: request.mode),
-                style: .quickCapture
-            )
-            quickEntryCoordinator.dismiss()
+            guard request != nil else {
+                restoreDeferredMonthResetPromptIfNeeded()
+                return
+            }
+            presentQuickEntryIfPossible()
         }
+        .onChange(of: transactionSheet == nil) { _, isSheetCleared in
+            guard isSheetCleared else { return }
+            presentQuickEntryIfPossible()
+            restoreDeferredMonthResetPromptIfNeeded()
+        }
+    }
+
+    private func presentQuickEntryIfPossible() {
+        guard let request = quickEntryCoordinator.activeRequest else { return }
+        guard transactionSheet == nil else { return }
+
+        if store.needsMonthResetPrompt {
+            shouldRestoreMonthResetPrompt = true
+            store.needsMonthResetPrompt = false
+        }
+
+        store.activeTab = request.tab
+        transactionSheet = TransactionSheetRequest(
+            tab: request.tab,
+            mode: request.mode,
+            draft: store.makeDraft(for: request.tab, mode: request.mode),
+            style: .quickCapture
+        )
+        quickEntryCoordinator.dismiss()
+    }
+
+    private func restoreDeferredMonthResetPromptIfNeeded() {
+        guard shouldRestoreMonthResetPrompt else { return }
+        guard transactionSheet == nil else { return }
+        guard quickEntryCoordinator.activeRequest == nil else { return }
+
+        shouldRestoreMonthResetPrompt = false
+        store.needsMonthResetPrompt = true
     }
 }
 

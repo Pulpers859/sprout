@@ -35,3 +35,6 @@ DerivedData/
 *.log
 *.tmp
 *.temp
+
+# Generated local tool output
+.netlify/
