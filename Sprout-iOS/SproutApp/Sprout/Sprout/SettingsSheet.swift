@@ -6,6 +6,7 @@ struct SettingsSheet: View {
     @EnvironmentObject private var store: BudgetStore
 
     @State private var isShowingCategorySettings = false
+    @State private var isShowingRecurringTransactions = false
     @State private var isShowingRecentMonths = false
     @State private var isExportingBackup = false
     @State private var isImportingBackup = false
@@ -24,6 +25,20 @@ struct SettingsSheet: View {
                             title: "Manage Categories",
                             subtitle: "Names and icons for personal spending",
                             tint: .sageDark
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        isShowingRecurringTransactions = true
+                    } label: {
+                        SettingsRow(
+                            symbol: "repeat",
+                            title: "Recurring Transactions",
+                            subtitle: recurringCount == 0
+                                ? "No automatic expenses or payments"
+                                : "\(recurringCount) automatic item\(recurringCount == 1 ? "" : "s")",
+                            tint: .sproutBlue
                         )
                     }
                     .buttonStyle(.plain)
@@ -97,6 +112,10 @@ struct SettingsSheet: View {
             CategorySettingsSheet()
                 .environmentObject(store)
         }
+        .sheet(isPresented: $isShowingRecurringTransactions) {
+            RecurringTransactionsSheet()
+                .environmentObject(store)
+        }
         .sheet(isPresented: $isShowingRecentMonths) {
             RecentMonthsSheet()
                 .environmentObject(store)
@@ -154,6 +173,10 @@ struct SettingsSheet: View {
         "Sprout-Backup-\(dateStamp(from: Date()))"
     }
 
+    private var recurringCount: Int {
+        BudgetTab.allCases.reduce(0) { $0 + store.recurringRules(for: $1).count }
+    }
+
     private func exportBackup() {
         do {
             exportDocument = SproutBackupDocument(data: try store.exportBackupData())
@@ -200,6 +223,109 @@ struct SettingsSheet: View {
     private func isUserCancelled(_ error: Error) -> Bool {
         let nsError = error as NSError
         return nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError
+    }
+}
+
+private struct RecurringTransactionsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: BudgetStore
+
+    @State private var pendingDeleteRule: RecurringTransactionRule?
+
+    private var recurringCount: Int {
+        BudgetTab.allCases.reduce(0) { $0 + store.recurringRules(for: $1).count }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if recurringCount == 0 {
+                    ContentUnavailableView(
+                        "No recurring transactions",
+                        systemImage: "repeat",
+                        description: Text("Mark an expense or payment as recurring when you add it, and it will appear here.")
+                    )
+                } else {
+                    List {
+                        ForEach(BudgetTab.allCases) { tab in
+                            let rules = store.recurringRules(for: tab)
+
+                            if !rules.isEmpty {
+                                Section(tab.shortTitle) {
+                                    ForEach(rules) { rule in
+                                        recurringRuleRow(rule, tab: tab)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .background(Color.sproutBackground.ignoresSafeArea())
+            .navigationTitle("Recurring")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundStyle(Color.sageDark)
+                }
+            }
+        }
+        .alert("Remove recurring item?", isPresented: Binding(
+            get: { pendingDeleteRule != nil },
+            set: { if !$0 { pendingDeleteRule = nil } }
+        ), presenting: pendingDeleteRule) { rule in
+            Button("Keep", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                store.removeRecurringRule(rule)
+                pendingDeleteRule = nil
+            }
+        } message: { rule in
+            Text("\(rule.name) will stop posting automatically.")
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func recurringRuleRow(_ rule: RecurringTransactionRule, tab: BudgetTab) -> some View {
+        HStack(spacing: 12) {
+            Text(rule.isRefund ? "💸" : rule.emoji)
+                .font(.title3)
+                .frame(width: 40, height: 40)
+                .background(tab.accentLightColor, in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(rule.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.sproutText)
+                    .lineLimit(1)
+
+                Text("\(rule.frequency.shortTitle) · Next \(SproutDate.shortDate(rule.nextOccurrenceDate))")
+                    .font(.footnote)
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text("\(rule.isRefund ? "+" : "−")\(SproutFormatters.currency(rule.amount))")
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(rule.isRefund ? Color.sageDark : Color.sproutText)
+
+            Menu {
+                Button("Remove recurring item", systemImage: "trash", role: .destructive) {
+                    pendingDeleteRule = rule
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

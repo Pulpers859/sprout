@@ -99,32 +99,65 @@ private struct CategoryRow: View {
 private struct EmojiPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var selectedEmoji: String
+    @State private var customEmoji = ""
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 5)
 
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(PersonalCategory.emojiOptions, id: \.self) { emoji in
-                        Button {
-                            selectedEmoji = emoji
-                            dismiss()
-                        } label: {
-                            Text(emoji)
-                                .font(.system(size: 28))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(selectedEmoji == emoji ? Color.sageLight : Color.sproutCardSoft)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .stroke(selectedEmoji == emoji ? Color.sage : Color.sproutBorder, lineWidth: 1)
-                                )
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Use any emoji")
+                            .font(.headline)
+                            .foregroundStyle(Color.sproutText)
+
+                        HStack(spacing: 10) {
+                            TextField("Enter one emoji", text: $customEmoji)
+                                .font(.title2)
+                                .textFieldStyle(.roundedBorder)
+                                .onChange(of: customEmoji) { _, newValue in
+                                    let firstCharacter = newValue.first.map(String.init) ?? ""
+                                    if firstCharacter != newValue {
+                                        customEmoji = firstCharacter
+                                    }
+                                }
+
+                            Button("Use") {
+                                selectedEmoji = customEmoji
+                                dismiss()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Color.sageDark)
+                            .disabled(customEmoji.isEmpty)
                         }
-                        .buttonStyle(.plain)
+
+                        Text("Switch to the emoji keyboard and enter one symbol.")
+                            .font(.footnote)
+                            .foregroundStyle(Color.sproutTextMuted)
+                    }
+
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(PersonalCategory.emojiOptions, id: \.self) { emoji in
+                            Button {
+                                selectedEmoji = emoji
+                                dismiss()
+                            } label: {
+                                Text(emoji)
+                                    .font(.system(size: 28))
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 56)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .fill(selectedEmoji == emoji ? Color.sageLight : Color.sproutCardSoft)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .stroke(selectedEmoji == emoji ? Color.sage : Color.sproutBorder, lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
                 .padding(20)

@@ -34,12 +34,14 @@ struct SummaryCardView: View {
                 Button {
                     onEditBudget()
                 } label: {
-                    Image(systemName: "slider.horizontal.3")
+                    Image(systemName: "pencil")
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(tab.accentDarkColor)
                         .frame(width: 42, height: 42)
+                        .background(Color.white.opacity(0.96), in: Circle())
+                        .shadow(color: Color.black.opacity(0.12), radius: 8, y: 4)
                 }
-                .buttonStyle(.glass)
-                .tint(Color.white.opacity(0.16))
+                .buttonStyle(.plain)
                 .accessibilityLabel("Edit \(tab.shortTitle.lowercased()) budget")
             }
 
@@ -50,11 +52,11 @@ struct SummaryCardView: View {
                             .fill(Color.white.opacity(0.16))
 
                         Capsule()
-                            .fill(Color.white.opacity(0.9))
+                            .fill(spendingColor(progress: progress, remaining: remaining))
                             .frame(width: geometry.size.width * progress)
 
                         Rectangle()
-                            .fill(Color.sproutAmber)
+                            .fill(Color.white.opacity(0.92))
                             .frame(width: 2, height: 16)
                             .offset(x: max(0, (geometry.size.width * paceProgress) - 1))
                     }
@@ -93,7 +95,7 @@ struct SummaryCardView: View {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(statusColor(for: paceStatus))
-                        .frame(width: 7, height: 7)
+                        .frame(width: 8, height: 8)
 
                     Text(statusTitle(for: paceStatus))
                         .font(.caption.weight(.semibold))
@@ -111,29 +113,39 @@ struct SummaryCardView: View {
             }
         }
         .padding(22)
-        .background(tab.accentDarkColor, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(tab.heroGradient, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(color: tab.accentDarkColor.opacity(0.2), radius: 18, x: 0, y: 10)
+    }
+
+    private func spendingColor(progress: Double, remaining: Double) -> Color {
+        if remaining < 0 || progress >= 1 {
+            return .sproutRedBright
+        }
+        if progress >= 0.8 {
+            return .sproutAmberBright
+        }
+        return .sproutMint
     }
 
     private func statusColor(for status: SpendingPaceStatus) -> Color {
         switch status {
         case .belowPace:
-            .white
+            .sproutMint
         case .onPace:
-            .sproutAmber
+            .sproutAmberBright
         case .aheadOfPace:
-            Color(red: 1, green: 0.55, blue: 0.55)
+            .sproutRedBright
         }
     }
 
     private func statusTitle(for status: SpendingPaceStatus) -> String {
         switch status {
         case .belowPace:
-            "Below pace"
+            "Spending under plan"
         case .onPace:
-            "On pace"
+            "Spending on plan"
         case .aheadOfPace:
-            "Above pace"
+            "Spending too fast"
         }
     }
 }

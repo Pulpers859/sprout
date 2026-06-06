@@ -5,15 +5,18 @@ struct BudgetDashboardView: View {
 
     let tab: BudgetTab
     let onEditBudget: () -> Void
+    let onOpenSettings: () -> Void
+    let onStartNewMonth: () -> Void
     let onRequestDeleteTransaction: (TransactionEntry) -> Void
     let onOpenTransaction: (TransactionMode, TransactionEntry?) -> Void
 
     @State private var isShowingCalendar = false
-    @State private var pendingDeleteRecurringRule: RecurringTransactionRule?
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 26) {
+                dashboardHeader
+
                 BudgetScopePicker(selection: $store.activeTab)
 
                 SummaryCardView(tab: tab, onEditBudget: onEditBudget)
@@ -24,28 +27,47 @@ struct BudgetDashboardView: View {
 
                 monthActivitySection
 
-                recurringSection
-
                 transactionsSection
             }
             .padding(.horizontal, 18)
-            .padding(.top, 10)
+            .padding(.top, 8)
             .padding(.bottom, 40)
         }
         .background(Color.sproutBackground.ignoresSafeArea())
         .animation(.snappy(duration: 0.25), value: tab)
-        .alert("Remove recurring item?", isPresented: Binding(
-            get: { pendingDeleteRecurringRule != nil },
-            set: { if !$0 { pendingDeleteRecurringRule = nil } }
-        ), presenting: pendingDeleteRecurringRule) { rule in
-            Button("Keep", role: .cancel) {}
-            Button("Remove", role: .destructive) {
-                store.removeRecurringRule(rule)
-                pendingDeleteRecurringRule = nil
+    }
+
+    private var dashboardHeader: some View {
+        HStack(spacing: 10) {
+            Text("Sprout")
+                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.sproutText)
+
+            Spacer()
+
+            Button {
+                onOpenSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .frame(width: 40, height: 40)
             }
-        } message: { rule in
-            Text("\(rule.name) will stop posting automatically.")
+            .buttonStyle(.glass)
+            .tint(Color.sproutCard)
+            .accessibilityLabel("Settings")
+
+            Menu {
+                Button("Start a new month", systemImage: "arrow.counterclockwise") {
+                    onStartNewMonth()
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.glass)
+            .tint(Color.sproutCard)
+            .accessibilityLabel("More")
         }
+        .frame(minHeight: 44)
     }
 
     private var primaryActions: some View {
@@ -168,69 +190,6 @@ struct BudgetDashboardView: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private var recurringSection: some View {
-        let recurringRules = store.recurringRules(for: tab)
-
-        if !recurringRules.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                sectionHeader("Recurring", detail: "\(recurringRules.count)")
-                    .padding(.bottom, 8)
-
-                ForEach(Array(recurringRules.enumerated()), id: \.element.id) { index, rule in
-                    recurringRuleRow(rule)
-
-                    if index < recurringRules.count - 1 {
-                        Divider()
-                            .padding(.leading, 54)
-                    }
-                }
-            }
-        }
-    }
-
-    private func recurringRuleRow(_ rule: RecurringTransactionRule) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "repeat")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(tab.accentDarkColor)
-                .frame(width: 40, height: 40)
-                .background(tab.accentLightColor, in: Circle())
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(rule.name)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.sproutText)
-                    .lineLimit(1)
-
-                Text("\(rule.frequency.shortTitle) · Next \(SproutDate.shortDate(rule.nextOccurrenceDate))")
-                    .font(.footnote)
-                    .foregroundStyle(Color.sproutTextMuted)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 10)
-
-            Text("\(rule.isRefund ? "+" : "−")\(SproutFormatters.currency(rule.amount))")
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(rule.isRefund ? Color.sageDark : Color.sproutText)
-
-            Menu {
-                Button(role: .destructive) {
-                    pendingDeleteRecurringRule = rule
-                } label: {
-                    Label("Remove recurring item", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.sproutTextMuted)
-                    .frame(width: 32, height: 32)
-            }
-        }
-        .padding(.vertical, 12)
     }
 
     private func sectionHeader(_ title: String, detail: String) -> some View {

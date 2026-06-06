@@ -16,6 +16,8 @@ struct ContentView: View {
             BudgetDashboardView(
                 tab: store.activeTab,
                 onEditBudget: { budgetEditorTab = store.activeTab },
+                onOpenSettings: { isShowingSettings = true },
+                onStartNewMonth: { store.needsMonthResetPrompt = true },
                 onRequestDeleteTransaction: { pendingDeleteTransaction = $0 },
                 onOpenTransaction: { mode, seed in
                     transactionSheet = TransactionSheetRequest(
@@ -26,27 +28,7 @@ struct ContentView: View {
                     )
                 }
             )
-            .navigationTitle("Sprout")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        isShowingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Settings")
-
-                    Menu {
-                        Button("Start a new month", systemImage: "arrow.counterclockwise") {
-                            store.needsMonthResetPrompt = true
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .accessibilityLabel("More")
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(item: $transactionSheet) { request in
             Group {
