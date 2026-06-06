@@ -27,22 +27,25 @@ struct ContentView: View {
                 }
             )
             .navigationTitle("Sprout")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Reset") {
-                        store.needsMonthResetPrompt = true
-                    }
-
                     Button {
                         isShowingSettings = true
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityLabel("Settings")
+
+                    Menu {
+                        Button("Start a new month", systemImage: "arrow.counterclockwise") {
+                            store.needsMonthResetPrompt = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .accessibilityLabel("More")
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                BottomTabBarView(selection: $store.activeTab)
             }
         }
         .sheet(item: $transactionSheet) { request in

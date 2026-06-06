@@ -22,190 +22,160 @@ struct QuickCaptureSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-
-                    if mode == .expense && tab == .personal {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Category")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.sproutTextMuted)
-                                .textCase(.uppercase)
-
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(store.categories(for: tab)) { category in
-                                        Button {
-                                            draft.selectedEmoji = category.emoji
-                                        } label: {
-                                            Text("\(category.emoji) \(category.label)")
-                                                .font(.subheadline.weight(.medium))
-                                                .foregroundStyle(draft.selectedEmoji == category.emoji ? Color.white : Color.sproutText)
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 8)
-                                                .background(
-                                                    Capsule()
-                                                        .fill(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutCard)
-                                                )
-                                                .overlay(
-                                                    Capsule()
-                                                        .stroke(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutBorder, lineWidth: 1)
-                                                )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("$")
-                                .font(.system(size: 24, weight: .medium, design: .rounded))
-                                .foregroundStyle(Color.sproutTextSecondary)
-
-                            TextField("0.00", text: $draft.amountText)
-                                .keyboardType(.decimalPad)
-                                .font(.system(size: 40, weight: .semibold, design: .rounded))
-                                .foregroundStyle(Color.sproutText)
-                                .focused($focusedField, equals: .amount)
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(Color.sproutCard)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(Color.sproutBorder, lineWidth: 1)
-                        )
-
-                        TextField(mode.prompt, text: $draft.name)
-                            .textInputAutocapitalization(.words)
-                            .focused($focusedField, equals: .name)
-                            .font(.headline)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.sproutCard)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.sproutBorder, lineWidth: 1)
-                            )
-
-                        TextField("Note (optional)", text: $draft.note)
-                            .focused($focusedField, equals: .note)
-                            .font(.subheadline)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.sproutCard)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.sproutBorder, lineWidth: 1)
-                            )
-                    }
-
-                    HStack(spacing: 12) {
-                        Label(tab.shortTitle, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color.sproutTextSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(Capsule().fill(Color.sproutCard))
-                            .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
-
-                        Spacer()
-
-                        DatePicker("", selection: $draft.date, displayedComponents: .date)
-                            .labelsHidden()
-                            .datePickerStyle(.compact)
-                    }
+                VStack(alignment: .leading, spacing: 20) {
+                    contextLabel
+                    amountField
+                    categoryPicker
+                    entryFields
+                    metadataRow
 
                     if let validationMessage {
-                        Text(validationMessage)
+                        Label(validationMessage, systemImage: "exclamationmark.circle.fill")
                             .font(.footnote.weight(.medium))
                             .foregroundStyle(Color.sproutRed)
                     }
                 }
                 .padding(20)
-                .padding(.bottom, 12)
             }
+            .background(Color.sproutBackground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
+                saveButton
+            }
+            .navigationTitle(mode == .payment ? "Quick payment" : "Quick expense")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .font(.headline)
-                    .foregroundStyle(Color.sproutTextSecondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.sproutCard)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.sproutBorder, lineWidth: 1)
-                    )
-                    .buttonStyle(.plain)
-
-                    Button {
-                        submit()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: mode.symbol)
-                            Text(mode == .payment ? "Save Payment" : "Save Expense")
-                        }
-                        .font(.headline)
-                        .foregroundStyle(Color.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(mode == .payment ? Color.sageDark : Color.sage)
-                        )
-                    }
-                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-                .background(.ultraThinMaterial)
             }
-            .background(Color.sproutBackground.ignoresSafeArea())
-            .navigationBarBackButtonHidden()
             .scrollDismissesKeyboard(.interactively)
-            .presentationDetents([.large])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
             .onAppear {
                 focusedField = .amount
             }
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(tab.icon)
-                    .font(.title2)
-                Text(mode == .payment ? "Quick Payment" : "Quick Add")
-                    .font(.system(.title3, design: .serif, weight: .semibold))
-                    .foregroundStyle(Color.sproutText)
-                Spacer()
-            }
+    private var contextLabel: some View {
+        Label(tab.shortTitle, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(tab.accentDarkColor)
+    }
 
-            Text("Opened from your shortcut so you can log it fast and move on.")
-                .font(.subheadline)
+    private var amountField: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("$")
+                .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.sproutTextSecondary)
+
+            TextField("0.00", text: $draft.amountText)
+                .keyboardType(.decimalPad)
+                .font(.system(size: 50, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.sproutText)
+                .focused($focusedField, equals: .amount)
+                .minimumScaleFactor(0.65)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var categoryPicker: some View {
+        if mode == .expense && tab == .personal {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(store.categories(for: tab)) { category in
+                        Button {
+                            draft.selectedEmoji = category.emoji
+                        } label: {
+                            Text(category.emoji)
+                                .font(.title3)
+                                .frame(width: 42, height: 42)
+                                .background(
+                                    draft.selectedEmoji == category.emoji ? tab.accentDarkColor : Color.sproutCard,
+                                    in: Circle()
+                                )
+                                .overlay(Circle().stroke(Color.sproutBorder, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(category.label)
+                        .accessibilityAddTraits(draft.selectedEmoji == category.emoji ? .isSelected : [])
+                    }
+                }
+            }
+        }
+    }
+
+    private var entryFields: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "text.cursor")
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .frame(width: 24)
+
+                TextField(mode.prompt, text: $draft.name)
+                    .textInputAutocapitalization(.words)
+                    .focused($focusedField, equals: .name)
+                    .font(.headline)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 15)
+
+            Divider()
+                .padding(.leading, 52)
+
+            HStack(spacing: 12) {
+                Image(systemName: "note.text")
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .frame(width: 24)
+
+                TextField("Note (optional)", text: $draft.note)
+                    .focused($focusedField, equals: .note)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 15)
+        }
+        .background(Color.sproutCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.sproutBorder, lineWidth: 1))
+    }
+
+    private var metadataRow: some View {
+        HStack {
+            Text(mode == .payment ? "Payment" : "Expense")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Color.sproutTextMuted)
+
+            Spacer()
+
+            DatePicker("", selection: $draft.date, displayedComponents: .date)
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .tint(tab.accentDarkColor)
+        }
+    }
+
+    private var saveButton: some View {
+        Button {
+            submit()
+        } label: {
+            Label(
+                mode == .payment ? "Save payment" : "Save expense",
+                systemImage: mode.symbol
+            )
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(tab.accentDarkColor)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .background(.bar)
     }
 
     private func submit() {

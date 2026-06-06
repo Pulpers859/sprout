@@ -23,76 +23,38 @@ struct TransactionEntrySheet: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-
-                    if mode == .expense && tab == .personal {
-                        VStack(alignment: .leading, spacing: 10) {
-                            sectionLabel("Category")
-
-                            FlowLayout(spacing: 8) {
-                                ForEach(store.categories(for: tab)) { category in
-                                    Button {
-                                        draft.selectedEmoji = category.emoji
-                                    } label: {
-                                        Text("\(category.emoji) \(category.label)")
-                                            .font(.subheadline.weight(.medium))
-                                            .foregroundStyle(draft.selectedEmoji == category.emoji ? Color.white : Color.sproutText)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 9)
-                                            .background(
-                                                Capsule()
-                                                    .fill(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutCard)
-                                            )
-                                            .overlay(
-                                                Capsule()
-                                                    .stroke(draft.selectedEmoji == category.emoji ? Color.sageDark : Color.sproutBorder, lineWidth: 1)
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-
+                VStack(alignment: .leading, spacing: 24) {
+                    amountField
+                    categoryPicker
                     composerFields
-
-                    HStack(spacing: 12) {
-                        Label(tab.shortTitle, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color.sproutTextSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(Capsule().fill(Color.sproutCard))
-                            .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
-
-                        Spacer()
-
-                        DatePicker("", selection: $draft.date, displayedComponents: .date)
-                            .labelsHidden()
-                            .datePickerStyle(.compact)
-                            .tint(.sageDark)
-                    }
-
+                    metadataRow
                     recurringSection
 
                     if let validationMessage {
-                        Text(validationMessage)
+                        Label(validationMessage, systemImage: "exclamationmark.circle.fill")
                             .font(.footnote.weight(.medium))
                             .foregroundStyle(Color.sproutRed)
                     }
                 }
                 .padding(20)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
             }
             .background(Color.sproutBackground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                actionBar
+                saveButton
+            }
+            .navigationTitle(mode.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
             }
             .scrollDismissesKeyboard(.interactively)
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
             .onAppear {
                 focusedField = .amount
             }
@@ -112,58 +74,101 @@ struct TransactionEntrySheet: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(tab.icon)
-                    .font(.title2)
-                Text(mode.title)
-                    .font(.system(.title3, design: .serif, weight: .semibold))
-                    .foregroundStyle(Color.sproutText)
-                Spacer()
-            }
+    private var amountField: some View {
+        VStack(spacing: 6) {
+            Text(mode == .payment ? "PAYMENT AMOUNT" : "EXPENSE AMOUNT")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Color.sproutTextMuted)
 
-            Text("Fast entry, clear fields, no wasted space.")
-                .font(.subheadline)
-                .foregroundStyle(Color.sproutTextSecondary)
-        }
-    }
-
-    private var composerFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("$")
-                    .font(.system(size: 24, weight: .medium, design: .rounded))
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.sproutTextSecondary)
 
                 TextField("0.00", text: $draft.amountText)
                     .keyboardType(.decimalPad)
-                    .font(.system(size: 40, weight: .semibold, design: .rounded))
+                    .font(.system(size: 52, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.sproutText)
                     .focused($focusedField, equals: .amount)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.65)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Color.sproutCard)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(Color.sproutBorder, lineWidth: 1)
-            )
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 12)
+    }
 
-            composerField(mode.prompt, text: $draft.name, field: .name)
-            composerField("Note (optional)", text: $draft.note, field: .note)
+    @ViewBuilder
+    private var categoryPicker: some View {
+        if mode == .expense && tab == .personal {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionLabel("Category")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(store.categories(for: tab)) { category in
+                            Button {
+                                draft.selectedEmoji = category.emoji
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(category.emoji)
+                                    Text(category.label)
+                                }
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(draft.selectedEmoji == category.emoji ? Color.white : Color.sproutText)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .background(
+                                    draft.selectedEmoji == category.emoji ? tab.accentDarkColor : Color.sproutCard,
+                                    in: Capsule()
+                                )
+                                .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var composerFields: some View {
+        VStack(spacing: 0) {
+            composerField(mode.prompt, text: $draft.name, field: .name, symbol: "text.cursor")
+
+            Divider()
+                .padding(.leading, 52)
+
+            composerField("Note (optional)", text: $draft.note, field: .note, symbol: "note.text")
+        }
+        .background(Color.sproutCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.sproutBorder, lineWidth: 1))
+    }
+
+    private var metadataRow: some View {
+        HStack(spacing: 10) {
+            Label(tab.shortTitle, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tab.accentDarkColor)
+
+            Spacer()
+
+            DatePicker("", selection: $draft.date, displayedComponents: .date)
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .tint(tab.accentDarkColor)
         }
     }
 
     private var recurringSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Recurring")
-                    Text("Set it once and Sprout will add future entries automatically.")
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Recurring")
+                        .font(.headline)
+                        .foregroundStyle(Color.sproutText)
+
+                    Text("Add future entries automatically")
                         .font(.footnote)
                         .foregroundStyle(Color.sproutTextMuted)
                 }
@@ -172,11 +177,11 @@ struct TransactionEntrySheet: View {
 
                 Toggle("", isOn: $draft.isRecurring)
                     .labelsHidden()
-                    .tint(.sageDark)
+                    .tint(tab.accentDarkColor)
             }
 
             if draft.isRecurring {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
                     Picker("Frequency", selection: $draft.recurringFrequency) {
                         ForEach(RecurrenceFrequency.allCases) { frequency in
                             Text(frequency.shortTitle)
@@ -186,7 +191,7 @@ struct TransactionEntrySheet: View {
                     .pickerStyle(.segmented)
 
                     HStack {
-                        Label("Next due", systemImage: "repeat")
+                        Label("Next due", systemImage: "calendar")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(Color.sproutTextSecondary)
 
@@ -206,82 +211,61 @@ struct TransactionEntrySheet: View {
                         )
                         .labelsHidden()
                         .datePickerStyle(.compact)
-                        .tint(.sageDark)
+                        .tint(tab.accentDarkColor)
                     }
-
-                    Text("\(draft.recurringFrequency.title) starting \(SproutDate.shortDate(draft.recurringNextDate)).")
-                        .font(.footnote)
-                        .foregroundStyle(Color.sproutTextMuted)
                 }
                 .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.sproutCard)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.sproutBorder, lineWidth: 1)
-                )
+                .background(tab.accentLightColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .animation(.snappy(duration: 0.25), value: draft.isRecurring)
     }
 
-    private var actionBar: some View {
-        HStack(spacing: 10) {
-            pillButton("Cancel", foreground: .sproutTextSecondary, background: .sproutCard, border: .sproutBorder) {
-                dismiss()
-            }
-
-            pillButton(mode == .payment ? "Save Payment" : "Save Expense", foreground: .white, background: .sageDark, border: .sageDark) {
-                submit()
-            }
+    private var saveButton: some View {
+        Button {
+            submit()
+        } label: {
+            Label(
+                mode == .payment ? "Save payment" : "Save expense",
+                systemImage: mode.symbol
+            )
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
         }
+        .buttonStyle(.glassProminent)
+        .tint(tab.accentDarkColor)
         .padding(.horizontal, 20)
-        .padding(.top, 12)
+        .padding(.top, 10)
         .padding(.bottom, 12)
-        .background(.ultraThinMaterial)
+        .background(.bar)
     }
 
-    private func composerField(_ title: String, text: Binding<String>, field: Field) -> some View {
-        TextField(title, text: text)
-            .textInputAutocapitalization(.words)
-            .font(field == .name ? .headline : .subheadline)
-            .foregroundStyle(Color.sproutText)
-            .focused($focusedField, equals: field)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.sproutCard)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.sproutBorder, lineWidth: 1)
-            )
-    }
+    private func composerField(
+        _ title: String,
+        text: Binding<String>,
+        field: Field,
+        symbol: String
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .foregroundStyle(Color.sproutTextMuted)
+                .frame(width: 24)
 
-    private func pillButton(_ title: String, foreground: Color, background: Color, border: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(foreground)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(background)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(border, lineWidth: 1)
-                )
+            TextField(title, text: text)
+                .textInputAutocapitalization(.words)
+                .font(field == .name ? .headline : .subheadline)
+                .foregroundStyle(Color.sproutText)
+                .focused($focusedField, equals: field)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 15)
     }
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .font(.caption.weight(.bold))
             .foregroundStyle(Color.sproutTextMuted)
             .textCase(.uppercase)
     }

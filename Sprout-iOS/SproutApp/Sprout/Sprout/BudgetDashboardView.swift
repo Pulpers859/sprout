@@ -13,88 +13,27 @@ struct BudgetDashboardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
+            LazyVStack(alignment: .leading, spacing: 26) {
+                BudgetScopePicker(selection: $store.activeTab)
+
                 SummaryCardView(tab: tab, onEditBudget: onEditBudget)
 
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isShowingCalendar.toggle()
-                        if !isShowingCalendar {
-                            store.selectedCalendarDate = nil
-                        }
-                    }
-                } label: {
-                    Label(isShowingCalendar ? "Hide calendar" : "View calendar", systemImage: "calendar")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(isShowingCalendar ? Color.sageDark : Color.sproutTextSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(isShowingCalendar ? Color.sageLight : Color.sproutCard)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(isShowingCalendar ? Color.sage : Color.sproutBorder, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
+                primaryActions
 
-                if isShowingCalendar {
-                    CalendarCardView(tab: tab)
-                }
+                quickAddSection
 
-                if !store.recentTransactions(for: tab).isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Quick Add")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.sproutTextMuted)
-                            .textCase(.uppercase)
-
-                        FlowLayout(spacing: 8) {
-                            ForEach(store.recentTransactions(for: tab)) { entry in
-                                Button {
-                                    onOpenTransaction(.expense, entry)
-                                } label: {
-                                    Text("\(entry.emoji) \(entry.name)")
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.sproutText)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 9)
-                                        .background(Capsule().fill(Color.sproutCard))
-                                        .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        onOpenTransaction(.expense, nil)
-                    } label: {
-                        QuickActionButtonLabel(title: "Add expense", symbol: "plus")
-                    }
-
-                    Button {
-                        onOpenTransaction(.payment, nil)
-                    } label: {
-                        QuickActionButtonLabel(title: "Add payment", symbol: "arrow.uturn.backward")
-                    }
-                }
-                .buttonStyle(.plain)
+                monthActivitySection
 
                 recurringSection
 
                 transactionsSection
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 100)
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .padding(.bottom, 40)
         }
         .background(Color.sproutBackground.ignoresSafeArea())
+        .animation(.snappy(duration: 0.25), value: tab)
         .alert("Remove recurring item?", isPresented: Binding(
             get: { pendingDeleteRecurringRule != nil },
             set: { if !$0 { pendingDeleteRecurringRule = nil } }
@@ -109,43 +48,122 @@ struct BudgetDashboardView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(tab.title)
-                        .font(.system(.title2, design: .serif, weight: .semibold))
-                        .foregroundStyle(Color.sproutText)
+    private var primaryActions: some View {
+        HStack(spacing: 12) {
+            Button {
+                onOpenTransaction(.expense, nil)
+            } label: {
+                Label("Add expense", systemImage: "plus")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(tab.accentDarkColor)
 
-                    Text(store.currentMonthLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            Button {
+                onOpenTransaction(.payment, nil)
+            } label: {
+                Label("Payment", systemImage: "arrow.uturn.backward")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.glass)
+            .tint(tab.accentColor)
+        }
+    }
+
+    @ViewBuilder
+    private var quickAddSection: some View {
+        let recent = store.recentTransactions(for: tab)
+
+        if !recent.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader("Repeat", detail: "Recent purchases")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 9) {
+                        ForEach(recent) { entry in
+                            Button {
+                                onOpenTransaction(.expense, entry)
+                            } label: {
+                                HStack(spacing: 7) {
+                                    Text(entry.emoji)
+                                    Text(entry.name)
+                                        .lineLimit(1)
+                                }
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Color.sproutText)
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 10)
+                                .background(Color.sproutCard, in: Capsule())
+                                .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
+                .contentMargins(.horizontal, 1, for: .scrollContent)
+            }
+        }
+    }
 
-                Spacer()
+    private var monthActivitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.snappy(duration: 0.3)) {
+                    isShowingCalendar.toggle()
+                    if !isShowingCalendar {
+                        store.selectedCalendarDate = nil
+                    }
+                }
+            } label: {
+                HStack {
+                    sectionHeader("This month", detail: store.currentMonthLabel)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.sproutTextMuted)
+                        .rotationEffect(.degrees(isShowingCalendar ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isShowingCalendar {
+                CalendarCardView(tab: tab)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
 
     private var transactionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Transactions")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.sproutTextMuted)
-                .textCase(.uppercase)
+        let transactions = store.transactions(for: tab)
 
-            let transactions = store.transactions(for: tab)
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader("Transactions", detail: "\(transactions.count)")
+                .padding(.bottom, 8)
 
             if transactions.isEmpty {
-                Text(tab.emptyStateMessage)
-                    .font(.body)
-                    .foregroundStyle(Color.sproutTextMuted)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 36)
+                ContentUnavailableView(
+                    "No transactions yet",
+                    systemImage: "list.bullet.rectangle",
+                    description: Text("Add your first \(tab.shortTitle.lowercased()) expense to start tracking this month.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
             } else {
-                ForEach(transactions, id: \.id) { entry in
+                ForEach(Array(transactions.enumerated()), id: \.element.id) { index, entry in
                     TransactionRowView(entry: entry) {
                         onRequestDeleteTransaction(entry)
+                    }
+
+                    if index < transactions.count - 1 {
+                        Divider()
+                            .padding(.leading, 54)
                     }
                 }
             }
@@ -157,114 +175,73 @@ struct BudgetDashboardView: View {
         let recurringRules = store.recurringRules(for: tab)
 
         if !recurringRules.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Recurring")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.sproutTextMuted)
-                    .textCase(.uppercase)
+            VStack(alignment: .leading, spacing: 0) {
+                sectionHeader("Recurring", detail: "\(recurringRules.count)")
+                    .padding(.bottom, 8)
 
-                ForEach(recurringRules) { rule in
+                ForEach(Array(recurringRules.enumerated()), id: \.element.id) { index, rule in
                     recurringRuleRow(rule)
+
+                    if index < recurringRules.count - 1 {
+                        Divider()
+                            .padding(.leading, 54)
+                    }
                 }
             }
         }
     }
 
     private func recurringRuleRow(_ rule: RecurringTransactionRule) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: "repeat")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.sageDark)
-                .frame(width: 42, height: 42)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.sageLight)
-                )
+                .foregroundStyle(tab.accentDarkColor)
+                .frame(width: 40, height: 40)
+                .background(tab.accentLightColor, in: Circle())
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(rule.name)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(Color.sproutText)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(rule.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.sproutText)
+                    .lineLimit(1)
 
-                    Spacer()
+                Text("\(rule.frequency.shortTitle) · Next \(SproutDate.shortDate(rule.nextOccurrenceDate))")
+                    .font(.footnote)
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .lineLimit(1)
+            }
 
-                    Text("\(rule.isRefund ? "+" : "−")\(SproutFormatters.currency(rule.amount))")
-                        .font(.system(.subheadline, design: .monospaced, weight: .semibold))
-                        .foregroundStyle(rule.isRefund ? Color.sageDark : Color.sproutText)
+            Spacer(minLength: 10)
+
+            Text("\(rule.isRefund ? "+" : "−")\(SproutFormatters.currency(rule.amount))")
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(rule.isRefund ? Color.sageDark : Color.sproutText)
+
+            Menu {
+                Button(role: .destructive) {
+                    pendingDeleteRecurringRule = rule
+                } label: {
+                    Label("Remove recurring item", systemImage: "trash")
                 }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .padding(.vertical, 12)
+    }
 
-                HStack(spacing: 6) {
-                    Text(rule.frequency.title)
-                    Text("•")
-                    Text("Next \(SproutDate.shortDate(rule.nextOccurrenceDate))")
-                }
+    private func sectionHeader(_ title: String, detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(Color.sproutText)
+
+            Text(detail)
                 .font(.footnote)
                 .foregroundStyle(Color.sproutTextMuted)
-
-                if !rule.note.isEmpty {
-                    Text(rule.note)
-                        .font(.footnote)
-                        .foregroundStyle(Color.sproutTextMuted)
-                }
-            }
-
-            Button {
-                pendingDeleteRecurringRule = rule
-            } label: {
-                Image(systemName: "trash")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.sproutTextMuted)
-                    .padding(8)
-                    .background(Circle().fill(Color.sproutCardSoft))
-            }
-            .buttonStyle(.plain)
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.sproutCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
-    }
-}
-
-private struct QuickActionButtonLabel: View {
-    let title: String
-    let symbol: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.sproutCard.opacity(0.22))
-                    .frame(width: 32, height: 32)
-
-                Image(systemName: symbol)
-                    .font(.subheadline.weight(.bold))
-            }
-
-            Text(title)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(Color.white)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.sageDark, Color.sage],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        )
-        .shadow(color: Color.sageDark.opacity(0.18), radius: 12, x: 0, y: 8)
     }
 }

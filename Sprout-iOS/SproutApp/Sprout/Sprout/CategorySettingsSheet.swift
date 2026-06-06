@@ -6,47 +6,28 @@ struct CategorySettingsSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Personal Categories")
-                            .font(.system(.title3, design: .serif, weight: .semibold))
-                            .foregroundStyle(Color.sproutText)
-
-                        Text("Choose a clean icon from the built-in picker so every category stays readable and consistent.")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.sproutTextSecondary)
+            Form {
+                Section {
+                    ForEach(store.categories(for: .personal)) { category in
+                        CategoryRow(category: category)
                     }
+                } header: {
+                    Text("Personal spending")
+                } footer: {
+                    Text("Tap an icon to change it. Categories are available when adding personal expenses.")
+                }
 
-                    VStack(spacing: 10) {
-                        ForEach(store.categories(for: .personal)) { category in
-                            CategoryRow(category: category)
-                        }
-                    }
-
-                    if store.categories(for: .personal).count < 10 {
-                        Button {
+                if store.categories(for: .personal).count < 10 {
+                    Section {
+                        Button("Add category", systemImage: "plus") {
                             store.addCategory()
-                        } label: {
-                            Label("Add category", systemImage: "plus")
-                                .font(.headline)
-                                .foregroundStyle(Color.sageDark)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .fill(Color.sageMist)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(Color.sage.opacity(0.45), lineWidth: 1)
-                                )
                         }
-                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.sageDark)
                     }
                 }
-                .padding(20)
             }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             .background(Color.sproutBackground.ignoresSafeArea())
             .navigationTitle("Categories")
             .navigationBarTitleDisplayMode(.inline)
@@ -76,15 +57,8 @@ private struct CategoryRow: View {
             } label: {
                 Text(category.emoji)
                     .font(.title3)
-                    .frame(width: 52, height: 52)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.sproutCardSoft)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.sproutBorder, lineWidth: 1)
-                    )
+                    .frame(width: 40, height: 40)
+                    .background(Color.sproutCardSoft, in: Circle())
             }
             .buttonStyle(.plain)
             .sheet(isPresented: $isShowingEmojiPicker) {
@@ -107,25 +81,15 @@ private struct CategoryRow: View {
                 }
 
             if store.categories(for: .personal).count > 1 {
-                Button {
+                Button(role: .destructive) {
                     store.removeCategory(category)
                 } label: {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color.sproutRed)
+                    Image(systemName: "minus.circle")
+                        .font(.body)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.sproutCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
         .onDisappear {
             store.updateCategory(category)
         }

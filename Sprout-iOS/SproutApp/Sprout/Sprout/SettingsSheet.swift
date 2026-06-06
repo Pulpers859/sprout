@@ -14,29 +14,24 @@ struct SettingsSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
-                    settingsSectionTitle(
-                        title: "Organize",
-                        subtitle: "Keep your categories tidy and easy to recognize."
-                    )
-
+            Form {
+                Section {
                     Button {
                         isShowingCategorySettings = true
                     } label: {
                         SettingsRow(
                             symbol: "square.grid.2x2",
                             title: "Manage Categories",
-                            subtitle: "Edit names and choose icons for personal spending."
+                            subtitle: "Names and icons for personal spending",
+                            tint: .sageDark
                         )
                     }
                     .buttonStyle(.plain)
+                } header: {
+                    Text("Organize")
+                }
 
-                    settingsSectionTitle(
-                        title: "History",
-                        subtitle: "Reference the last two closed months without mixing them into your current budget."
-                    )
-
+                Section {
                     Button {
                         isShowingRecentMonths = true
                     } label: {
@@ -44,43 +39,48 @@ struct SettingsSheet: View {
                             symbol: "clock.arrow.circlepath",
                             title: "Recent Months",
                             subtitle: store.archivedMonths.isEmpty
-                                ? "Closed months will appear here after you reset into a new month."
-                                : "Review your last \(store.archivedMonths.count) closed month\(store.archivedMonths.count == 1 ? "" : "s")."
+                                ? "Closed months appear after a reset"
+                                : "\(store.archivedMonths.count) closed month\(store.archivedMonths.count == 1 ? "" : "s") available",
+                            tint: .sproutBlue
+                        )
+                    }
+                    .buttonStyle(.plain)
+                } header: {
+                    Text("History")
+                }
+
+                Section {
+                    Button {
+                        exportBackup()
+                    } label: {
+                        SettingsRow(
+                            symbol: "square.and.arrow.up",
+                            title: "Export Backup",
+                            subtitle: "Save a portable copy of your data",
+                            tint: .sproutAmber
                         )
                     }
                     .buttonStyle(.plain)
 
-                    settingsSectionTitle(
-                        title: "Backup",
-                        subtitle: "Export a copy of your budget data or restore from a previous backup."
-                    )
-
-                    VStack(spacing: 12) {
-                        Button {
-                            exportBackup()
-                        } label: {
-                            SettingsRow(
-                                symbol: "square.and.arrow.up",
-                                title: "Export Backup",
-                                subtitle: "Save a JSON backup to Files or another destination."
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            isImportingBackup = true
-                        } label: {
-                            SettingsRow(
-                                symbol: "square.and.arrow.down",
-                                title: "Import Backup",
-                                subtitle: "Restore your budget data from a previous Sprout backup."
-                            )
-                        }
-                        .buttonStyle(.plain)
+                    Button {
+                        isImportingBackup = true
+                    } label: {
+                        SettingsRow(
+                            symbol: "square.and.arrow.down",
+                            title: "Import Backup",
+                            subtitle: "Restore a previous Sprout backup",
+                            tint: .sproutAmber
+                        )
                     }
+                    .buttonStyle(.plain)
+                } header: {
+                    Text("Backup")
+                } footer: {
+                    Text("Backups include budgets, transactions, recurring entries, categories, and recent month history.")
                 }
-                .padding(20)
             }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             .background(Color.sproutBackground.ignoresSafeArea())
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -146,7 +146,7 @@ struct SettingsSheet: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
@@ -189,18 +189,6 @@ struct SettingsSheet: View {
         }
     }
 
-    private func settingsSectionTitle(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(.title3, design: .serif, weight: .semibold))
-                .foregroundStyle(Color.sproutText)
-
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(Color.sproutTextSecondary)
-        }
-    }
-
     private func dateStamp(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = .current
@@ -219,27 +207,24 @@ private struct SettingsRow: View {
     let symbol: String
     let title: String
     let subtitle: String
+    let tint: Color
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.sageMist)
-                    .frame(width: 48, height: 48)
-
-                Image(systemName: symbol)
-                    .font(.headline)
-                    .foregroundStyle(Color.sageDark)
-            }
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: 32, height: 32)
+                .background(tint, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.headline)
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Color.sproutText)
 
                 Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.sproutTextSecondary)
+                    .font(.footnote)
+                    .foregroundStyle(Color.sproutTextMuted)
                     .multilineTextAlignment(.leading)
             }
 
@@ -249,16 +234,7 @@ private struct SettingsRow: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Color.sproutTextMuted)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.sproutCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
-        .shadow(color: Color.sproutShadow, radius: 14, x: 0, y: 8)
+        .contentShape(Rectangle())
     }
 }
 
@@ -359,15 +335,8 @@ private struct ArchivedMonthRow: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.sproutCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
-        .shadow(color: Color.sproutShadow, radius: 12, x: 0, y: 8)
+        .background(Color.sproutCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.sproutBorder, lineWidth: 1))
     }
 }
 
@@ -388,10 +357,7 @@ private struct ArchivedMonthBudgetPill: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.sproutCardSoft)
-        )
+        .background(Color.sproutCardSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -509,14 +475,8 @@ private struct ArchivedMetricCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.sproutCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
+        .background(Color.sproutCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.sproutBorder, lineWidth: 1))
     }
 }
 
@@ -527,11 +487,8 @@ private struct ArchivedTransactionRow: View {
         HStack(alignment: .top, spacing: 12) {
             Text(entry.isRefund ? "💸" : entry.emoji)
                 .font(.title3)
-                .frame(width: 42, height: 42)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.sproutCardSoft)
-                )
+                .frame(width: 40, height: 40)
+                .background(Color.sproutCardSoft, in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
@@ -562,14 +519,6 @@ private struct ArchivedTransactionRow: View {
                 .foregroundStyle(Color.sproutTextMuted)
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.sproutCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
+        .padding(.vertical, 10)
     }
 }

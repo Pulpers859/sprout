@@ -15,110 +15,125 @@ struct SummaryCardView: View {
         let dailyAllowance = store.dailyAllowance(for: tab)
         let carryover = store.carryover(for: tab)
 
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 22) {
             HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(remaining < 0 ? "OVER BUDGET" : "AVAILABLE")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.white.opacity(0.68))
+
+                    Text(SproutFormatters.currency(abs(remaining)))
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color.white)
+                        .contentTransition(.numericText())
+                        .minimumScaleFactor(0.72)
+                }
+
                 Spacer()
 
                 Button {
                     onEditBudget()
                 } label: {
-                    HStack(spacing: 6) {
-                        Text("Budget: \(SproutFormatters.currency(store.budget(for: tab)))")
-                        Image(systemName: "square.and.pencil")
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 42, height: 42)
+                }
+                .buttonStyle(.glass)
+                .tint(Color.white.opacity(0.16))
+                .accessibilityLabel("Edit \(tab.shortTitle.lowercased()) budget")
+            }
+
+            VStack(spacing: 9) {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.16))
+
+                        Capsule()
+                            .fill(Color.white.opacity(0.9))
+                            .frame(width: geometry.size.width * progress)
+
+                        Rectangle()
+                            .fill(Color.sproutAmber)
+                            .frame(width: 2, height: 16)
+                            .offset(x: max(0, (geometry.size.width * paceProgress) - 1))
                     }
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(Color.sproutTextSecondary)
                 }
-                .buttonStyle(.plain)
-            }
+                .frame(height: 8)
 
-            if carryover > 0 {
                 HStack {
+                    Text("\(SproutFormatters.currency(spent)) spent")
                     Spacer()
-                    Text("Includes \(SproutFormatters.currency(carryover)) carried over from last month")
-                        .font(.caption)
-                        .foregroundStyle(Color.sproutTextMuted)
+                    Text("\(SproutFormatters.currency(store.budget(for: tab))) budget")
                 }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.white.opacity(0.72))
             }
 
-            HStack {
-                Text("\(SproutFormatters.currency(spent)) spent")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.sproutTextSecondary)
+            Divider()
+                .overlay(Color.white.opacity(0.16))
+
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(
+                        dailyAllowance < 0
+                        ? "Daily overage"
+                        : "Daily allowance · \(SproutDate.daysLeftInMonth()) days left"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(Color.white.opacity(0.62))
+
+                    Text("\(SproutFormatters.currency(abs(dailyAllowance)))/day")
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                        .foregroundStyle(Color.white)
+                }
 
                 Spacer()
 
-                Text(
-                    remaining < 0
-                    ? "Over by \(SproutFormatters.currency(abs(remaining)))"
-                    : "\(SproutFormatters.currency(remaining)) left"
-                )
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(remaining < 0 ? Color.sproutRed : Color.sageDark)
-            }
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(statusColor(for: paceStatus))
+                        .frame(width: 7, height: 7)
 
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.sproutTrack)
-                    Capsule()
-                        .fill(Color.sproutPace)
-                        .frame(width: geometry.size.width * paceProgress)
-                    Capsule()
-                        .fill(progressColor(for: paceStatus))
-                        .frame(width: geometry.size.width * progress)
+                    Text(statusTitle(for: paceStatus))
+                        .font(.caption.weight(.semibold))
                 }
+                .foregroundStyle(Color.white.opacity(0.82))
             }
-            .frame(height: 10)
 
-            VStack(spacing: 4) {
-                Text(SproutFormatters.currency(remaining))
-                    .font(.system(size: 30, weight: .semibold, design: .rounded))
-                    .foregroundStyle(remaining < 0 ? Color.sproutRed : Color.sproutText)
-
-                Text("remaining")
-                    .font(.footnote)
-                    .foregroundStyle(Color.sproutTextMuted)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 4)
-
-            VStack(spacing: 4) {
-                Text("\(SproutFormatters.currency(abs(dailyAllowance)))/day")
-                    .font(.system(.subheadline, design: .monospaced, weight: .semibold))
-                    .foregroundStyle(dailyAllowance < 0 ? Color.sproutRed : Color.sageDark)
-
-                Text(
-                    dailyAllowance < 0
-                    ? "over budget"
-                    : "for the next \(SproutDate.daysLeftInMonth()) day\(SproutDate.daysLeftInMonth() == 1 ? "" : "s")"
+            if carryover > 0 {
+                Label(
+                    "\(SproutFormatters.currency(carryover)) carried over",
+                    systemImage: "arrow.turn.down.right"
                 )
-                .font(.footnote)
-                .foregroundStyle(Color.sproutTextMuted)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.white.opacity(0.68))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 4)
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.03), radius: 10, x: 0, y: 4)
+        .padding(22)
+        .background(tab.accentDarkColor, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: tab.accentDarkColor.opacity(0.2), radius: 18, x: 0, y: 10)
     }
 
-    private func progressColor(for status: SpendingPaceStatus) -> Color {
+    private func statusColor(for status: SpendingPaceStatus) -> Color {
         switch status {
         case .belowPace:
-            .sage
+            .white
         case .onPace:
             .sproutAmber
         case .aheadOfPace:
-            .sproutRed
+            Color(red: 1, green: 0.55, blue: 0.55)
+        }
+    }
+
+    private func statusTitle(for status: SpendingPaceStatus) -> String {
+        switch status {
+        case .belowPace:
+            "Below pace"
+        case .onPace:
+            "On pace"
+        case .aheadOfPace:
+            "Above pace"
         }
     }
 }

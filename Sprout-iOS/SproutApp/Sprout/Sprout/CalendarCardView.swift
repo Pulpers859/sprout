@@ -16,11 +16,6 @@ struct CalendarCardView: View {
         let grouped = Dictionary(grouping: store.transactions(for: tab), by: { SproutDate.dayKey(for: $0.date) })
 
         VStack(alignment: .leading, spacing: 14) {
-            Text(SproutDate.monthYearTitle())
-                .font(.system(.headline, design: .serif, weight: .semibold))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .foregroundStyle(Color.sproutText)
-
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(weekdaySymbols, id: \.self) { day in
                     Text(day.uppercased())
@@ -43,15 +38,7 @@ struct CalendarCardView: View {
                 selectedDayDetail(selected, grouped: grouped)
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.sproutBorder, lineWidth: 1)
-        )
+        .padding(.vertical, 6)
     }
 
     private func netSpending(for entries: [TransactionEntry]) -> Double {
@@ -88,11 +75,11 @@ struct CalendarCardView: View {
             .frame(height: 46)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.sageLight : (entries.isEmpty ? .clear : Color.sproutChip))
+                    .fill(isSelected ? tab.accentLightColor : (entries.isEmpty ? .clear : Color.sproutChip))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.sage : (isToday ? Color.sproutAmber : .clear), lineWidth: isSelected || isToday ? 2 : 0)
+                    .stroke(isSelected ? tab.accentColor : (isToday ? Color.sproutAmber : .clear), lineWidth: isSelected || isToday ? 2 : 0)
             )
         }
         .buttonStyle(.plain)
@@ -142,10 +129,6 @@ struct CalendarCardView: View {
                 }
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.sproutChip)
-        )
+        .padding(.top, 4)
     }
 }
