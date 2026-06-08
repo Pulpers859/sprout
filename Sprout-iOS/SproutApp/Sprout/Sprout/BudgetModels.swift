@@ -138,13 +138,6 @@ struct PersonalCategory: Codable, Hashable, Identifiable {
         .init(emoji: "🚗", label: "Gas")
     ]
 
-    static let emojiOptions: [String] = [
-        "🛍️", "🎁", "💄", "🍕", "🚗", "☕", "🍔", "🎬", "🎮", "💊",
-        "🏥", "✂️", "🐕", "🐈", "🏠", "🔧", "📱", "💻", "📚", "🎵",
-        "✈️", "🏋️", "🧹", "👕", "👟", "🎨", "🌮", "🍺", "🍷", "🧃",
-        "🛒", "💡", "📦", "🎲", "🪴", "🧴", "💇", "🎂", "🎉", "⛽",
-        "🚌", "🚕", "🅿️", "💰", "🏦", "📝", "🔑", "🧊", "🍿", "🎧"
-    ]
 }
 
 struct TransactionEntry: Codable, Hashable, Identifiable {

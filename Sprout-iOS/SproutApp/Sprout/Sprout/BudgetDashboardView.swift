@@ -49,10 +49,14 @@ struct BudgetDashboardView: View {
                 onOpenSettings()
             } label: {
                 Image(systemName: "gearshape")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.sproutText)
                     .frame(width: 40, height: 40)
+                    .background(Color.sproutCard, in: Circle())
+                    .overlay(Circle().stroke(Color.sproutBorderDark, lineWidth: 1))
+                    .shadow(color: Color.sproutShadow, radius: 6, y: 3)
             }
-            .buttonStyle(.glass)
-            .tint(Color.sproutCard)
+            .buttonStyle(.plain)
             .accessibilityLabel("Settings")
 
             Menu {
@@ -61,10 +65,14 @@ struct BudgetDashboardView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(Color.sproutText)
                     .frame(width: 40, height: 40)
+                    .background(Color.sproutCard, in: Circle())
+                    .overlay(Circle().stroke(Color.sproutBorderDark, lineWidth: 1))
+                    .shadow(color: Color.sproutShadow, radius: 6, y: 3)
             }
-            .buttonStyle(.glass)
-            .tint(Color.sproutCard)
+            .buttonStyle(.plain)
             .accessibilityLabel("More")
         }
         .frame(minHeight: 44)

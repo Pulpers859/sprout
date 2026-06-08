@@ -101,67 +101,44 @@ private struct EmojiPickerSheet: View {
     @Binding var selectedEmoji: String
     @State private var customEmoji = ""
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 5)
-
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Use any emoji")
-                            .font(.headline)
-                            .foregroundStyle(Color.sproutText)
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Switch to the emoji keyboard, search for an icon, and enter one emoji.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.sproutTextSecondary)
 
-                        HStack(spacing: 10) {
-                            TextField("Enter one emoji", text: $customEmoji)
-                                .font(.title2)
-                                .textFieldStyle(.roundedBorder)
-                                .onChange(of: customEmoji) { _, newValue in
-                                    let firstCharacter = newValue.first.map(String.init) ?? ""
-                                    if firstCharacter != newValue {
-                                        customEmoji = firstCharacter
-                                    }
-                                }
-
-                            Button("Use") {
-                                selectedEmoji = customEmoji
-                                dismiss()
+                HStack(spacing: 12) {
+                    TextField("Emoji", text: $customEmoji)
+                        .font(.system(size: 36))
+                        .multilineTextAlignment(.center)
+                        .frame(width: 76, height: 64)
+                        .background(Color.sproutCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.sproutBorderDark, lineWidth: 1)
+                        )
+                        .onChange(of: customEmoji) { _, newValue in
+                            let firstCharacter = newValue.first.map(String.init) ?? ""
+                            if firstCharacter != newValue {
+                                customEmoji = firstCharacter
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Color.sageDark)
-                            .disabled(customEmoji.isEmpty)
                         }
 
-                        Text("Switch to the emoji keyboard and enter one symbol.")
-                            .font(.footnote)
-                            .foregroundStyle(Color.sproutTextMuted)
+                    Button("Use Emoji") {
+                        selectedEmoji = customEmoji
+                        dismiss()
                     }
-
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(PersonalCategory.emojiOptions, id: \.self) { emoji in
-                            Button {
-                                selectedEmoji = emoji
-                                dismiss()
-                            } label: {
-                                Text(emoji)
-                                    .font(.system(size: 28))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 56)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .fill(selectedEmoji == emoji ? Color.sageLight : Color.sproutCardSoft)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .stroke(selectedEmoji == emoji ? Color.sage : Color.sproutBorder, lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.sageDark)
+                    .disabled(customEmoji.isEmpty)
                 }
-                .padding(20)
             }
+            .padding(20)
+            .frame(maxHeight: .infinity, alignment: .top)
             .background(Color.sproutBackground.ignoresSafeArea())
             .navigationTitle("Choose Icon")
             .navigationBarTitleDisplayMode(.inline)
@@ -172,6 +149,9 @@ private struct EmojiPickerSheet: View {
                     }
                     .foregroundStyle(Color.sageDark)
                 }
+            }
+            .onAppear {
+                customEmoji = selectedEmoji
             }
         }
     }

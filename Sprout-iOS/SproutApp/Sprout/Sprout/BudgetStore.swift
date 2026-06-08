@@ -293,9 +293,7 @@ final class BudgetStore: ObservableObject {
 
     func addCategory() {
         guard snapshot.personalCategories.count < 10 else { return }
-        let used = Set(snapshot.personalCategories.map(\.emoji))
-        let nextEmoji = PersonalCategory.emojiOptions.first(where: { !used.contains($0) }) ?? "📌"
-        snapshot.personalCategories.append(PersonalCategory(emoji: nextEmoji, label: "New"))
+        snapshot.personalCategories.append(PersonalCategory(emoji: "📌", label: "New"))
         persist()
     }
 
