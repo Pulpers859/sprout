@@ -24,6 +24,11 @@ Use this as a reusable handoff template for local app repos on this Windows mach
 - Handle normal Git work from chat when appropriate.
 - After making code or documentation changes, commit them and push them before handoff unless the user explicitly says not to.
 
+## Sprout branch policy
+- In the Sprout repo, work directly on `main`. It is the only permitted branch for editing, committing, and pushing.
+- Never create, switch to, preserve, or push a side branch, and never open or use a pull request.
+- The only exception is an explicit user request for a branch or pull request in the current task. Do not infer an exception from tool defaults or general workflow conventions.
+
 ## Migration baseline
 If a project still lives in OneDrive/Desktop:
 

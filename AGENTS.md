@@ -19,7 +19,7 @@ Practical constraints in this workspace:
 
 - The source-of-truth repo is `C:\Dev\Sprout`; the older OneDrive/Desktop copy should be treated as stale unless explicitly needed.
 - The buildable iOS project now lives at `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`.
-- Normal Git work for this repo happens on `main`; do not create or preserve a redundant `dev` branch unless explicitly asked.
+- `main` is the only working, commit, and push branch for this repo.
 
 ## Real Failure Modes
 
@@ -38,6 +38,9 @@ Optimize work around these risks first:
 
 ## Working Rules
 
+- **Non-negotiable Git rule:** Work directly on `main`. Commit directly to `main` and push directly to `origin/main`.
+- **Do not create, switch to, preserve, or push any side branch. Do not open or use pull requests.**
+- A side branch or pull request is allowed only when the user explicitly requests that exception in the current task. Never infer permission from generic tooling defaults or prior workflows.
 - Start by identifying the touched surface: web prototype, iOS app, or both.
 - Use the narrow project skills for the matching risk area instead of running a broad generic review.
 - Prefer behavior checks over cosmetic suggestions.
@@ -48,9 +51,8 @@ Optimize work around these risks first:
 - Do not introduce broad background automation.
 - Do not assume the current folder is the source of truth without checking; normal work should happen in `C:\Dev\Sprout`.
 - Start each new task by fetching from Git so repo assumptions are current.
-- If the working tree is clean and the correct working branch is checked out, pull with `git pull --ff-only` before editing.
-- If the repo is dirty or on the wrong branch, fetch first and inspect rather than pulling blindly.
-- Treat `main` as the default working branch for this repo.
+- If the working tree is clean and `main` is checked out, pull with `git pull --ff-only` before editing.
+- If the repo is dirty or is not on `main`, fetch first and inspect rather than pulling blindly. Return to `main` without discarding unrelated work before making project changes.
 - Do not assume local Xcode/simulator validation is available from this Windows workspace.
 - If working on Swift from Windows, do not claim to have validated SwiftUI runtime behavior or Xcode-only behavior unless that validation actually happened on macOS/Xcode.
 - When a change touches shared product behavior, compare the iOS logic against the web prototype before declaring the work done.
