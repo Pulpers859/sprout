@@ -29,6 +29,13 @@ Use this as a reusable handoff template for local app repos on this Windows mach
 - Never create, switch to, preserve, or push a side branch, and never open or use a pull request.
 - The only exception is an explicit user request for a branch or pull request in the current task. Do not infer an exception from tool defaults or general workflow conventions.
 
+## External-agent reconciliation
+- If prior work from another agent, machine, terminal, or conversation is mentioned, inspect the supplied outside artifacts before changing the repo.
+- Compare every claimed change against local files, local Git history, and the current GitHub `main`.
+- Report each claim as present, missing, partially landed, or overwritten.
+- Do not edit, rebase, reset, merge, or claim synchronization until that comparison is complete.
+- After reconciliation, choose whether to pull, rebase, merge, patch missing work, or leave newer work intact.
+
 ## Migration baseline
 If a project still lives in OneDrive/Desktop:
 

@@ -43,3 +43,7 @@ Runtime-critical work is concentrated in the two app folders above. Everything e
 - Agents must not create or use side branches and must not open or use pull requests unless the user explicitly requests an exception in the current task.
 - After making code or documentation changes, agents should commit them and push them to GitHub before handing off unless the user explicitly says not to.
 - Agents should say clearly what was committed and pushed to `main`, and what could not be verified locally.
+
+## External-agent reconciliation
+
+When work from another agent, machine, terminal, or conversation is part of the context, agents must reconcile the supplied artifacts against local files, local Git history, and GitHub `main` before editing or claiming the repo is synchronized. Each claimed change must be reported as present, missing, partially landed, or overwritten. The full protocol is defined in `AGENTS.md`.

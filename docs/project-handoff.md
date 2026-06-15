@@ -24,6 +24,14 @@
 - After making code or documentation changes, commit them and push them to GitHub before handing off unless the user explicitly says not to.
 - Report clearly what was committed and pushed to `main`, and any verification limits.
 
+## External-agent reconciliation
+- Trigger this workflow whenever the user mentions prior work from another AI agent, machine, terminal, or conversation.
+- Inspect every supplied transcript, export, screenshot, commit list, or claimed-fix summary.
+- Compare each claim against current local files, local Git history, and GitHub `main`.
+- Classify every claimed change as present, missing, partially landed, or overwritten.
+- Complete that comparison before editing, rebasing, resetting, merging, or claiming the repo is synchronized.
+- Decide whether to pull, rebase, merge, patch missing work, or preserve newer work only after reconciliation.
+
 ## Architecture notes
 - Native app source: `Sprout-iOS/SproutApp/Sprout/Sprout/`
 - Buildable iOS project: `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`

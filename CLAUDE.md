@@ -11,6 +11,8 @@ Claude-specific repo assumptions:
 - Fetch from Git at the start of a task.
 - Only pull with `git pull --ff-only` when the working tree is clean and `main` is checked out.
 - After making code or documentation changes, commit them and push them to GitHub before handing off unless the user explicitly says not to.
+- When prior work from another agent, machine, terminal, or conversation is mentioned, complete the external-agent reconciliation protocol in `AGENTS.md` before editing or making sync claims.
+- Compare provided outside artifacts against local files, local Git history, and GitHub `main`, then classify every claimed change as present, missing, partially landed, or overwritten.
 - The buildable iOS project lives at `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`.
 - The web prototype in `Sprout-html/index.html` is still the behavior reference for shared flows.
 

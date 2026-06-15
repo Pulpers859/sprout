@@ -57,6 +57,22 @@ Optimize work around these risks first:
 - If working on Swift from Windows, do not claim to have validated SwiftUI runtime behavior or Xcode-only behavior unless that validation actually happened on macOS/Xcode.
 - When a change touches shared product behavior, compare the iOS logic against the web prototype before declaring the work done.
 
+## External-Agent Reconciliation
+
+If the user mentions prior work by another AI agent, machine, terminal, or conversation, do not assume the current diff or latest visible commit tells the full story.
+
+Before making new edits, rebases, resets, merges, or claims that the repo is synchronized:
+
+1. Inspect every outside artifact the user provides, including transcripts, chat exports, screenshots, commit lists, and claimed-fix summaries.
+2. Compare each claimed change against:
+   - the current local files
+   - the local Git history
+   - the current `main` branch on GitHub
+3. Report plainly whether each claimed change is **present**, **missing**, **partially landed**, or **overwritten**.
+4. Only after that comparison decide whether to pull, rebase, merge, patch missing work, or leave newer work intact.
+
+Do not say the repository is fully assessed, synchronized, or up to date while outside-agent work remains unreconciled.
+
 ## High-Value Workflows
 
 - Use `/ship-check` before handing off meaningful feature work.
