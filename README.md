@@ -18,7 +18,7 @@ The iOS app is the higher-value surface. The web app still matters as a behavior
 - `CLAUDE.md`
   Claude-specific handoff entrypoint that mirrors the same source-of-truth assumptions.
 - `docs/`
-  Human support docs, handoff notes, and troubleshooting templates.
+  Human support docs, including the repo handoff note and reusable templates.
 - `.agents/`
   Codex-local workflow skills for this repo.
 - `.claude/`
