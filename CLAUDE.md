@@ -25,3 +25,11 @@ Highest-risk areas:
 5. Cross-surface drift between web and iOS
 
 Support material that used to live at the repo root now lives in `docs/`.
+
+Claude-local workflow helpers:
+
+- Use `@.claude/skills/sprout-handoff/SKILL.md` at the start of a fresh Sprout session unless the task is already deep in one known file.
+- Use `@.claude/skills/sprout-context-compact/SKILL.md` for older work, mixed context, long logs, or handoff prep.
+- Use `@.claude/skills/sprout-parallel-audit/SKILL.md` for broad reviews or release checks that span multiple high-risk areas.
+- For focused bugs, use the narrow skills first: `budget-invariants`, `month-rollover-check`, `backup-persistence-check`, `quick-entry-path-check`, and `surface-drift-check`.
+- Launching Claude through `tools/Launch-Sprout-Claude.ps1` opens directly in `C:\Dev\Sprout` and detects the repo-local commands and skills.

@@ -57,6 +57,14 @@ Optimize work around these risks first:
 - If working on Swift from Windows, do not claim to have validated SwiftUI runtime behavior or Xcode-only behavior unless that validation actually happened on macOS/Xcode.
 - When a change touches shared product behavior, compare the iOS logic against the web prototype before declaring the work done.
 
+## Skill-First Workflow
+
+- At the start of a fresh Sprout session, use `.claude/skills/sprout-handoff/SKILL.md` or `.agents/skills/sprout-handoff/SKILL.md` unless the task is already deep in one known file.
+- Use `sprout-context-compact` when resuming old work, preparing a handoff, or keeping a long review from ballooning.
+- Use `sprout-parallel-audit` for broad reviews, release-readiness checks, or issues spanning budget math, month rollover, persistence, quick entry, and web/iOS drift.
+- For focused work, prefer the existing narrow skills: `budget-invariants`, `month-rollover-check`, `backup-persistence-check`, `quick-entry-path-check`, and `surface-drift-check`.
+- Use the smallest matching skill set; do not load every project doc or skill by default.
+
 ## External-Agent Reconciliation
 
 If the user mentions prior work by another AI agent, machine, terminal, or conversation, do not assume the current diff or latest visible commit tells the full story.
@@ -75,6 +83,9 @@ Do not say the repository is fully assessed, synchronized, or up to date while o
 
 ## High-Value Workflows
 
+- Use `sprout-handoff` to rebuild source-of-truth, branch, surface, and validation assumptions.
+- Use `sprout-context-compact` for old sessions, mixed context, or handoff prep.
+- Use `sprout-parallel-audit` for wide reviews that need bounded lanes and one final synthesis.
 - Use `/ship-check` before handing off meaningful feature work.
 - Use `/trace-bug` when the report involves wrong totals, missing data, reset issues, or quick-add behavior.
 - Use `/regression-scan` for a narrow review of one file or one flow.

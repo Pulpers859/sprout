@@ -23,6 +23,8 @@ The iOS app is the higher-value surface. The web app still matters as a behavior
   Codex-local workflow skills for this repo.
 - `.claude/`
   Claude-local commands, skills, and settings.
+- `tools/Launch-Sprout-Claude.ps1`
+  PowerShell 7 launcher used by the desktop `Sprout Claude Code` shortcut.
 
 ## Runtime vs support files
 
@@ -43,6 +45,16 @@ Runtime-critical work is concentrated in the two app folders above. Everything e
 - Agents must not create or use side branches and must not open or use pull requests unless the user explicitly requests an exception in the current task.
 - After making code or documentation changes, agents should commit them and push them to GitHub before handing off unless the user explicitly says not to.
 - Agents should say clearly what was committed and pushed to `main`, and what could not be verified locally.
+
+## Claude Code shortcut
+
+The intended desktop shortcut is `Sprout Claude Code`. It should open PowerShell 7 in `C:\Dev\Sprout` and run:
+
+```powershell
+C:\Dev\Sprout\tools\Launch-Sprout-Claude.ps1
+```
+
+The launcher does not add global shell behavior. It only sets the working directory, checks for repo-local Claude memory, skills, and commands, then launches `claude`.
 
 ## External-agent reconciliation
 

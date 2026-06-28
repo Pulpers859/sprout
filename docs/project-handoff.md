@@ -24,6 +24,21 @@
 - After making code or documentation changes, commit them and push them to GitHub before handing off unless the user explicitly says not to.
 - Report clearly what was committed and pushed to `main`, and any verification limits.
 
+## PowerShell / terminal standard
+- Do not globally pin every PowerShell session to this project.
+- A dedicated desktop shortcut should exist:
+  - `Sprout Claude Code`
+- That shortcut should open directly in `C:\Dev\Sprout`.
+- The shortcut should call `tools/Launch-Sprout-Claude.ps1` through PowerShell 7 when available, matching the Transform, Procedures, Recipes, and MeadEvil desktop launch pattern.
+- Keep the launcher project-local and explicit; do not add hidden global startup behavior.
+
+## Skill-first workflow
+- Use `sprout-handoff` for fresh orientation.
+- Use `sprout-context-compact` when reviving prior work or preparing a short handoff.
+- Use `sprout-parallel-audit` for broad investigations that span multiple fragile areas.
+- Use the focused skills for normal bug work: `budget-invariants`, `month-rollover-check`, `backup-persistence-check`, `quick-entry-path-check`, and `surface-drift-check`.
+- Prefer the smallest skill set that fits the task.
+
 ## External-agent reconciliation
 - Trigger this workflow whenever the user mentions prior work from another AI agent, machine, terminal, or conversation.
 - Inspect every supplied transcript, export, screenshot, commit list, or claimed-fix summary.
