@@ -169,6 +169,41 @@ struct TransactionEntry: Codable, Hashable, Identifiable {
         self.tab = tab
         self.isRefund = isRefund
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, amount, note, emoji, date, tab, isRefund
+        case type
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        amount = try container.decode(Double.self, forKey: .amount)
+        note = (try? container.decode(String.self, forKey: .note)) ?? ""
+        emoji = try container.decode(String.self, forKey: .emoji)
+        date = try container.decode(Date.self, forKey: .date)
+        if let tabValue = try? container.decode(BudgetTab.self, forKey: .tab) {
+            tab = tabValue
+        } else if let typeValue = try? container.decode(BudgetTab.self, forKey: .type) {
+            tab = typeValue
+        } else {
+            tab = .personal
+        }
+        isRefund = (try? container.decode(Bool.self, forKey: .isRefund)) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(amount, forKey: .amount)
+        try container.encode(note, forKey: .note)
+        try container.encode(emoji, forKey: .emoji)
+        try container.encode(date, forKey: .date)
+        try container.encode(tab, forKey: .tab)
+        try container.encode(isRefund, forKey: .isRefund)
+    }
 }
 
 struct RecurringTransactionRule: Codable, Hashable, Identifiable {
@@ -333,20 +368,24 @@ struct TransactionDraft: Equatable {
     var amountText = ""
     var note = ""
     var selectedEmoji = BudgetTab.personal.icon
+    var selectedCategoryID: UUID?
     var date = Date()
     var isRecurring = false
     var recurringFrequency: RecurrenceFrequency = .monthly
     var recurringNextDate = RecurrenceFrequency.monthly.advanced(from: Date())
+
+    static let maximumAmount: Double = 999_999.99
 
     var parsedAmount: Double? {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = .current
         if let value = formatter.number(from: amountText)?.doubleValue {
-            return value
+            return value <= Self.maximumAmount ? value : nil
         }
         let sanitized = amountText.replacingOccurrences(of: ",", with: "")
-        return Double(sanitized)
+        guard let value = Double(sanitized) else { return nil }
+        return value <= Self.maximumAmount ? value : nil
     }
 
     var minimumRecurringDate: Date {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransactionRowView: View {
     let entry: TransactionEntry
+    let onEdit: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -40,10 +41,11 @@ struct TransactionRowView: View {
                 .foregroundStyle(entry.isRefund ? Color.sageDark : Color.sproutText)
 
             Menu {
-                Button(role: .destructive) {
+                Button("Edit transaction", systemImage: "pencil") {
+                    onEdit()
+                }
+                Button("Remove transaction", systemImage: "trash", role: .destructive) {
                     onRemove()
-                } label: {
-                    Label("Remove transaction", systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -54,5 +56,8 @@ struct TransactionRowView: View {
         }
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(entry.name), \(entry.isRefund ? "payment" : "expense"), \(SproutFormatters.currency(entry.amount))")
+        .accessibilityHint("Shows options to edit or remove")
     }
 }

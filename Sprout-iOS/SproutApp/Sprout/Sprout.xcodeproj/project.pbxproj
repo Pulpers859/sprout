@@ -35,6 +35,11 @@
 			path = Sprout;
 			sourceTree = "<group>";
 		};
+		01A000012FD139920000F766 /* SproutTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SproutTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				019311502FBE39920000F766 /* Sprout */,
+				01A000012FD139920000F766 /* SproutTests */,
 				0193114F2FBE39920000F766 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -117,6 +123,9 @@
 			);
 			dependencies = (
 				0193115F2FBE39940000F766 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				01A000012FD139920000F766 /* SproutTests */,
 			);
 			name = SproutTests;
 			packageProductDependencies = (

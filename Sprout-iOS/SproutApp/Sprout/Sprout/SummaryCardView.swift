@@ -62,6 +62,9 @@ struct SummaryCardView: View {
                     }
                 }
                 .frame(height: 8)
+                .accessibilityElement()
+                .accessibilityLabel("Budget progress")
+                .accessibilityValue("\(Int(progress * 100)) percent spent")
 
                 HStack {
                     Text("\(SproutFormatters.currency(spent)) spent")
@@ -101,6 +104,8 @@ struct SummaryCardView: View {
                         .font(.caption.weight(.semibold))
                 }
                 .foregroundStyle(Color.white.opacity(0.82))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Spending pace: \(statusTitle(for: paceStatus))")
             }
 
             if carryover > 0 {

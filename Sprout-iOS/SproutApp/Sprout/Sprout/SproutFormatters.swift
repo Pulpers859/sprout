@@ -4,8 +4,7 @@ enum SproutFormatters {
     private static let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.locale = Locale(identifier: "en_US")
+        formatter.locale = .current
         return formatter
     }()
 
@@ -14,10 +13,10 @@ enum SproutFormatters {
     }
 
     static func compactCurrency(_ value: Double) -> String {
-        if value == 0 { return "$0" }
+        if value == 0 { return currencyFormatter.currencySymbol + "0" }
         if value < 1 { return currency(value) }
         if value == value.rounded(.down) {
-            return "$\(Int(value))"
+            return currencyFormatter.currencySymbol + "\(Int(value))"
         }
         return currency(value)
     }

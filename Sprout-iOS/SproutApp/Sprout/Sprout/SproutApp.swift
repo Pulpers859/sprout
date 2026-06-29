@@ -15,7 +15,6 @@ struct SproutApp: App {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(quickEntryCoordinator)
-                .preferredColorScheme(.light)
         }
     }
 }

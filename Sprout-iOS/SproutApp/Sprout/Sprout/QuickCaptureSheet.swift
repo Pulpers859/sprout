@@ -88,21 +88,23 @@ struct QuickCaptureSheet: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(store.categories(for: tab)) { category in
+                        let isSelected = draft.selectedCategoryID == category.id
                         Button {
+                            draft.selectedCategoryID = category.id
                             draft.selectedEmoji = category.emoji
                         } label: {
                             Text(category.emoji)
                                 .font(.title3)
                                 .frame(width: 42, height: 42)
                                 .background(
-                                    draft.selectedEmoji == category.emoji ? tab.accentDarkColor : Color.sproutCard,
+                                    isSelected ? tab.accentDarkColor : Color.sproutCard,
                                     in: Circle()
                                 )
                                 .overlay(Circle().stroke(Color.sproutBorder, lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(category.label)
-                        .accessibilityAddTraits(draft.selectedEmoji == category.emoji ? .isSelected : [])
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
             }
@@ -187,7 +189,12 @@ struct QuickCaptureSheet: View {
         }
 
         guard let amount = draft.parsedAmount, amount > 0 else {
-            validationMessage = "Enter an amount greater than zero."
+            let raw = draft.amountText.replacingOccurrences(of: ",", with: "")
+            if let v = Double(raw), v > TransactionDraft.maximumAmount {
+                validationMessage = "Amount cannot exceed \(SproutFormatters.currency(TransactionDraft.maximumAmount))."
+            } else {
+                validationMessage = "Enter an amount greater than zero."
+            }
             focusedField = .amount
             return
         }

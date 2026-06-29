@@ -9,7 +9,9 @@ struct ContentView: View {
     @State private var budgetEditorTab: BudgetTab?
     @State private var isShowingSettings = false
     @State private var pendingDeleteTransaction: TransactionEntry?
+    @State private var editingTransaction: TransactionEntry?
     @State private var shouldRestoreMonthResetPrompt = false
+    @State private var successToastMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -19,6 +21,7 @@ struct ContentView: View {
                 onOpenSettings: { isShowingSettings = true },
                 onStartNewMonth: { store.needsMonthResetPrompt = true },
                 onRequestDeleteTransaction: { pendingDeleteTransaction = $0 },
+                onEditTransaction: { editingTransaction = $0 },
                 onOpenTransaction: { mode, seed in
                     transactionSheet = TransactionSheetRequest(
                         tab: store.activeTab,
@@ -40,7 +43,9 @@ struct ContentView: View {
                         initialDraft: request.draft
                     ) { draft in
                         if store.addTransaction(mode: request.mode, draft: draft, tab: request.tab) {
+                            HapticFeedback.success()
                             transactionSheet = nil
+                            showSuccessToast(request.mode == .payment ? "Payment saved" : "Expense saved")
                         }
                     }
                 case .quickCapture:
@@ -50,7 +55,9 @@ struct ContentView: View {
                         initialDraft: request.draft
                     ) { draft in
                         if store.addTransaction(mode: request.mode, draft: draft, tab: request.tab) {
+                            HapticFeedback.success()
                             transactionSheet = nil
+                            showSuccessToast(request.mode == .payment ? "Payment saved" : "Expense saved")
                         }
                     }
                 }
@@ -58,7 +65,12 @@ struct ContentView: View {
             .environmentObject(store)
         }
         .sheet(item: $budgetEditorTab) { tab in
-            BudgetEditorSheet(tab: tab, startingAmount: store.budget(for: tab)) { amount in
+            BudgetEditorSheet(
+                tab: tab,
+                startingAmount: store.budget(for: tab),
+                carryover: store.carryover(for: tab)
+            ) { amount in
+                HapticFeedback.light()
                 store.setBudget(amount, for: tab)
                 budgetEditorTab = nil
             }
@@ -67,14 +79,37 @@ struct ContentView: View {
             SettingsSheet()
                 .environmentObject(store)
         }
+        .sheet(item: $editingTransaction) { entry in
+            TransactionEntrySheet(
+                tab: entry.tab,
+                mode: entry.isRefund ? .payment : .expense,
+                initialDraft: TransactionDraft(
+                    name: entry.name,
+                    amountText: String(format: "%.2f", entry.amount),
+                    note: entry.note,
+                    selectedEmoji: entry.emoji,
+                    date: entry.date
+                )
+            ) { draft in
+                let mode: TransactionMode = entry.isRefund ? .payment : .expense
+                if store.updateTransaction(entry, with: draft, mode: mode) {
+                    HapticFeedback.success()
+                    editingTransaction = nil
+                    showSuccessToast("Transaction updated")
+                }
+            }
+            .environmentObject(store)
+        }
         .alert("New month, fresh start?", isPresented: $store.needsMonthResetPrompt) {
             Button("Keep") {
                 store.keepCurrentTransactions()
             }
             Button("Reset Fresh", role: .destructive) {
+                HapticFeedback.warning()
                 store.resetMonth(carryOverRemainders: false)
             }
             Button("Carry Over") {
+                HapticFeedback.light()
                 store.resetMonth(carryOverRemainders: true)
             }
         } message: {
@@ -86,6 +121,7 @@ struct ContentView: View {
         ), presenting: pendingDeleteTransaction) { entry in
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
+                HapticFeedback.warning()
                 store.deleteTransaction(entry)
                 pendingDeleteTransaction = nil
             }
@@ -120,6 +156,17 @@ struct ContentView: View {
             presentQuickEntryIfPossible()
             restoreDeferredMonthResetPromptIfNeeded()
         }
+        .overlay(alignment: .top) {
+            if let message = successToastMessage {
+                SuccessToastView(message: message)
+                    .padding(.top, 60)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            }
+        }
+        .animation(.snappy(duration: 0.35), value: successToastMessage != nil)
     }
 
     private func presentQuickEntryIfPossible() {
@@ -139,6 +186,13 @@ struct ContentView: View {
             style: .quickCapture
         )
         quickEntryCoordinator.dismiss()
+    }
+
+    private func showSuccessToast(_ message: String) {
+        successToastMessage = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            successToastMessage = nil
+        }
     }
 
     private func restoreDeferredMonthResetPromptIfNeeded() {

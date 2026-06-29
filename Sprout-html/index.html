@@ -501,6 +501,7 @@
     monthHistory: [],
     personalCategories: [...DEFAULT_PERSONAL_CATEGORIES],
     currentMonth: getCurrentMonth(),
+    recurringRules: [],
     showCalendar: false,
     showForm: null, // null | "expense" | "payment"
     showReset: false,
@@ -620,7 +621,7 @@
           });
         }
       });
-    return [...byKey.values()].sort(compareMonthKeyDesc).slice(0, 2);
+    return [...byKey.values()].sort(compareMonthKeyDesc).slice(0, 12);
   }
   function getArchivedMonth(monthKey) {
     return state.monthHistory.find(month => month.monthKey === monthKey) || null;
@@ -671,6 +672,7 @@
       groceryCarryover: state.groceryCarryover,
       personalCarryover: state.personalCarryover,
       transactions: state.transactions,
+      recurringRules: state.recurringRules,
       monthHistory: state.monthHistory,
       currentMonth: state.currentMonth,
       personalCategories: state.personalCategories,
@@ -684,6 +686,7 @@
     state.groceryCarryover = d.groceryCarryover ?? 0;
     state.personalCarryover = d.personalCarryover ?? 0;
     state.transactions = Array.isArray(d.transactions) ? d.transactions : [];
+    state.recurringRules = Array.isArray(d.recurringRules) ? d.recurringRules : [];
     state.monthHistory = normalizeMonthHistory(Array.isArray(d.monthHistory) ? d.monthHistory : []);
     state.currentMonth = d.currentMonth ?? getCurrentMonth();
     if (Array.isArray(d.personalCategories) && d.personalCategories.length > 0) {
@@ -849,9 +852,10 @@
     }).slice(0,5);
   }
 
+  const MAX_AMOUNT = 999999.99;
   function addTransaction(isRefund) {
     const amt = parseFloat(state.formAmount);
-    if (!state.formName || isNaN(amt) || amt <= 0) return;
+    if (!state.formName || isNaN(amt) || amt <= 0 || amt > MAX_AMOUNT) return;
     state.transactions.push({
       id: Date.now().toString(),
       name: state.formName,
@@ -1104,8 +1108,25 @@
       </button>
     </div>`;
 
+    const activeId = document.activeElement?.id || null;
+    const selStart = document.activeElement?.selectionStart;
+    const selEnd = document.activeElement?.selectionEnd;
+    const scrollTop = document.querySelector('.content')?.scrollTop || 0;
+
     app.innerHTML = html;
     bindEvents();
+
+    if (activeId) {
+      const el = document.getElementById(activeId);
+      if (el) {
+        el.focus();
+        if (typeof selStart === 'number' && el.setSelectionRange) {
+          try { el.setSelectionRange(selStart, selEnd); } catch {}
+        }
+      }
+    }
+    const content = document.querySelector('.content');
+    if (content) content.scrollTop = scrollTop;
   }
 
   function renderAddForm(isPayment, cat) {
@@ -1146,7 +1167,7 @@
           <button class="settings-close" id="settingsClose">×</button>
         </div>
         <div class="settings-section-label">Recent months</div>
-        <div class="settings-help">Reference the last two closed months without mixing them into your current budget.</div>`;
+        <div class="settings-help">Reference your recent closed months without mixing them into your current budget.</div>`;
 
     if (state.monthHistory.length === 0) {
       h += `<div class="history-empty">Closed months will appear here after you choose Reset Fresh or Carry Over at month rollover.</div>`;
@@ -1275,14 +1296,30 @@
     return h;
   }
 
+  function getLocaleWeekdayLabels() {
+    const base = new Date(2024, 0, 7);
+    const labels = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + i);
+      labels.push(d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2));
+    }
+    const locale = new Intl.Locale(navigator.language || "en-US");
+    const firstDay = locale.weekInfo?.firstDay ?? 7;
+    const offset = firstDay === 7 ? 0 : firstDay;
+    return { labels: [...labels.slice(offset), ...labels.slice(0, offset)], offset };
+  }
+
   function renderCalendar(cat) {
     const now = new Date();
     const year = now.getFullYear();
     const mon = now.getMonth();
     const daysInMonth = new Date(year, mon+1, 0).getDate();
-    const firstDow = new Date(year, mon, 1).getDay();
     const today = getToday();
-    const monthName = new Date(year, mon).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+    const monthName = new Date(year, mon).toLocaleDateString(undefined,{month:"long",year:"numeric"});
+    const { labels: weekLabels, offset: weekOffset } = getLocaleWeekdayLabels();
+    const rawFirstDow = new Date(year, mon, 1).getDay();
+    const firstDow = (rawFirstDow - weekOffset + 7) % 7;
 
     const txByDay = {};
     getTx(cat).forEach(t => {
@@ -1291,7 +1328,7 @@
     });
 
     let h = `<div class="calendar-card"><div class="cal-month">${monthName}</div><div class="cal-grid">`;
-    ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d => {
+    weekLabels.forEach(d => {
       h += `<div class="cal-day-label">${d}</div>`;
     });
     for (let i = 0; i < firstDow; i++) h += `<div></div>`;

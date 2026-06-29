@@ -83,6 +83,7 @@ struct CalendarCardView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(date.formatted(.dateTime.day(.defaultDigits).month(.wide)))\(entries.isEmpty ? "" : ", \(SproutFormatters.currency(abs(net))) \(net < 0 ? "refunded" : "spent")")")
     }
 
     @ViewBuilder

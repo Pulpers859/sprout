@@ -188,11 +188,14 @@ final class BudgetStore: ObservableObject {
 
     func makeDraft(for tab: BudgetTab, mode _: TransactionMode, seed: TransactionEntry? = nil) -> TransactionDraft {
         let entryDate = Date()
+        let seedEmoji = seed?.emoji ?? defaultEmoji(for: tab)
+        let matchingCategory = snapshot.personalCategories.first { $0.emoji == seedEmoji }
         return TransactionDraft(
             name: seed?.name ?? "",
             amountText: "",
             note: "",
-            selectedEmoji: seed?.emoji ?? defaultEmoji(for: tab),
+            selectedEmoji: seedEmoji,
+            selectedCategoryID: matchingCategory?.id,
             date: entryDate,
             isRecurring: false,
             recurringFrequency: .monthly,
@@ -247,6 +250,35 @@ final class BudgetStore: ObservableObject {
                 )
             )
         }
+        persist()
+        return true
+    }
+
+    func updateTransaction(_ entry: TransactionEntry, with draft: TransactionDraft, mode: TransactionMode) -> Bool {
+        guard
+            let amount = draft.parsedAmount,
+            amount > 0,
+            !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let index = snapshot.transactions.firstIndex(where: { $0.id == entry.id })
+        else {
+            return false
+        }
+
+        let emoji: String
+        if mode.isRefund {
+            emoji = "💸"
+        } else if entry.tab == .grocery {
+            emoji = BudgetTab.grocery.icon
+        } else {
+            emoji = draft.selectedEmoji
+        }
+
+        snapshot.transactions[index].name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        snapshot.transactions[index].amount = amount
+        snapshot.transactions[index].note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        snapshot.transactions[index].emoji = emoji
+        snapshot.transactions[index].date = draft.date
+        snapshot.transactions[index].isRefund = mode.isRefund
         persist()
         return true
     }
@@ -452,7 +484,7 @@ final class BudgetStore: ObservableObject {
                 }
                 return lhs.monthKey > rhs.monthKey
             }
-            .prefix(2)
+            .prefix(12)
             .map { $0 }
     }
 

@@ -107,7 +107,9 @@ struct TransactionEntrySheet: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(store.categories(for: tab)) { category in
+                            let isSelected = draft.selectedCategoryID == category.id
                             Button {
+                                draft.selectedCategoryID = category.id
                                 draft.selectedEmoji = category.emoji
                             } label: {
                                 HStack(spacing: 6) {
@@ -115,11 +117,11 @@ struct TransactionEntrySheet: View {
                                     Text(category.label)
                                 }
                                 .font(.subheadline.weight(.medium))
-                                .foregroundStyle(draft.selectedEmoji == category.emoji ? Color.white : Color.sproutText)
+                                .foregroundStyle(isSelected ? Color.white : Color.sproutText)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 9)
                                 .background(
-                                    draft.selectedEmoji == category.emoji ? tab.accentDarkColor : Color.sproutCard,
+                                    isSelected ? tab.accentDarkColor : Color.sproutCard,
                                     in: Capsule()
                                 )
                                 .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
@@ -279,7 +281,12 @@ struct TransactionEntrySheet: View {
         }
 
         guard let amount = draft.parsedAmount, amount > 0 else {
-            validationMessage = "Enter an amount greater than zero."
+            let raw = draft.amountText.replacingOccurrences(of: ",", with: "")
+            if let v = Double(raw), v > TransactionDraft.maximumAmount {
+                validationMessage = "Amount cannot exceed \(SproutFormatters.currency(TransactionDraft.maximumAmount))."
+            } else {
+                validationMessage = "Enter an amount greater than zero."
+            }
             focusedField = .amount
             return
         }
