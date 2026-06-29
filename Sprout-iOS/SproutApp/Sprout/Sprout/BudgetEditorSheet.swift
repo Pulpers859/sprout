@@ -71,8 +71,15 @@ struct BudgetEditorSheet: View {
     }
 
     private var parsedAmount: Double? {
-        guard let amount = Double(amountText), amount > 0 else { return nil }
-        return amount
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = .current
+        if let value = formatter.number(from: amountText)?.doubleValue, value > 0 {
+            return value
+        }
+        let sanitized = amountText.replacingOccurrences(of: ",", with: "")
+        guard let value = Double(sanitized), value > 0 else { return nil }
+        return value
     }
 
     private func save() {

@@ -66,7 +66,7 @@ struct CalendarCardView: View {
                     .foregroundStyle(isToday ? Color.sproutAmber : Color.sproutText)
 
                 if !entries.isEmpty {
-                    Text("\(net < 0 ? "+$" : "$")\(Int(abs(net)))")
+                    Text("\(net < 0 ? "+" : "")\(SproutFormatters.compactCurrency(abs(net)))")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(net < 0 ? Color.sageDark : Color.sproutTextSecondary)
                 }
@@ -125,7 +125,7 @@ struct CalendarCardView: View {
                     Spacer()
                     Text("Net: \(SproutFormatters.currency(net))")
                         .font(.system(.subheadline, design: .monospaced, weight: .semibold))
-                        .foregroundStyle(Color.sageDark)
+                        .foregroundStyle(net > 0 ? Color.sproutText : Color.sageDark)
                 }
             }
         }

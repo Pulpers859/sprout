@@ -521,6 +521,15 @@
   };
 
   // ── Helpers ──
+  function escapeHtml(str) {
+    if (typeof str !== "string") return "";
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
   function getCurrentMonth() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
@@ -945,7 +954,7 @@
         <div class="modal">
           <div class="modal-icon">🗑️</div>
           <div class="modal-title">Remove transaction?</div>
-          <div class="modal-text">${tx ? `${tx.name} on ${fmtDate(tx.date)} will be removed.` : "This transaction will be removed."}</div>
+          <div class="modal-text">${tx ? `${escapeHtml(tx.name)} on ${fmtDate(tx.date)} will be removed.` : "This transaction will be removed."}</div>
           <div class="modal-actions">
             <button class="modal-btn keep" id="deleteCancel">Cancel</button>
             <button class="modal-btn reset" id="deleteConfirm">Remove</button>
@@ -969,7 +978,7 @@
       <div class="user-bar">
         <div class="user-info">
           <img class="user-avatar" src="${state.user.photoURL || ''}" alt="" onerror="this.style.display='none'">
-          <span class="user-name">${state.user.displayName || 'You'}</span>
+          <span class="user-name">${escapeHtml(state.user.displayName || 'You')}</span>
         </div>
         <button class="btn-signout" id="signOutBtn">Sign out</button>
       </div>
@@ -1043,7 +1052,7 @@
       if (recent.length) {
         html += `<div class="quick-add-label">Quick add</div><div class="quick-chips">`;
         recent.forEach(r => {
-          html += `<button class="quick-chip" data-quickname="${r.name}" data-quickemoji="${r.emoji}">${r.emoji} ${r.name}</button>`;
+          html += `<button class="quick-chip" data-quickname="${escapeHtml(r.name)}" data-quickemoji="${escapeHtml(r.emoji)}">${escapeHtml(r.emoji)} ${escapeHtml(r.name)}</button>`;
         });
         html += `</div>`;
       }
@@ -1068,15 +1077,15 @@
       const reversed = [...txs].reverse();
       reversed.forEach(t => {
         html += `<div class="tx-row">
-          <span class="tx-emoji">${t.isRefund ? "💸" : t.emoji}</span>
+          <span class="tx-emoji">${t.isRefund ? "💸" : escapeHtml(t.emoji)}</span>
           <div class="tx-body">
             <div class="tx-top">
-              <span class="tx-name">${t.name}</span>
+              <span class="tx-name">${escapeHtml(t.name)}</span>
               <span class="tx-amount ${t.isRefund ? 'payment' : ''}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
             </div>
             <div class="tx-bottom">
-              <span class="tx-meta">${fmtDate(t.date)}${t.isRefund ? ' <span class="payment-tag">· payment</span>' : ''}${t.note ? " · " + t.note : ""}</span>
-              <button class="tx-remove" data-txid="${t.id}">remove</button>
+              <span class="tx-meta">${fmtDate(t.date)}${t.isRefund ? ' <span class="payment-tag">· payment</span>' : ''}${t.note ? " · " + escapeHtml(t.note) : ""}</span>
+              <button class="tx-remove" data-txid="${escapeHtml(t.id)}">remove</button>
             </div>
           </div>
         </div>`;
@@ -1107,19 +1116,19 @@
     if (!isPayment && cat === "personal") {
       h += `<div class="emoji-picker">`;
       state.personalCategories.forEach(c => {
-        h += `<button class="emoji-btn ${state.formEmoji === c.emoji ? 'selected' : ''}" data-emoji="${c.emoji}">
-          <span>${c.emoji}</span><span>${c.label}</span>
+        h += `<button class="emoji-btn ${state.formEmoji === c.emoji ? 'selected' : ''}" data-emoji="${escapeHtml(c.emoji)}">
+          <span>${escapeHtml(c.emoji)}</span><span>${escapeHtml(c.label)}</span>
         </button>`;
       });
       h += `</div>`;
     }
 
     h += `<div class="form-row">
-      <input class="form-input" placeholder="${isPayment ? 'What was returned?' : 'What was it?'}" id="formName" value="${state.formName}">
-      <input class="form-input mono" placeholder="$0.00" type="number" step="0.01" id="formAmount" value="${state.formAmount}">
+      <input class="form-input" placeholder="${isPayment ? 'What was returned?' : 'What was it?'}" id="formName" value="${escapeHtml(state.formName)}">
+      <input class="form-input mono" placeholder="$0.00" type="number" step="0.01" id="formAmount" value="${escapeHtml(state.formAmount)}">
     </div>
     <div class="form-row">
-      <input class="form-input small" placeholder="Note (optional)" id="formNote" value="${state.formNote}">
+      <input class="form-input small" placeholder="Note (optional)" id="formNote" value="${escapeHtml(state.formNote)}">
       <input class="form-input date" type="date" id="formDate" value="${state.formDate}">
     </div>
     <div class="form-actions">
@@ -1178,8 +1187,8 @@
 
     state.personalCategories.forEach((cat, i) => {
       h += `<div class="cat-row">
-        <button class="cat-emoji-btn" data-catidx="${i}">${cat.emoji}</button>
-        <input class="cat-name-input" data-catnameidx="${i}" value="${cat.label}" placeholder="Category name">
+        <button class="cat-emoji-btn" data-catidx="${i}">${escapeHtml(cat.emoji)}</button>
+        <input class="cat-name-input" data-catnameidx="${i}" value="${escapeHtml(cat.label)}" placeholder="Category name">
         ${state.personalCategories.length > 1 ? `<button class="cat-remove-btn" data-catremoveidx="${i}">×</button>` : ''}
       </div>`;
     });
@@ -1234,13 +1243,13 @@
         h += `<div class="history-tx-list">`;
         transactions.forEach(t => {
           h += `<div class="history-tx-row">
-            <span class="history-tx-emoji">${t.isRefund ? "💸" : t.emoji}</span>
+            <span class="history-tx-emoji">${t.isRefund ? "💸" : escapeHtml(t.emoji)}</span>
             <div class="history-tx-body">
               <div class="history-tx-top">
-                <span class="history-tx-name">${t.name}</span>
+                <span class="history-tx-name">${escapeHtml(t.name)}</span>
                 <span class="history-tx-amount ${t.isRefund ? "payment" : ""}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
               </div>
-              <div class="history-tx-meta">${fmtDate(t.date)}${t.isRefund ? " · payment" : ""}${t.note ? " · " + t.note : ""}</div>
+              <div class="history-tx-meta">${fmtDate(t.date)}${t.isRefund ? " · payment" : ""}${t.note ? " · " + escapeHtml(t.note) : ""}</div>
             </div>
           </div>`;
         });
@@ -1314,7 +1323,7 @@
       } else {
         items.forEach(t => {
           h += `<div class="cal-detail-row">
-            <span style="color:var(--text1)">${t.isRefund ? "💸" : t.emoji} ${t.name}${t.isRefund ? '<span style="color:var(--green);font-weight:500"> (payment)</span>' : ""}${t.note ? '<span style="color:var(--text3)"> · '+t.note+'</span>' : ""}</span>
+            <span style="color:var(--text1)">${t.isRefund ? "💸" : escapeHtml(t.emoji)} ${escapeHtml(t.name)}${t.isRefund ? '<span style="color:var(--green);font-weight:500"> (payment)</span>' : ""}${t.note ? '<span style="color:var(--text3)"> · '+escapeHtml(t.note)+'</span>' : ""}</span>
             <span style="font-family:var(--font-mono);font-weight:500;color:${t.isRefund ? 'var(--green)' : '#5a6e58'}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
           </div>`;
         });
@@ -1439,9 +1448,22 @@
     document.getElementById("budgetSave")?.addEventListener("click", () => {
       const v = parseFloat(document.getElementById("budgetInput").value);
       if (!isNaN(v) && v >= 0) {
-        const adjustedBase = Math.max(0, v - getCarryover(state.activeTab));
-        if (state.activeTab === "grocery") state.groceryBudget = adjustedBase;
-        else state.personalBudget = adjustedBase;
+        const currentCarryover = getCarryover(state.activeTab);
+        let adjustedBase, adjustedCarryover;
+        if (v >= currentCarryover) {
+          adjustedBase = v - currentCarryover;
+          adjustedCarryover = currentCarryover;
+        } else {
+          adjustedBase = 0;
+          adjustedCarryover = v;
+        }
+        if (state.activeTab === "grocery") {
+          state.groceryBudget = adjustedBase;
+          state.groceryCarryover = adjustedCarryover;
+        } else {
+          state.personalBudget = adjustedBase;
+          state.personalCarryover = adjustedCarryover;
+        }
         state.editingBudget = false;
         scheduleSave(); render();
       }
