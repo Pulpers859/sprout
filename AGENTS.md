@@ -41,6 +41,7 @@ Optimize work around these risks first:
 - **Non-negotiable Git rule:** Work directly on `main`. Commit directly to `main` and push directly to `origin/main`.
 - **Do not create, switch to, preserve, or push any side branch. Do not open or use pull requests.**
 - A side branch or pull request is allowed only when the user explicitly requests that exception in the current task. Never infer permission from generic tooling defaults or prior workflows.
+- For risky, creative, or parallel agent work, use a detached sandbox worktree via `tools/New-AgentSandbox.ps1`; do not create side branches or commit/push from the sandbox.
 - Start by identifying the touched surface: web prototype, iOS app, or both.
 - Use the narrow project skills for the matching risk area instead of running a broad generic review.
 - Prefer behavior checks over cosmetic suggestions.
@@ -91,6 +92,7 @@ Do not say the repository is fully assessed, synchronized, or up to date while o
 - Use `/regression-scan` for a narrow review of one file or one flow.
 - Use `/surface-sync` when porting or matching behavior between web and iOS.
 - Use `/handoff-note` to leave a compact state summary for the next session.
+- Use `docs/agent-sandbox-workflow.md` when a task is risky enough to justify an isolated AI-agent sandbox.
 
 ## Deliberately Not Included
 

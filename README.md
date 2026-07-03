@@ -43,6 +43,7 @@ Runtime-critical work is concentrated in the two app folders above. Everything e
 
 - All normal work happens directly on `main`. `main` is the only branch agents may use for editing, committing, and pushing.
 - Agents must not create or use side branches and must not open or use pull requests unless the user explicitly requests an exception in the current task.
+- Risky AI-agent experiments can use detached sandboxes via `docs/agent-sandbox-workflow.md`; final integration still happens on `main`.
 - After making code or documentation changes, agents should commit them and push them to GitHub before handing off unless the user explicitly says not to.
 - Agents should say clearly what was committed and pushed to `main`, and what could not be verified locally.
 
