@@ -2,14 +2,49 @@ import Testing
 import Foundation
 @testable import Sprout
 
+/// Mutable clock so tests can cross month boundaries without touching the device date.
+final class TestClock: @unchecked Sendable {
+    var date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+}
+
 @MainActor
 struct BudgetStoreTests {
 
-    private func makeStore(calendar: Calendar = .current) -> BudgetStore {
-        let fm = FileManager.default
-        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        return BudgetStore(fileManager: fm, calendar: calendar)
+    /// Every store gets its own temp file. Previously these tests shared the real
+    /// Application Support save file, which made them order-dependent and let them
+    /// overwrite live data.
+    private func makeStore(
+        calendar: Calendar = .current,
+        now: (() -> Date)? = nil
+    ) -> BudgetStore {
+        BudgetStore(
+            fileManager: .default,
+            calendar: calendar,
+            saveURL: Self.makeTempSaveURL(),
+            now: now ?? { Date() }
+        )
+    }
+
+    private static func makeTempSaveURL() -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SproutTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("budget-data.json")
+    }
+
+    private static var gregorian: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        return calendar
+    }
+
+    private static func makeDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        gregorian.date(from: DateComponents(year: year, month: month, day: day, hour: 12)) ?? Date()
     }
 
     // MARK: - Budget Math
@@ -364,5 +399,367 @@ struct BudgetStoreTests {
         var draft = TransactionDraft()
         draft.amountText = "abc"
         #expect(draft.parsedAmount == nil)
+    }
+
+    // MARK: - Multi-Month Rollover
+
+    @Test func skippingMonthsArchivesEachMonthSeparately() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 5, 15))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let draft = TransactionDraft(name: "Coffee", amountText: "30", selectedEmoji: "☕", date: clock.date)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+        #expect(store.snapshot.currentMonth == "2026-05")
+
+        clock.date = Self.makeDate(2026, 8, 10)
+        store.refreshForCurrentDate(referenceDate: clock.date)
+        #expect(store.needsMonthResetPrompt)
+
+        store.resetMonth(carryOverRemainders: true)
+
+        #expect(store.snapshot.currentMonth == "2026-08")
+        let archivedKeys = store.archivedMonths.map(\.monthKey)
+        #expect(archivedKeys.contains("2026-05"))
+        #expect(archivedKeys.contains("2026-06"))
+        #expect(archivedKeys.contains("2026-07"))
+        #expect(store.transactions(for: .personal).isEmpty)
+    }
+
+    @Test func skippedMonthRecurringChargesStayInTheirOwnMonth() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 5, 15))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        var draft = TransactionDraft(name: "Rent", amountText: "100", selectedEmoji: "🏠", date: Self.makeDate(2026, 5, 15))
+        draft.isRecurring = true
+        draft.recurringFrequency = .monthly
+        draft.recurringNextDate = Self.makeDate(2026, 6, 1)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        clock.date = Self.makeDate(2026, 7, 10)
+        store.refreshForCurrentDate(referenceDate: clock.date)
+        store.resetMonth(carryOverRemainders: false)
+
+        // July must hold only July's charge — June's used to be double-counted here.
+        #expect(store.snapshot.currentMonth == "2026-07")
+        #expect(store.netSpent(for: .personal) == 100)
+
+        let june = store.archivedMonths.first { $0.monthKey == "2026-06" }
+        #expect(june?.netSpent(for: .personal) == 100)
+    }
+
+    @Test func multiMonthCarryoverCompoundsThroughEachMonth() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 5, 15))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        store.setBudget(200, for: .personal)
+        let draft = TransactionDraft(name: "Coffee", amountText: "50", selectedEmoji: "☕", date: clock.date)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        clock.date = Self.makeDate(2026, 7, 10)
+        store.refreshForCurrentDate(referenceDate: clock.date)
+        store.resetMonth(carryOverRemainders: true)
+
+        // May leaves 150; June spends nothing against 200 base + 150 carried.
+        #expect(store.carryover(for: .personal) == 350)
+    }
+
+    @Test func manualMidMonthResetStillArchivesOnce() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 5, 15))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let draft = TransactionDraft(name: "Coffee", amountText: "5", selectedEmoji: "☕", date: clock.date)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+        store.resetMonth(carryOverRemainders: false)
+
+        #expect(store.snapshot.currentMonth == "2026-05")
+        #expect(store.archivedMonths.filter { $0.monthKey == "2026-05" }.count == 1)
+        #expect(store.transactions(for: .personal).isEmpty)
+    }
+
+    // MARK: - Recurrence Anchoring
+
+    @Test func monthlyRecurrenceRecoversAnchorDayAfterShortMonth() {
+        let calendar = Self.gregorian
+        let jan31 = Self.makeDate(2026, 1, 31)
+
+        let february = RecurrenceFrequency.monthly.advanced(from: jan31, calendar: calendar, anchorDay: 31)
+        #expect(calendar.component(.day, from: february) == 28)
+
+        // Without anchoring this stayed on the 28th for every later month.
+        let march = RecurrenceFrequency.monthly.advanced(from: february, calendar: calendar, anchorDay: 31)
+        #expect(calendar.component(.day, from: march) == 31)
+    }
+
+    @Test func yearlyRecurrenceHandlesLeapDayAnchor() {
+        let calendar = Self.gregorian
+        let leapDay = Self.makeDate(2024, 2, 29)
+
+        let nonLeapYear = RecurrenceFrequency.yearly.advanced(from: leapDay, calendar: calendar, anchorDay: 29)
+        #expect(calendar.component(.month, from: nonLeapYear) == 2)
+        #expect(calendar.component(.day, from: nonLeapYear) == 28)
+
+        // 2028 is a leap year, so the anchor is restored rather than staying at 28.
+        let leapYearAgain = RecurrenceFrequency.yearly.advanced(
+            from: Self.makeDate(2027, 2, 28),
+            calendar: calendar,
+            anchorDay: 29
+        )
+        #expect(calendar.component(.day, from: leapYearAgain) == 29)
+    }
+
+    @Test func recurringCatchUpAdvancesPastCutoff() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 1, 31))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        var draft = TransactionDraft(name: "Rent", amountText: "10", selectedEmoji: "🏠", date: Self.makeDate(2026, 1, 15))
+        draft.isRecurring = true
+        draft.recurringFrequency = .monthly
+        draft.recurringNextDate = Self.makeDate(2026, 1, 31)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        store.processRecurringTransactionsIfNeeded(referenceDate: clock.date)
+
+        let rule = store.recurringRules(for: .personal).first
+        #expect(rule?.anchorDay == 31)
+        if let next = rule?.nextOccurrenceDate {
+            #expect(next > clock.date)
+        }
+    }
+
+    // MARK: - Persistence Failure Recovery
+
+    @Test func corruptSaveFileIsQuarantinedNotOverwritten() throws {
+        let saveURL = Self.makeTempSaveURL()
+        try Data("{ not valid json".utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+
+        #expect(store.persistenceAlert?.kind == .startedFreshAfterCorruption)
+
+        let siblings = try FileManager.default.contentsOfDirectory(
+            atPath: saveURL.deletingLastPathComponent().path
+        )
+        #expect(siblings.contains { $0.hasPrefix("budget-data.corrupt-") })
+    }
+
+    @Test func corruptSaveFileFallsBackToPreviousGeneration() throws {
+        let saveURL = Self.makeTempSaveURL()
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        let first = TransactionDraft(name: "Kept", amountText: "10", selectedEmoji: "☕")
+        _ = store.addTransaction(mode: .expense, draft: first, tab: .personal)
+        let second = TransactionDraft(name: "Newer", amountText: "20", selectedEmoji: "🍕")
+        _ = store.addTransaction(mode: .expense, draft: second, tab: .personal)
+
+        try Data("corrupted".utf8).write(to: saveURL)
+
+        let recovered = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(recovered.persistenceAlert?.kind == .recoveredFromPreviousSave)
+        #expect(recovered.transactions(for: .personal).contains { $0.name == "Kept" })
+    }
+
+    @Test func singleBadTransactionRowDoesNotDiscardWholeLedger() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let json = """
+        {
+          "schemaVersion": 1,
+          "groceryBudget": 400,
+          "personalBudget": 200,
+          "groceryCarryover": 0,
+          "personalCarryover": 0,
+          "currentMonth": "\(SproutDate.currentMonthKey())",
+          "personalCategories": [],
+          "recurringRules": [],
+          "monthHistory": [],
+          "updatedAt": "2026-07-01T12:00:00Z",
+          "transactions": [
+            {
+              "id": "\(UUID().uuidString)",
+              "name": "Good",
+              "amount": 12.5,
+              "note": "",
+              "emoji": "☕",
+              "date": "2026-07-01T12:00:00Z",
+              "tab": "personal",
+              "isRefund": false
+            },
+            { "name": "Broken", "amount": "not-a-number" }
+          ]
+        }
+        """
+        try Data(json.utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+
+        #expect(store.persistenceAlert?.kind == .droppedUnreadableRows(count: 1))
+        #expect(store.transactions(for: .personal).count == 1)
+        #expect(store.transactions(for: .personal).first?.name == "Good")
+    }
+
+    @Test func missingFileStartsCleanWithoutAlert() {
+        let store = makeStore()
+        #expect(store.persistenceAlert == nil)
+        #expect(store.budget(for: .personal) == 200)
+    }
+
+    @Test func snapshotCarriesSchemaVersion() throws {
+        let store = makeStore()
+        let data = try store.exportBackupData()
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["schemaVersion"] as? Int == BudgetSnapshot.currentSchemaVersion)
+    }
+
+    @Test func recurringRuleAnchorsToEntryDayNotDerivedNextDate() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 1, 31))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        // Default next date for a Jan 31 entry is already Feb 28; anchoring on that
+        // would pin the rule to the 28th forever.
+        let entryDate = Self.makeDate(2026, 1, 31)
+        var draft = TransactionDraft(name: "Rent", amountText: "900", selectedEmoji: "🏠", date: entryDate)
+        draft.isRecurring = true
+        draft.recurringFrequency = .monthly
+        draft.recurringNextDate = TransactionDraft.defaultRecurringNextDate(from: entryDate, frequency: .monthly)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        #expect(store.recurringRules(for: .personal).first?.anchorDay == 31)
+    }
+
+    @Test func explicitRecurringDateOverridesAnchor() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 1, 31))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        var draft = TransactionDraft(name: "Gym", amountText: "40", selectedEmoji: "🏋️", date: Self.makeDate(2026, 1, 31))
+        draft.isRecurring = true
+        draft.recurringFrequency = .monthly
+        draft.recurringNextDate = Self.makeDate(2026, 3, 15)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        #expect(store.recurringRules(for: .personal).first?.anchorDay == 15)
+    }
+
+    @Test func storedMonthAheadOfTodayDoesNotDiscardData() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 8, 10))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let draft = TransactionDraft(name: "Coffee", amountText: "25", selectedEmoji: "☕", date: clock.date)
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+        #expect(store.snapshot.currentMonth == "2026-08")
+
+        // Device clock moved backwards — not a real rollover.
+        clock.date = Self.makeDate(2026, 6, 10)
+        store.resetMonth(carryOverRemainders: false)
+
+        #expect(store.snapshot.currentMonth == "2026-06")
+        #expect(store.netSpent(for: .personal) == 25)
+        #expect(store.archivedMonths.isEmpty)
+    }
+
+    @Test func recoveredSnapshotSurvivesRelaunch() throws {
+        let saveURL = Self.makeTempSaveURL()
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        _ = store.addTransaction(
+            mode: .expense,
+            draft: TransactionDraft(name: "Kept", amountText: "10", selectedEmoji: "☕"),
+            tab: .personal
+        )
+        _ = store.addTransaction(
+            mode: .expense,
+            draft: TransactionDraft(name: "Newer", amountText: "20", selectedEmoji: "🍕"),
+            tab: .personal
+        )
+
+        try Data("corrupted".utf8).write(to: saveURL)
+
+        let recovered = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(recovered.transactions(for: .personal).contains { $0.name == "Kept" })
+
+        // Relaunch without any edit: the recovery must already be on disk.
+        let relaunched = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(relaunched.transactions(for: .personal).contains { $0.name == "Kept" })
+        #expect(relaunched.persistenceAlert == nil)
+    }
+
+    @Test func unreadableTransactionListStillAlerts() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let json = """
+        {
+          "schemaVersion": 1,
+          "groceryBudget": 400,
+          "personalBudget": 200,
+          "groceryCarryover": 0,
+          "personalCarryover": 0,
+          "currentMonth": "\(SproutDate.currentMonthKey())",
+          "personalCategories": [],
+          "recurringRules": [],
+          "monthHistory": [],
+          "updatedAt": "2026-07-01T12:00:00Z",
+          "transactions": "not-an-array"
+        }
+        """
+        try Data(json.utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+
+        // Budgets survived, so this is not the corrupt-file path — but the silent
+        // empty ledger must still be reported.
+        #expect(store.persistenceAlert != nil)
+        #expect(store.budget(for: .personal) == 200)
+    }
+
+    @Test func absentTransactionKeyIsNotTreatedAsDamage() throws {
+        let saveURL = Self.makeTempSaveURL()
+        // No "transactions" key at all — a legitimately empty ledger, not corruption.
+        let json = """
+        {
+          "groceryBudget": 400,
+          "personalBudget": 200,
+          "groceryCarryover": 0,
+          "personalCarryover": 0,
+          "currentMonth": "\(SproutDate.currentMonthKey())",
+          "personalCategories": [],
+          "recurringRules": [],
+          "monthHistory": [],
+          "updatedAt": "2026-07-01T12:00:00Z"
+        }
+        """
+        try Data(json.utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+
+        #expect(store.persistenceAlert == nil)
+        #expect(store.transactions(for: .personal).isEmpty)
+    }
+
+    @Test func legacyFileWithoutSchemaVersionStillLoads() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let json = """
+        {
+          "groceryBudget": 400,
+          "personalBudget": 275,
+          "groceryCarryover": 0,
+          "personalCarryover": 0,
+          "currentMonth": "\(SproutDate.currentMonthKey())",
+          "personalCategories": [],
+          "recurringRules": [],
+          "monthHistory": [],
+          "updatedAt": "2026-07-01T12:00:00Z",
+          "transactions": []
+        }
+        """
+        try Data(json.utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(store.budget(for: .personal) == 275)
+        #expect(store.snapshot.schemaVersion == BudgetSnapshot.currentSchemaVersion)
     }
 }

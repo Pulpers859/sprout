@@ -105,17 +105,33 @@ enum RecurrenceFrequency: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    func advanced(from date: Date, calendar: Calendar = .current) -> Date {
+    func advanced(from date: Date, calendar: Calendar = .current, anchorDay: Int? = nil) -> Date {
         let startOfDay = calendar.startOfDay(for: date)
 
         switch self {
         case .weekly:
             return calendar.date(byAdding: .day, value: 7, to: startOfDay) ?? startOfDay
         case .monthly:
-            return calendar.date(byAdding: .month, value: 1, to: startOfDay) ?? startOfDay
+            return Self.anchoredDate(byAddingMonths: 1, to: startOfDay, anchorDay: anchorDay, calendar: calendar)
         case .yearly:
-            return calendar.date(byAdding: .year, value: 1, to: startOfDay) ?? startOfDay
+            return Self.anchoredDate(byAddingMonths: 12, to: startOfDay, anchorDay: anchorDay, calendar: calendar)
         }
+    }
+
+    // Advancing from the previous occurrence loses the intended day after a short
+    // month (Jan 31 -> Feb 28 -> Mar 28 forever), so the target day comes from the
+    // anchor and is re-clamped against each destination month independently.
+    private static func anchoredDate(byAddingMonths months: Int, to date: Date, anchorDay: Int?, calendar: Calendar) -> Date {
+        let targetDay = anchorDay ?? calendar.component(.day, from: date)
+        guard
+            let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
+            let targetMonthStart = calendar.date(byAdding: .month, value: months, to: monthStart),
+            let dayCount = calendar.range(of: .day, in: .month, for: targetMonthStart)?.count,
+            let result = calendar.date(byAdding: .day, value: min(max(targetDay, 1), dayCount) - 1, to: targetMonthStart)
+        else {
+            return calendar.date(byAdding: .month, value: months, to: date) ?? date
+        }
+        return result
     }
 }
 
@@ -216,6 +232,7 @@ struct RecurringTransactionRule: Codable, Hashable, Identifiable {
     var isRefund: Bool
     var frequency: RecurrenceFrequency
     var nextOccurrenceDate: Date
+    var anchorDay: Int?
 
     init(
         id: UUID = UUID(),
@@ -226,7 +243,8 @@ struct RecurringTransactionRule: Codable, Hashable, Identifiable {
         tab: BudgetTab,
         isRefund: Bool,
         frequency: RecurrenceFrequency,
-        nextOccurrenceDate: Date
+        nextOccurrenceDate: Date,
+        anchorDay: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -237,6 +255,7 @@ struct RecurringTransactionRule: Codable, Hashable, Identifiable {
         self.isRefund = isRefund
         self.frequency = frequency
         self.nextOccurrenceDate = nextOccurrenceDate
+        self.anchorDay = anchorDay
     }
 }
 
@@ -250,6 +269,41 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
     var archivedAt: Date
 
     var id: String { monthKey }
+
+    init(
+        monthKey: String,
+        personalBudget: Double,
+        groceryBudget: Double,
+        personalCarryover: Double,
+        groceryCarryover: Double,
+        transactions: [TransactionEntry],
+        archivedAt: Date
+    ) {
+        self.monthKey = monthKey
+        self.personalBudget = personalBudget
+        self.groceryBudget = groceryBudget
+        self.personalCarryover = personalCarryover
+        self.groceryCarryover = groceryCarryover
+        self.transactions = transactions
+        self.archivedAt = archivedAt
+    }
+
+    // History is worth more intact than pristine: one unreadable row should cost
+    // that row, not the whole archived month.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        monthKey = try container.decode(String.self, forKey: .monthKey)
+        personalBudget = try container.decodeIfPresent(Double.self, forKey: .personalBudget) ?? 0
+        groceryBudget = try container.decodeIfPresent(Double.self, forKey: .groceryBudget) ?? 0
+        personalCarryover = try container.decodeIfPresent(Double.self, forKey: .personalCarryover) ?? 0
+        groceryCarryover = try container.decodeIfPresent(Double.self, forKey: .groceryCarryover) ?? 0
+        transactions = SproutLossyDecoding.transactions(
+            in: container,
+            forKey: .transactions,
+            recorder: decoder.sproutDecodeIssueRecorder
+        )
+        archivedAt = try container.decodeIfPresent(Date.self, forKey: .archivedAt) ?? .distantPast
+    }
 
     func budget(for tab: BudgetTab) -> Double {
         switch tab {
@@ -286,7 +340,78 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
     }
 }
 
+/// Counts rows dropped during a lenient decode so the UI can tell the user that
+/// data was recovered rather than silently presenting a thinner ledger.
+final class SproutDecodeIssueRecorder: @unchecked Sendable {
+    private(set) var droppedTransactions = 0
+    private(set) var hadUnreadableTransactionList = false
+
+    var hasIssues: Bool {
+        droppedTransactions > 0 || hadUnreadableTransactionList
+    }
+
+    func recordDroppedTransaction() {
+        droppedTransactions += 1
+    }
+
+    /// The array itself was unreadable, so the loss can't be counted row by row.
+    func recordUnreadableTransactionList() {
+        hadUnreadableTransactionList = true
+    }
+}
+
+extension CodingUserInfoKey {
+    static let sproutDecodeIssueRecorder = CodingUserInfoKey(rawValue: "sprout.decodeIssueRecorder")!
+}
+
+extension Decoder {
+    var sproutDecodeIssueRecorder: SproutDecodeIssueRecorder? {
+        userInfo[.sproutDecodeIssueRecorder] as? SproutDecodeIssueRecorder
+    }
+}
+
+enum SproutLossyDecoding {
+    /// Decodes each element independently so a single malformed row cannot fail
+    /// the surrounding container.
+    private struct Failable<Wrapped: Decodable>: Decodable {
+        let value: Wrapped?
+
+        init(from decoder: Decoder) throws {
+            value = try? Wrapped(from: decoder)
+        }
+    }
+
+    static func transactions<Key: CodingKey>(
+        in container: KeyedDecodingContainer<Key>,
+        forKey key: Key,
+        recorder: SproutDecodeIssueRecorder?
+    ) -> [TransactionEntry] {
+        // An absent or null key is a legitimately empty ledger, not damage. Conflating
+        // the two would fire a "couldn't be read" alert on healthy files and make the
+        // real signal worthless.
+        guard container.contains(key), !((try? container.decodeNil(forKey: key)) ?? true) else {
+            return []
+        }
+
+        guard let wrapped = try? container.decode([Failable<TransactionEntry>].self, forKey: key) else {
+            // Present but structurally broken — never return empty silently.
+            recorder?.recordUnreadableTransactionList()
+            return []
+        }
+
+        for element in wrapped where element.value == nil {
+            recorder?.recordDroppedTransaction()
+        }
+        return wrapped.compactMap(\.value)
+    }
+}
+
 struct BudgetSnapshot: Codable {
+    /// Bumped only when a change needs migration logic; additive fields do not
+    /// require a bump because every field decodes with a default.
+    static let currentSchemaVersion = 1
+
+    var schemaVersion: Int
     var groceryBudget: Double
     var personalBudget: Double
     var groceryCarryover: Double
@@ -298,20 +423,25 @@ struct BudgetSnapshot: Codable {
     var personalCategories: [PersonalCategory]
     var updatedAt: Date
 
-    static let empty = BudgetSnapshot(
-        groceryBudget: 400,
-        personalBudget: 200,
-        groceryCarryover: 0,
-        personalCarryover: 0,
-        transactions: [],
-        recurringRules: [],
-        monthHistory: [],
-        currentMonth: SproutDate.currentMonthKey(),
-        personalCategories: PersonalCategory.defaults,
-        updatedAt: .now
-    )
+    static func makeEmpty(now: Date = .now, calendar: Calendar = .current) -> BudgetSnapshot {
+        BudgetSnapshot(
+            groceryBudget: 400,
+            personalBudget: 200,
+            groceryCarryover: 0,
+            personalCarryover: 0,
+            transactions: [],
+            recurringRules: [],
+            monthHistory: [],
+            currentMonth: SproutDate.currentMonthKey(now: now, calendar: calendar),
+            personalCategories: PersonalCategory.defaults,
+            updatedAt: now
+        )
+    }
+
+    static var empty: BudgetSnapshot { makeEmpty() }
 
     enum CodingKeys: String, CodingKey {
+        case schemaVersion
         case groceryBudget
         case personalBudget
         case groceryCarryover
@@ -325,6 +455,7 @@ struct BudgetSnapshot: Codable {
     }
 
     init(
+        schemaVersion: Int = BudgetSnapshot.currentSchemaVersion,
         groceryBudget: Double,
         personalBudget: Double,
         groceryCarryover: Double,
@@ -336,6 +467,7 @@ struct BudgetSnapshot: Codable {
         personalCategories: [PersonalCategory],
         updatedAt: Date
     ) {
+        self.schemaVersion = schemaVersion
         self.groceryBudget = groceryBudget
         self.personalBudget = personalBudget
         self.groceryCarryover = groceryCarryover
@@ -350,16 +482,24 @@ struct BudgetSnapshot: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        groceryBudget = try container.decodeIfPresent(Double.self, forKey: .groceryBudget) ?? 400
-        personalBudget = try container.decodeIfPresent(Double.self, forKey: .personalBudget) ?? 200
-        groceryCarryover = try container.decodeIfPresent(Double.self, forKey: .groceryCarryover) ?? 0
-        personalCarryover = try container.decodeIfPresent(Double.self, forKey: .personalCarryover) ?? 0
-        transactions = try container.decodeIfPresent([TransactionEntry].self, forKey: .transactions) ?? []
-        recurringRules = try container.decodeIfPresent([RecurringTransactionRule].self, forKey: .recurringRules) ?? []
-        monthHistory = try container.decodeIfPresent([ArchivedBudgetMonth].self, forKey: .monthHistory) ?? []
-        currentMonth = try container.decodeIfPresent(String.self, forKey: .currentMonth) ?? SproutDate.currentMonthKey()
-        personalCategories = try container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories) ?? PersonalCategory.defaults
-        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
+        // Every field falls back rather than throwing: a snapshot that decodes
+        // partially is always better than one that fails whole and strands the user
+        // on defaults.
+        schemaVersion = (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion)) ?? 0
+        groceryBudget = (try? container.decodeIfPresent(Double.self, forKey: .groceryBudget)) ?? 400
+        personalBudget = (try? container.decodeIfPresent(Double.self, forKey: .personalBudget)) ?? 200
+        groceryCarryover = (try? container.decodeIfPresent(Double.self, forKey: .groceryCarryover)) ?? 0
+        personalCarryover = (try? container.decodeIfPresent(Double.self, forKey: .personalCarryover)) ?? 0
+        transactions = SproutLossyDecoding.transactions(
+            in: container,
+            forKey: .transactions,
+            recorder: decoder.sproutDecodeIssueRecorder
+        )
+        recurringRules = (try? container.decodeIfPresent([RecurringTransactionRule].self, forKey: .recurringRules)) ?? []
+        monthHistory = (try? container.decodeIfPresent([ArchivedBudgetMonth].self, forKey: .monthHistory)) ?? []
+        currentMonth = (try? container.decodeIfPresent(String.self, forKey: .currentMonth)) ?? SproutDate.currentMonthKey()
+        personalCategories = (try? container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories)) ?? PersonalCategory.defaults
+        updatedAt = (try? container.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? .now
     }
 }
 
@@ -393,8 +533,12 @@ struct TransactionDraft: Equatable {
         return Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
     }
 
-    static func defaultRecurringNextDate(from date: Date, frequency: RecurrenceFrequency) -> Date {
-        frequency.advanced(from: date)
+    static func defaultRecurringNextDate(
+        from date: Date,
+        frequency: RecurrenceFrequency,
+        calendar: Calendar = .current
+    ) -> Date {
+        frequency.advanced(from: date, calendar: calendar)
     }
 }
 

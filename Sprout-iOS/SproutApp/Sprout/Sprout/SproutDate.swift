@@ -45,6 +45,19 @@ enum SproutDate {
         return lastDate
     }
 
+    /// Month keys are zero-padded `YYYY-MM`, so lexicographic order matches
+    /// chronological order — relied on by the rollover walk.
+    static func nextMonthKey(after monthKey: String, calendar: Calendar = .current) -> String? {
+        guard
+            let firstDate = firstDate(forMonthKey: monthKey, calendar: calendar),
+            let nextMonth = calendar.date(byAdding: .month, value: 1, to: firstDate)
+        else {
+            return nil
+        }
+
+        return currentMonthKey(now: nextMonth, calendar: calendar)
+    }
+
     static func monthYearTitle(forMonthKey monthKey: String, calendar: Calendar = .current) -> String {
         guard let date = firstDate(forMonthKey: monthKey, calendar: calendar) else {
             return monthKey

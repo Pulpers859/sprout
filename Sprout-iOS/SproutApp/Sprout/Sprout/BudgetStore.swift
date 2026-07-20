@@ -1,23 +1,68 @@
 import Combine
 import Foundation
 
+/// A persistence problem worth interrupting the user for. Silent failure is the
+/// one outcome a budgeting app cannot afford.
+struct PersistenceAlert: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case saveFailed
+        case recoveredFromPreviousSave
+        case droppedUnreadableRows(count: Int)
+        case unreadableTransactionList
+        case startedFreshAfterCorruption
+    }
+
+    let id = UUID()
+    let kind: Kind
+    let message: String
+
+    var title: String {
+        switch kind {
+        case .saveFailed:
+            "Couldn't save"
+        case .recoveredFromPreviousSave:
+            "Restored a previous save"
+        case .droppedUnreadableRows:
+            "Some entries couldn't be read"
+        case .unreadableTransactionList:
+            "Transactions couldn't be read"
+        case .startedFreshAfterCorruption:
+            "Started with a fresh budget"
+        }
+    }
+}
+
 @MainActor
 final class BudgetStore: ObservableObject {
     @Published private(set) var snapshot: BudgetSnapshot
     @Published var activeTab: BudgetTab = .personal
     @Published var selectedCalendarDate: Date?
     @Published var needsMonthResetPrompt = false
+    @Published var persistenceAlert: PersistenceAlert?
 
     private let fileManager: FileManager
     private let saveURL: URL
+    private let previousSaveURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let calendar: Calendar
+    private let now: () -> Date
+    private var corruptFileLeftInPlace = false
 
-    init(fileManager: FileManager = .default, calendar: Calendar = .current) {
+    init(
+        fileManager: FileManager = .default,
+        calendar: Calendar = .current,
+        saveURL: URL? = nil,
+        now: @escaping () -> Date = { Date() }
+    ) {
+        let resolvedSaveURL = saveURL ?? Self.makeSaveURL(fileManager: fileManager)
         self.fileManager = fileManager
-        self.saveURL = Self.makeSaveURL(fileManager: fileManager)
+        self.saveURL = resolvedSaveURL
+        self.previousSaveURL = resolvedSaveURL
+            .deletingPathExtension()
+            .appendingPathExtension("previous.json")
         self.calendar = calendar
+        self.now = now
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -28,7 +73,7 @@ final class BudgetStore: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
 
-        self.snapshot = .empty
+        self.snapshot = .makeEmpty(now: now(), calendar: calendar)
         load()
     }
 
@@ -167,7 +212,9 @@ final class BudgetStore: ObservableObject {
             }
     }
 
-    func refreshForCurrentDate(referenceDate: Date = .now) {
+    /// `nil` uses the store's injected clock; tests pass an explicit date.
+    func refreshForCurrentDate(referenceDate: Date? = nil) {
+        let referenceDate = referenceDate ?? now()
         if requiresMonthReset(referenceDate: referenceDate) {
             processRecurringTransactionsThroughCurrentStoredMonthIfNeeded()
             needsMonthResetPrompt = true
@@ -199,7 +246,11 @@ final class BudgetStore: ObservableObject {
             date: entryDate,
             isRecurring: false,
             recurringFrequency: .monthly,
-            recurringNextDate: TransactionDraft.defaultRecurringNextDate(from: entryDate, frequency: .monthly)
+            recurringNextDate: TransactionDraft.defaultRecurringNextDate(
+                from: entryDate,
+                frequency: .monthly,
+                calendar: calendar
+            )
         )
     }
 
@@ -233,6 +284,23 @@ final class BudgetStore: ObservableObject {
 
         snapshot.transactions.append(entry)
         if draft.isRecurring {
+            let nextOccurrence = validatedRecurringDate(
+                proposed: draft.recurringNextDate,
+                after: draft.date,
+                frequency: draft.recurringFrequency
+            )
+            // The anchor must come from the entry date, not the computed next date:
+            // the auto-derived default for a Jan 31 entry is already Feb 28, and
+            // anchoring on that would pin the rule to the 28th forever — exactly the
+            // drift this is meant to prevent. Only an explicit user override retargets it.
+            let defaultNextOccurrence = TransactionDraft.defaultRecurringNextDate(
+                from: draft.date,
+                frequency: draft.recurringFrequency,
+                calendar: calendar
+            )
+            let anchorDay = calendar.isDate(draft.recurringNextDate, inSameDayAs: defaultNextOccurrence)
+                ? calendar.component(.day, from: draft.date)
+                : calendar.component(.day, from: nextOccurrence)
             snapshot.recurringRules.append(
                 RecurringTransactionRule(
                     name: entry.name,
@@ -242,11 +310,8 @@ final class BudgetStore: ObservableObject {
                     tab: tab,
                     isRefund: mode.isRefund,
                     frequency: draft.recurringFrequency,
-                    nextOccurrenceDate: validatedRecurringDate(
-                        proposed: draft.recurringNextDate,
-                        after: draft.date,
-                        frequency: draft.recurringFrequency
-                    )
+                    nextOccurrenceDate: nextOccurrence,
+                    anchorDay: anchorDay
                 )
             )
         }
@@ -293,12 +358,24 @@ final class BudgetStore: ObservableObject {
         persist()
     }
 
-    func processRecurringTransactionsIfNeeded(referenceDate: Date = .now) {
+    func processRecurringTransactionsIfNeeded(referenceDate: Date? = nil) {
+        processRecurringTransactions(through: referenceDate ?? now(), persistChanges: true)
+    }
+
+    private func processRecurringTransactions(through referenceDate: Date, persistChanges: Bool) {
         let cutoffDate = calendar.startOfDay(for: referenceDate)
         var hasChanges = false
 
         for index in snapshot.recurringRules.indices {
-            while calendar.startOfDay(for: snapshot.recurringRules[index].nextOccurrenceDate) <= cutoffDate {
+            // Bounds a rule whose date somehow fails to advance (e.g. an invalid
+            // calendar result) so catch-up can never become an infinite loop.
+            var remainingOccurrences = 600
+
+            while
+                calendar.startOfDay(for: snapshot.recurringRules[index].nextOccurrenceDate) <= cutoffDate,
+                remainingOccurrences > 0
+            {
+                remainingOccurrences -= 1
                 let rule = snapshot.recurringRules[index]
                 let occurrenceDate = calendar.startOfDay(for: rule.nextOccurrenceDate)
 
@@ -313,12 +390,30 @@ final class BudgetStore: ObservableObject {
                         isRefund: rule.isRefund
                     )
                 )
-                snapshot.recurringRules[index].nextOccurrenceDate = rule.frequency.advanced(from: occurrenceDate, calendar: calendar)
+
+                // Rules saved before anchoring existed adopt their current day as the
+                // anchor, so a Jan 31 rule stops degrading to the 28th after February.
+                let anchorDay = rule.anchorDay ?? calendar.component(.day, from: occurrenceDate)
+                snapshot.recurringRules[index].anchorDay = anchorDay
+                let nextDate = rule.frequency.advanced(
+                    from: occurrenceDate,
+                    calendar: calendar,
+                    anchorDay: anchorDay
+                )
                 hasChanges = true
+
+                // A date that fails to move forward would otherwise post the same
+                // charge until the loop bound trips — 600 duplicates is worse than
+                // stopping.
+                guard calendar.startOfDay(for: nextDate) > occurrenceDate else {
+                    snapshot.recurringRules[index].nextOccurrenceDate = nextDate
+                    break
+                }
+                snapshot.recurringRules[index].nextOccurrenceDate = nextDate
             }
         }
 
-        if hasChanges {
+        if hasChanges, persistChanges {
             persist()
         }
     }
@@ -342,23 +437,75 @@ final class BudgetStore: ObservableObject {
     }
 
     func keepCurrentTransactions() {
-        snapshot.currentMonth = SproutDate.currentMonthKey(now: .now, calendar: calendar)
+        snapshot.currentMonth = SproutDate.currentMonthKey(now: now(), calendar: calendar)
         selectedCalendarDate = nil
         needsMonthResetPrompt = false
-        processRecurringTransactionsIfNeeded()
+        processRecurringTransactionsIfNeeded(referenceDate: now())
         persist()
     }
 
+    /// Closes out every month between the stored month and today, one at a time.
+    ///
+    /// Collapsing a multi-month gap into a single reset used to post the skipped
+    /// months' recurring charges against the *new* month's budget and drop those
+    /// months from history entirely. Walking month by month gives each period its
+    /// own recurring backfill, its own archive entry, and its own carryover.
     func resetMonth(carryOverRemainders: Bool) {
+        let targetMonthKey = SproutDate.currentMonthKey(now: now(), calendar: calendar)
+
+        // Stored month is in the future — the device clock moved backwards, not a real
+        // rollover. Archiving and clearing here would throw away live data, so just
+        // re-sync and keep everything.
+        guard snapshot.currentMonth <= targetMonthKey else {
+            snapshot.currentMonth = targetMonthKey
+            selectedCalendarDate = nil
+            needsMonthResetPrompt = false
+            persist()
+            return
+        }
+
+        // A malformed stored key would otherwise spin forever; the bound is far past
+        // the 12-month history cap.
+        var remainingSteps = 240
+        var didCloseAnyMonth = false
+
+        while snapshot.currentMonth < targetMonthKey, remainingSteps > 0 {
+            remainingSteps -= 1
+
+            if let lastDate = SproutDate.lastDate(forMonthKey: snapshot.currentMonth, calendar: calendar) {
+                processRecurringTransactions(through: lastDate, persistChanges: false)
+            }
+
+            closeOutCurrentMonth(carryOverRemainders: carryOverRemainders)
+            didCloseAnyMonth = true
+
+            guard let nextKey = SproutDate.nextMonthKey(after: snapshot.currentMonth, calendar: calendar) else {
+                break
+            }
+            snapshot.currentMonth = nextKey
+        }
+
+        // A deliberate mid-month reset, where the walk never ran. This must not
+        // double-run after the walk already closed the final month, or carryover
+        // would be recomputed against an emptied month.
+        if !didCloseAnyMonth {
+            closeOutCurrentMonth(carryOverRemainders: carryOverRemainders)
+        }
+
+        // A reset always lands on today's month, even if the walk bailed early.
+        snapshot.currentMonth = targetMonthKey
+
+        selectedCalendarDate = nil
+        needsMonthResetPrompt = false
+        processRecurringTransactionsIfNeeded(referenceDate: now())
+        persist()
+    }
+
+    private func closeOutCurrentMonth(carryOverRemainders: Bool) {
         archiveCurrentMonthIfNeeded()
         snapshot.personalCarryover = carryOverRemainders ? max(0, remaining(for: .personal)) : 0
         snapshot.groceryCarryover = carryOverRemainders ? max(0, remaining(for: .grocery)) : 0
         snapshot.transactions = []
-        snapshot.currentMonth = SproutDate.currentMonthKey(now: .now, calendar: calendar)
-        selectedCalendarDate = nil
-        needsMonthResetPrompt = false
-        processRecurringTransactionsIfNeeded()
-        persist()
     }
 
     func exportBackupData() throws -> Data {
@@ -366,47 +513,179 @@ final class BudgetStore: ObservableObject {
     }
 
     func importBackupData(_ data: Data) throws {
-        var decoded = try decoder.decode(BudgetSnapshot.self, from: data)
-        decoded.personalCategories = normalizedCategories(decoded.personalCategories)
-        decoded.monthHistory = normalizedMonthHistory(decoded.monthHistory)
-        snapshot = decoded
+        let result = try decodeSnapshot(from: data)
+        snapshot = result.snapshot
+        // Never clear a pending save failure just because the import itself was clean.
+        persistenceAlert = Self.alert(for: result.issues, context: .backupImport) ?? persistenceAlert
         selectedCalendarDate = nil
-        refreshForCurrentDate()
+        refreshForCurrentDate(referenceDate: now())
         persist()
     }
 
     private func load() {
-        do {
-            if fileManager.fileExists(atPath: saveURL.path) {
-                let data = try Data(contentsOf: saveURL)
-                var decoded = try decoder.decode(BudgetSnapshot.self, from: data)
-                decoded.personalCategories = normalizedCategories(decoded.personalCategories)
-                decoded.monthHistory = normalizedMonthHistory(decoded.monthHistory)
-                snapshot = decoded
-            } else {
-                snapshot = .empty
-                persist()
-            }
-        } catch {
-            snapshot = .empty
+        guard fileManager.fileExists(atPath: saveURL.path) else {
+            snapshot = .makeEmpty(now: now(), calendar: calendar)
+            persist()
+            finishLoad()
+            return
         }
 
+        do {
+            let result = try decodeSnapshot(from: try Data(contentsOf: saveURL))
+            snapshot = result.snapshot
+            persistenceAlert = Self.alert(for: result.issues, context: .liveFile)
+        } catch {
+            // The corrupt file is evidence, not garbage: preserve it before anything
+            // writes over it, then prefer the previous generation over starting empty.
+            let quarantineURL = quarantineCorruptSaveFile()
+
+            if
+                let previousData = try? Data(contentsOf: previousSaveURL),
+                let recovered = try? decodeSnapshot(from: previousData)
+            {
+                snapshot = recovered.snapshot
+                persistenceAlert = PersistenceAlert(
+                    kind: .recoveredFromPreviousSave,
+                    message: "Your budget file couldn't be read, so Sprout restored the previous save. A copy of the damaged file was kept\(quarantineURL.map { " at \($0.lastPathComponent)" } ?? "")."
+                )
+            } else {
+                snapshot = .makeEmpty(now: now(), calendar: calendar)
+                persistenceAlert = PersistenceAlert(
+                    kind: .startedFreshAfterCorruption,
+                    message: "Your budget file couldn't be read and no previous save was available, so Sprout started fresh. The damaged file was kept\(quarantineURL.map { " at \($0.lastPathComponent)" } ?? "") — you can also restore from a backup in Settings."
+                )
+            }
+
+            // Quarantine moved the original away, so the recovered state exists only
+            // in memory until this write. Without it, quitting without making an edit
+            // would come back as an empty budget with no warning at all.
+            persist()
+        }
+
+        finishLoad()
+    }
+
+    private enum DecodeContext {
+        case liveFile
+        case backupImport
+    }
+
+    private static func alert(for issues: SproutDecodeIssueRecorder, context: DecodeContext) -> PersistenceAlert? {
+        guard issues.hasIssues else { return nil }
+
+        if issues.hadUnreadableTransactionList {
+            let message: String
+            switch context {
+            case .liveFile:
+                message = "The transaction list couldn't be read, so this month's entries are missing. Your budgets and history were kept — restoring a backup in Settings may recover them."
+            case .backupImport:
+                message = "Restored from backup, but its transaction list couldn't be read, so those entries are missing. Budgets and history were kept."
+            }
+            return PersistenceAlert(kind: .unreadableTransactionList, message: message)
+        }
+
+        let count = issues.droppedTransactions
+        let plural = count == 1 ? "" : "s"
+        let message: String
+        switch context {
+        case .liveFile:
+            message = "\(count) unreadable transaction\(plural) could not be restored. Everything else was recovered."
+        case .backupImport:
+            message = "Restored from backup, but \(count) unreadable transaction\(plural) had to be skipped."
+        }
+        return PersistenceAlert(kind: .droppedUnreadableRows(count: count), message: message)
+    }
+
+    private func finishLoad() {
+        snapshot.personalCategories = normalizedCategories(snapshot.personalCategories)
         snapshot.monthHistory = normalizedMonthHistory(snapshot.monthHistory)
-        refreshForCurrentDate()
+        refreshForCurrentDate(referenceDate: now())
+    }
+
+    private func decodeSnapshot(from data: Data) throws -> (snapshot: BudgetSnapshot, issues: SproutDecodeIssueRecorder) {
+        let recorder = SproutDecodeIssueRecorder()
+        decoder.userInfo[.sproutDecodeIssueRecorder] = recorder
+        defer { decoder.userInfo[.sproutDecodeIssueRecorder] = nil }
+
+        var decoded = try decoder.decode(BudgetSnapshot.self, from: data)
+        decoded.schemaVersion = BudgetSnapshot.currentSchemaVersion
+        decoded.personalCategories = normalizedCategories(decoded.personalCategories)
+        decoded.monthHistory = normalizedMonthHistory(decoded.monthHistory)
+        return (decoded, recorder)
+    }
+
+    @discardableResult
+    private func quarantineCorruptSaveFile() -> URL? {
+        let stamp = ISO8601DateFormatter().string(from: now())
+            .replacingOccurrences(of: ":", with: "-")
+        let destination = saveURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("budget-data.corrupt-\(stamp).json")
+
+        do {
+            try? fileManager.removeItem(at: destination)
+            try fileManager.moveItem(at: saveURL, to: destination)
+            return destination
+        } catch {
+            // The corrupt bytes are still sitting at saveURL. Rotating them into the
+            // previous-generation slot would destroy the last good copy, so suppress
+            // the next rotation.
+            corruptFileLeftInPlace = true
+            return nil
+        }
     }
 
     private func persist() {
         snapshot.personalCategories = normalizedCategories(snapshot.personalCategories)
         snapshot.monthHistory = normalizedMonthHistory(snapshot.monthHistory)
-        snapshot.updatedAt = .now
+        snapshot.schemaVersion = BudgetSnapshot.currentSchemaVersion
+        snapshot.updatedAt = now()
 
         do {
             let directory = saveURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
             let data = try encoder.encode(snapshot)
+
+            // Rotate the last known-good file first so a torn write still leaves one
+            // readable generation on disk.
+            if fileManager.fileExists(atPath: saveURL.path), !corruptFileLeftInPlace {
+                rotatePreviousGeneration()
+            }
+
             try data.write(to: saveURL, options: [.atomic])
+
+            // Only now are the corrupt bytes actually gone from saveURL. Clearing the
+            // flag before the write would let a failed write leave them in place with
+            // rotation re-enabled, destroying the last good generation on the next save.
+            corruptFileLeftInPlace = false
+
+            if persistenceAlert?.kind == .saveFailed {
+                persistenceAlert = nil
+            }
         } catch {
-            assertionFailure("Failed to persist Sprout data: \(error)")
+            persistenceAlert = PersistenceAlert(
+                kind: .saveFailed,
+                message: "Sprout couldn't save your latest change. Check available storage — your recent entries are still on screen but are not yet saved."
+            )
+        }
+    }
+
+    /// Stages the copy before touching the existing generation, so a failure part
+    /// way through can never leave zero backups on disk.
+    private func rotatePreviousGeneration() {
+        // Unique per call so two stores sharing a directory can't collide, and a
+        // leaked staging file can never be mistaken for a live one.
+        let staging = saveURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("budget-data.rotating-\(UUID().uuidString).tmp")
+
+        defer { try? fileManager.removeItem(at: staging) }
+        guard (try? fileManager.copyItem(at: saveURL, to: staging)) != nil else { return }
+
+        if fileManager.fileExists(atPath: previousSaveURL.path) {
+            _ = try? fileManager.replaceItemAt(previousSaveURL, withItemAt: staging)
+        } else {
+            try? fileManager.moveItem(at: staging, to: previousSaveURL)
         }
     }
 
@@ -443,7 +722,7 @@ final class BudgetStore: ObservableObject {
             personalCarryover: snapshot.personalCarryover,
             groceryCarryover: snapshot.groceryCarryover,
             transactions: snapshot.transactions,
-            archivedAt: .now
+            archivedAt: now()
         )
 
         snapshot.monthHistory.removeAll { $0.monthKey == archivedMonth.monthKey }

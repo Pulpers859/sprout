@@ -100,7 +100,12 @@ struct ContentView: View {
             }
             .environmentObject(store)
         }
-        .alert("New month, fresh start?", isPresented: $store.needsMonthResetPrompt) {
+        // Deferred while a persistence alert is up: SwiftUI can only present one
+        // alert per view, and the dropped one never re-presents on its own.
+        .alert("New month, fresh start?", isPresented: Binding(
+            get: { store.needsMonthResetPrompt && store.persistenceAlert == nil },
+            set: { store.needsMonthResetPrompt = $0 }
+        )) {
             Button("Keep") {
                 store.keepCurrentTransactions()
             }
@@ -127,6 +132,18 @@ struct ContentView: View {
             }
         } message: { entry in
             Text("\(entry.name) on \(SproutDate.shortDate(entry.date)) will be removed.")
+        }
+        .alert(
+            store.persistenceAlert?.title ?? "",
+            isPresented: Binding(
+                get: { store.persistenceAlert != nil },
+                set: { if !$0 { store.persistenceAlert = nil } }
+            ),
+            presenting: store.persistenceAlert
+        ) { _ in
+            Button("OK", role: .cancel) { store.persistenceAlert = nil }
+        } message: { alert in
+            Text(alert.message)
         }
         .onOpenURL { url in
             guard let route = QuickEntryRoute(url: url) else { return }
