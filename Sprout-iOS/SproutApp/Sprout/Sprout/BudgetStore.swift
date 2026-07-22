@@ -532,9 +532,17 @@ final class BudgetStore: ObservableObject {
         }
 
         do {
-            let result = try decodeSnapshot(from: try Data(contentsOf: saveURL))
+            let data = try Data(contentsOf: saveURL)
+            let fileVersion = Self.peekSchemaVersion(from: data)
+            let result = try decodeSnapshot(from: data)
             snapshot = result.snapshot
             persistenceAlert = Self.alert(for: result.issues, context: .liveFile)
+            // Upgrade an older on-disk schema forward so money is migrated to cents
+            // once, not re-parsed as dollars on every launch, and the file on disk
+            // matches the current format.
+            if fileVersion < BudgetSnapshot.currentSchemaVersion {
+                persist()
+            }
         } catch {
             // The corrupt file is evidence, not garbage: preserve it before anything
             // writes over it, then prefer the previous generation over starting empty.
