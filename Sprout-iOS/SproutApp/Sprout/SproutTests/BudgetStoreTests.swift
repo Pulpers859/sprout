@@ -51,26 +51,26 @@ struct BudgetStoreTests {
 
     @Test func defaultBudgets() {
         let store = makeStore()
-        #expect(store.budget(for: .personal) == 200)
-        #expect(store.budget(for: .grocery) == 400)
+        #expect(store.budget(for: .personal).dollars == 200)
+        #expect(store.budget(for: .grocery).dollars == 400)
     }
 
     @Test func setBudgetUpdatesTotal() {
         let store = makeStore()
-        store.setBudget(500, for: .personal)
-        #expect(store.budget(for: .personal) == 500)
+        store.setBudget(MoneyAmount(dollars: 500), for: .personal)
+        #expect(store.budget(for: .personal).dollars == 500)
     }
 
     @Test func setBudgetRejectsNegative() {
         let store = makeStore()
-        store.setBudget(-50, for: .personal)
-        #expect(store.budget(for: .personal) == 200)
+        store.setBudget(MoneyAmount(dollars: -50), for: .personal)
+        #expect(store.budget(for: .personal).dollars == 200)
     }
 
     @Test func netSpentWithNoTransactions() {
         let store = makeStore()
-        #expect(store.netSpent(for: .personal) == 0)
-        #expect(store.remaining(for: .personal) == 200)
+        #expect(store.netSpent(for: .personal).dollars == 0)
+        #expect(store.remaining(for: .personal).dollars == 200)
     }
 
     @Test func netSpentSumsExpenses() {
@@ -79,8 +79,8 @@ struct BudgetStoreTests {
         let draft2 = TransactionDraft(name: "Lunch", amountText: "12.50", selectedEmoji: "🍕")
         _ = store.addTransaction(mode: .expense, draft: draft1, tab: .personal)
         _ = store.addTransaction(mode: .expense, draft: draft2, tab: .personal)
-        #expect(store.netSpent(for: .personal) == 17.50)
-        #expect(store.remaining(for: .personal) == 182.50)
+        #expect(store.netSpent(for: .personal).dollars == 17.50)
+        #expect(store.remaining(for: .personal).dollars == 182.50)
     }
 
     @Test func refundReducesNetSpent() {
@@ -89,15 +89,15 @@ struct BudgetStoreTests {
         let refund = TransactionDraft(name: "Shirt Return", amountText: "40", selectedEmoji: "💸")
         _ = store.addTransaction(mode: .expense, draft: expense, tab: .personal)
         _ = store.addTransaction(mode: .payment, draft: refund, tab: .personal)
-        #expect(store.netSpent(for: .personal) == 0)
-        #expect(store.remaining(for: .personal) == 200)
+        #expect(store.netSpent(for: .personal).dollars == 0)
+        #expect(store.remaining(for: .personal).dollars == 200)
     }
 
     @Test func progressClampsToZeroOne() {
         let store = makeStore()
         #expect(store.progress(for: .personal) == 0)
 
-        store.setBudget(100, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 100), for: .personal)
         let big = TransactionDraft(name: "Overboard", amountText: "200", selectedEmoji: "💸")
         _ = store.addTransaction(mode: .expense, draft: big, tab: .personal)
         #expect(store.progress(for: .personal) == 1)
@@ -105,7 +105,7 @@ struct BudgetStoreTests {
 
     @Test func progressZeroBudget() {
         let store = makeStore()
-        store.setBudget(0, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 0), for: .personal)
         #expect(store.progress(for: .personal) == 0)
     }
 
@@ -120,8 +120,8 @@ struct BudgetStoreTests {
         let store = makeStore()
         let draft = TransactionDraft(name: "Milk", amountText: "5", selectedEmoji: "🛒")
         _ = store.addTransaction(mode: .expense, draft: draft, tab: .grocery)
-        #expect(store.netSpent(for: .grocery) == 5)
-        #expect(store.netSpent(for: .personal) == 0)
+        #expect(store.netSpent(for: .grocery).dollars == 5)
+        #expect(store.netSpent(for: .personal).dollars == 0)
     }
 
     // MARK: - Carryover
@@ -130,20 +130,20 @@ struct BudgetStoreTests {
         let store = makeStore()
         store.resetMonth(carryOverRemainders: true)
         let carryover = store.carryover(for: .personal)
-        store.setBudget(500, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 500), for: .personal)
         #expect(store.carryover(for: .personal) == carryover)
-        #expect(store.baseBudget(for: .personal) == 500 - carryover)
+        #expect(store.baseBudget(for: .personal) == MoneyAmount(dollars: 500) - carryover)
     }
 
     @Test func setBudgetBelowCarryoverClampsCarryover() {
         let store = makeStore()
         store.resetMonth(carryOverRemainders: true)
         let carryover = store.carryover(for: .personal)
-        guard carryover > 0 else { return }
+        guard carryover > .zero else { return }
 
-        store.setBudget(carryover / 2, for: .personal)
-        #expect(store.carryover(for: .personal) == carryover / 2)
-        #expect(store.baseBudget(for: .personal) == 0)
+        store.setBudget(carryover.dividedTruncating(by: 2), for: .personal)
+        #expect(store.carryover(for: .personal) == carryover.dividedTruncating(by: 2))
+        #expect(store.baseBudget(for: .personal) == .zero)
     }
 
     // MARK: - Transaction Validation
@@ -199,13 +199,13 @@ struct BudgetStoreTests {
     @Test func resetFreshZerosCarryover() {
         let store = makeStore()
         store.resetMonth(carryOverRemainders: false)
-        #expect(store.carryover(for: .personal) == 0)
-        #expect(store.carryover(for: .grocery) == 0)
+        #expect(store.carryover(for: .personal).dollars == 0)
+        #expect(store.carryover(for: .grocery).dollars == 0)
     }
 
     @Test func resetCarryOverSetsPositiveRemainder() {
         let store = makeStore()
-        store.setBudget(200, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 200), for: .personal)
         let draft = TransactionDraft(name: "Coffee", amountText: "50", selectedEmoji: "☕")
         _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
         let expectedCarry = store.remaining(for: .personal)
@@ -215,11 +215,11 @@ struct BudgetStoreTests {
 
     @Test func resetCarryOverClampsNegativeToZero() {
         let store = makeStore()
-        store.setBudget(10, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 10), for: .personal)
         let draft = TransactionDraft(name: "Big Purchase", amountText: "50", selectedEmoji: "🛍️")
         _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
         store.resetMonth(carryOverRemainders: true)
-        #expect(store.carryover(for: .personal) == 0)
+        #expect(store.carryover(for: .personal).dollars == 0)
     }
 
     @Test func resetArchivesMonth() {
@@ -316,7 +316,7 @@ struct BudgetStoreTests {
 
     @Test func exportImportRoundTrip() throws {
         let store = makeStore()
-        store.setBudget(350, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 350), for: .personal)
         let draft = TransactionDraft(name: "Test", amountText: "25", selectedEmoji: "🧪")
         _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
 
@@ -324,7 +324,7 @@ struct BudgetStoreTests {
         let store2 = makeStore()
         try store2.importBackupData(data)
 
-        #expect(store2.budget(for: .personal) == 350)
+        #expect(store2.budget(for: .personal).dollars == 350)
         #expect(store2.transactions(for: .personal).count == 1)
         #expect(store2.transactions(for: .personal).first?.name == "Test")
     }
@@ -380,13 +380,13 @@ struct BudgetStoreTests {
     @Test func parsedAmountHandlesDecimal() {
         var draft = TransactionDraft()
         draft.amountText = "12.50"
-        #expect(draft.parsedAmount == 12.50)
+        #expect(draft.parsedAmount?.dollars == 12.50)
     }
 
     @Test func parsedAmountHandlesComma() {
         var draft = TransactionDraft()
         draft.amountText = "1,200"
-        #expect(draft.parsedAmount == 1200)
+        #expect(draft.parsedAmount?.dollars == 1200)
     }
 
     @Test func parsedAmountRejectsEmpty() {
@@ -443,10 +443,10 @@ struct BudgetStoreTests {
 
         // July must hold only July's charge — June's used to be double-counted here.
         #expect(store.snapshot.currentMonth == "2026-07")
-        #expect(store.netSpent(for: .personal) == 100)
+        #expect(store.netSpent(for: .personal).dollars == 100)
 
         let june = store.archivedMonths.first { $0.monthKey == "2026-06" }
-        #expect(june?.netSpent(for: .personal) == 100)
+        #expect(june?.netSpent(for: .personal).dollars == 100)
     }
 
     @Test func multiMonthCarryoverCompoundsThroughEachMonth() {
@@ -454,7 +454,7 @@ struct BudgetStoreTests {
         let clock = TestClock(Self.makeDate(2026, 5, 15))
         let store = makeStore(calendar: calendar, now: { clock.date })
 
-        store.setBudget(200, for: .personal)
+        store.setBudget(MoneyAmount(dollars: 200), for: .personal)
         let draft = TransactionDraft(name: "Coffee", amountText: "50", selectedEmoji: "☕", date: clock.date)
         _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
 
@@ -463,7 +463,7 @@ struct BudgetStoreTests {
         store.resetMonth(carryOverRemainders: true)
 
         // May leaves 150; June spends nothing against 200 base + 150 carried.
-        #expect(store.carryover(for: .personal) == 350)
+        #expect(store.carryover(for: .personal).dollars == 350)
     }
 
     @Test func manualMidMonthResetStillArchivesOnce() {
@@ -604,7 +604,7 @@ struct BudgetStoreTests {
     @Test func missingFileStartsCleanWithoutAlert() {
         let store = makeStore()
         #expect(store.persistenceAlert == nil)
-        #expect(store.budget(for: .personal) == 200)
+        #expect(store.budget(for: .personal).dollars == 200)
     }
 
     @Test func snapshotCarriesSchemaVersion() throws {
@@ -659,7 +659,7 @@ struct BudgetStoreTests {
         store.resetMonth(carryOverRemainders: false)
 
         #expect(store.snapshot.currentMonth == "2026-06")
-        #expect(store.netSpent(for: .personal) == 25)
+        #expect(store.netSpent(for: .personal).dollars == 25)
         #expect(store.archivedMonths.isEmpty)
     }
 
@@ -713,7 +713,7 @@ struct BudgetStoreTests {
         // Budgets survived, so this is not the corrupt-file path — but the silent
         // empty ledger must still be reported.
         #expect(store.persistenceAlert != nil)
-        #expect(store.budget(for: .personal) == 200)
+        #expect(store.budget(for: .personal).dollars == 200)
     }
 
     @Test func absentTransactionKeyIsNotTreatedAsDamage() throws {
@@ -759,7 +759,66 @@ struct BudgetStoreTests {
         try Data(json.utf8).write(to: saveURL)
 
         let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
-        #expect(store.budget(for: .personal) == 275)
+        #expect(store.budget(for: .personal).dollars == 275)
         #expect(store.snapshot.schemaVersion == BudgetSnapshot.currentSchemaVersion)
+    }
+
+    @Test func legacyV1DollarsMigrateToExactCents() throws {
+        let saveURL = Self.makeTempSaveURL()
+        // A v1 file stored money as Double dollars. Fractional values prove the
+        // migration multiplies by 100 rather than reinterpreting the number as cents.
+        let json = """
+        {
+          "schemaVersion": 1,
+          "groceryBudget": 400,
+          "personalBudget": 200.50,
+          "groceryCarryover": 0,
+          "personalCarryover": 0,
+          "currentMonth": "\(SproutDate.currentMonthKey())",
+          "personalCategories": [],
+          "recurringRules": [],
+          "monthHistory": [],
+          "updatedAt": "2026-07-01T12:00:00Z",
+          "transactions": [
+            {
+              "id": "\(UUID().uuidString)",
+              "name": "Lunch",
+              "amount": 12.34,
+              "note": "",
+              "emoji": "🍕",
+              "date": "2026-07-01T12:00:00Z",
+              "tab": "personal",
+              "isRefund": false
+            }
+          ]
+        }
+        """
+        try Data(json.utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        // $200.50 -> 20050 cents, $12.34 -> 1234 cents (not reinterpreted as cents).
+        #expect(store.baseBudget(for: .personal).cents == 20050)
+        #expect(store.transactions(for: .personal).first?.amount.cents == 1234)
+        #expect(store.netSpent(for: .personal).cents == 1234)
+
+        // Loading migrates and re-persists in the cents schema, so the file on disk
+        // is now v2 with integer-cent money.
+        let rewritten = try JSONSerialization.jsonObject(with: try Data(contentsOf: saveURL)) as? [String: Any]
+        #expect(rewritten?["schemaVersion"] as? Int == 2)
+        #expect(rewritten?["personalBudget"] as? Int == 20050)
+    }
+
+    @Test func v2FileRoundTripsExactCents() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        store.setBudget(MoneyAmount(dollars: 123.45), for: .personal)
+        let draft = TransactionDraft(name: "Odd", amountText: "9.99", selectedEmoji: "🧾")
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        // A fresh store reads the on-disk v2 file back with no drift.
+        let reloaded = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(reloaded.budget(for: .personal).cents == 12345)
+        #expect(reloaded.netSpent(for: .personal).cents == 999)
+        #expect(reloaded.remaining(for: .personal).cents == 12345 - 999)
     }
 }

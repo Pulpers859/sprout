@@ -159,7 +159,7 @@ struct PersonalCategory: Codable, Hashable, Identifiable {
 struct TransactionEntry: Codable, Hashable, Identifiable {
     var id: UUID
     var name: String
-    var amount: Double
+    var amount: MoneyAmount
     var note: String
     var emoji: String
     var date: Date
@@ -169,7 +169,7 @@ struct TransactionEntry: Codable, Hashable, Identifiable {
     init(
         id: UUID = UUID(),
         name: String,
-        amount: Double,
+        amount: MoneyAmount,
         note: String = "",
         emoji: String,
         date: Date,
@@ -195,7 +195,7 @@ struct TransactionEntry: Codable, Hashable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
-        amount = try container.decode(Double.self, forKey: .amount)
+        amount = try container.decode(MoneyAmount.self, forKey: .amount)
         note = (try? container.decode(String.self, forKey: .note)) ?? ""
         emoji = try container.decode(String.self, forKey: .emoji)
         date = try container.decode(Date.self, forKey: .date)
@@ -225,7 +225,7 @@ struct TransactionEntry: Codable, Hashable, Identifiable {
 struct RecurringTransactionRule: Codable, Hashable, Identifiable {
     var id: UUID
     var name: String
-    var amount: Double
+    var amount: MoneyAmount
     var note: String
     var emoji: String
     var tab: BudgetTab
@@ -237,7 +237,7 @@ struct RecurringTransactionRule: Codable, Hashable, Identifiable {
     init(
         id: UUID = UUID(),
         name: String,
-        amount: Double,
+        amount: MoneyAmount,
         note: String = "",
         emoji: String,
         tab: BudgetTab,
@@ -261,10 +261,10 @@ struct RecurringTransactionRule: Codable, Hashable, Identifiable {
 
 struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
     var monthKey: String
-    var personalBudget: Double
-    var groceryBudget: Double
-    var personalCarryover: Double
-    var groceryCarryover: Double
+    var personalBudget: MoneyAmount
+    var groceryBudget: MoneyAmount
+    var personalCarryover: MoneyAmount
+    var groceryCarryover: MoneyAmount
     var transactions: [TransactionEntry]
     var archivedAt: Date
 
@@ -272,10 +272,10 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
 
     init(
         monthKey: String,
-        personalBudget: Double,
-        groceryBudget: Double,
-        personalCarryover: Double,
-        groceryCarryover: Double,
+        personalBudget: MoneyAmount,
+        groceryBudget: MoneyAmount,
+        personalCarryover: MoneyAmount,
+        groceryCarryover: MoneyAmount,
         transactions: [TransactionEntry],
         archivedAt: Date
     ) {
@@ -293,10 +293,10 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         monthKey = try container.decode(String.self, forKey: .monthKey)
-        personalBudget = try container.decodeIfPresent(Double.self, forKey: .personalBudget) ?? 0
-        groceryBudget = try container.decodeIfPresent(Double.self, forKey: .groceryBudget) ?? 0
-        personalCarryover = try container.decodeIfPresent(Double.self, forKey: .personalCarryover) ?? 0
-        groceryCarryover = try container.decodeIfPresent(Double.self, forKey: .groceryCarryover) ?? 0
+        personalBudget = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .personalBudget)) ?? .zero
+        groceryBudget = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .groceryBudget)) ?? .zero
+        personalCarryover = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .personalCarryover)) ?? .zero
+        groceryCarryover = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .groceryCarryover)) ?? .zero
         transactions = SproutLossyDecoding.transactions(
             in: container,
             forKey: .transactions,
@@ -305,7 +305,7 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
         archivedAt = try container.decodeIfPresent(Date.self, forKey: .archivedAt) ?? .distantPast
     }
 
-    func budget(for tab: BudgetTab) -> Double {
+    func budget(for tab: BudgetTab) -> MoneyAmount {
         switch tab {
         case .personal:
             personalBudget + personalCarryover
@@ -314,13 +314,13 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
         }
     }
 
-    func netSpent(for tab: BudgetTab) -> Double {
-        transactions(for: tab).reduce(0) { partialResult, item in
+    func netSpent(for tab: BudgetTab) -> MoneyAmount {
+        transactions(for: tab).reduce(.zero) { partialResult, item in
             partialResult + (item.isRefund ? -item.amount : item.amount)
         }
     }
 
-    func remaining(for tab: BudgetTab) -> Double {
+    func remaining(for tab: BudgetTab) -> MoneyAmount {
         budget(for: tab) - netSpent(for: tab)
     }
 
@@ -409,13 +409,16 @@ enum SproutLossyDecoding {
 struct BudgetSnapshot: Codable {
     /// Bumped only when a change needs migration logic; additive fields do not
     /// require a bump because every field decodes with a default.
-    static let currentSchemaVersion = 1
+    ///
+    /// v2: money is stored as integer cents (`MoneyAmount`) rather than `Double`
+    /// dollars. Files at v1 (or with no version) are migrated on load.
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int
-    var groceryBudget: Double
-    var personalBudget: Double
-    var groceryCarryover: Double
-    var personalCarryover: Double
+    var groceryBudget: MoneyAmount
+    var personalBudget: MoneyAmount
+    var groceryCarryover: MoneyAmount
+    var personalCarryover: MoneyAmount
     var transactions: [TransactionEntry]
     var recurringRules: [RecurringTransactionRule]
     var monthHistory: [ArchivedBudgetMonth]
@@ -425,10 +428,10 @@ struct BudgetSnapshot: Codable {
 
     static func makeEmpty(now: Date = .now, calendar: Calendar = .current) -> BudgetSnapshot {
         BudgetSnapshot(
-            groceryBudget: 400,
-            personalBudget: 200,
-            groceryCarryover: 0,
-            personalCarryover: 0,
+            groceryBudget: MoneyAmount(dollars: 400),
+            personalBudget: MoneyAmount(dollars: 200),
+            groceryCarryover: .zero,
+            personalCarryover: .zero,
             transactions: [],
             recurringRules: [],
             monthHistory: [],
@@ -456,10 +459,10 @@ struct BudgetSnapshot: Codable {
 
     init(
         schemaVersion: Int = BudgetSnapshot.currentSchemaVersion,
-        groceryBudget: Double,
-        personalBudget: Double,
-        groceryCarryover: Double,
-        personalCarryover: Double,
+        groceryBudget: MoneyAmount,
+        personalBudget: MoneyAmount,
+        groceryCarryover: MoneyAmount,
+        personalCarryover: MoneyAmount,
         transactions: [TransactionEntry],
         recurringRules: [RecurringTransactionRule],
         monthHistory: [ArchivedBudgetMonth],
@@ -486,10 +489,10 @@ struct BudgetSnapshot: Codable {
         // partially is always better than one that fails whole and strands the user
         // on defaults.
         schemaVersion = (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion)) ?? 0
-        groceryBudget = (try? container.decodeIfPresent(Double.self, forKey: .groceryBudget)) ?? 400
-        personalBudget = (try? container.decodeIfPresent(Double.self, forKey: .personalBudget)) ?? 200
-        groceryCarryover = (try? container.decodeIfPresent(Double.self, forKey: .groceryCarryover)) ?? 0
-        personalCarryover = (try? container.decodeIfPresent(Double.self, forKey: .personalCarryover)) ?? 0
+        groceryBudget = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .groceryBudget)) ?? MoneyAmount(dollars: 400)
+        personalBudget = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .personalBudget)) ?? MoneyAmount(dollars: 200)
+        groceryCarryover = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .groceryCarryover)) ?? .zero
+        personalCarryover = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .personalCarryover)) ?? .zero
         transactions = SproutLossyDecoding.transactions(
             in: container,
             forKey: .transactions,
@@ -514,18 +517,22 @@ struct TransactionDraft: Equatable {
     var recurringFrequency: RecurrenceFrequency = .monthly
     var recurringNextDate = RecurrenceFrequency.monthly.advanced(from: Date())
 
-    static let maximumAmount: Double = 999_999.99
+    static let maximumAmount = MoneyAmount(dollars: 999_999.99)
 
-    var parsedAmount: Double? {
+    var parsedAmount: MoneyAmount? {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = .current
+        let dollars: Double
         if let value = formatter.number(from: amountText)?.doubleValue {
-            return value <= Self.maximumAmount ? value : nil
+            dollars = value
+        } else {
+            let sanitized = amountText.replacingOccurrences(of: ",", with: "")
+            guard let value = Double(sanitized) else { return nil }
+            dollars = value
         }
-        let sanitized = amountText.replacingOccurrences(of: ",", with: "")
-        guard let value = Double(sanitized) else { return nil }
-        return value <= Self.maximumAmount ? value : nil
+        guard dollars <= Self.maximumAmount.dollars else { return nil }
+        return MoneyAmount(dollars: dollars)
     }
 
     var minimumRecurringDate: Date {

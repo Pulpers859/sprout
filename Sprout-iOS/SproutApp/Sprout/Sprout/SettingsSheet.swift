@@ -468,7 +468,7 @@ private struct ArchivedMonthRow: View {
 
 private struct ArchivedMonthBudgetPill: View {
     let title: String
-    let remaining: Double
+    let remaining: MoneyAmount
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -477,9 +477,9 @@ private struct ArchivedMonthBudgetPill: View {
                 .foregroundStyle(Color.sproutTextMuted)
                 .textCase(.uppercase)
 
-            Text(remaining < 0 ? "Over \(SproutFormatters.currency(abs(remaining)))" : "\(SproutFormatters.currency(remaining)) left")
+            Text(remaining < .zero ? "Over \(SproutFormatters.currency(remaining.magnitude))" : "\(SproutFormatters.currency(remaining)) left")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(remaining < 0 ? Color.sproutRed : Color.sageDark)
+                .foregroundStyle(remaining < .zero ? Color.sproutRed : Color.sageDark)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -564,14 +564,14 @@ private struct ArchivedMonthStatsGrid: View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 ArchivedMetricCard(title: "Budget", value: SproutFormatters.currency(month.budget(for: tab)), tone: .sproutText)
-                ArchivedMetricCard(title: "Spent", value: SproutFormatters.currency(max(month.netSpent(for: tab), 0)), tone: .sproutText)
+                ArchivedMetricCard(title: "Spent", value: SproutFormatters.currency(max(month.netSpent(for: tab), .zero)), tone: .sproutText)
             }
 
             HStack(spacing: 10) {
                 ArchivedMetricCard(
                     title: "Remaining",
                     value: SproutFormatters.currency(month.remaining(for: tab)),
-                    tone: month.remaining(for: tab) < 0 ? .sproutRed : .sageDark
+                    tone: month.remaining(for: tab) < .zero ? .sproutRed : .sageDark
                 )
                 ArchivedMetricCard(
                     title: "Carryover",

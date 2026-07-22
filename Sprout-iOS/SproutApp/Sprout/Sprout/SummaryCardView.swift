@@ -7,7 +7,7 @@ struct SummaryCardView: View {
     let onEditBudget: () -> Void
 
     var body: some View {
-        let spent = max(store.netSpent(for: tab), 0)
+        let spent = max(store.netSpent(for: tab), .zero)
         let remaining = store.remaining(for: tab)
         let progress = store.progress(for: tab)
         let paceProgress = store.paceProgress()
@@ -18,11 +18,11 @@ struct SummaryCardView: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(remaining < 0 ? "OVER BUDGET" : "AVAILABLE")
+                    Text(remaining < .zero ? "OVER BUDGET" : "AVAILABLE")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Color.white.opacity(0.68))
 
-                    Text(SproutFormatters.currency(abs(remaining)))
+                    Text(SproutFormatters.currency(remaining.magnitude))
                         .font(.system(size: 44, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.white)
                         .contentTransition(.numericText())
@@ -81,14 +81,14 @@ struct SummaryCardView: View {
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(
-                        dailyAllowance < 0
+                        dailyAllowance < .zero
                         ? "Daily overage"
                         : "Daily allowance · \(SproutDate.daysLeftInMonth()) days left"
                     )
                         .font(.caption)
                         .foregroundStyle(Color.white.opacity(0.62))
 
-                    Text("\(SproutFormatters.currency(abs(dailyAllowance)))/day")
+                    Text("\(SproutFormatters.currency(dailyAllowance.magnitude))/day")
                         .font(.system(.headline, design: .rounded, weight: .bold))
                         .foregroundStyle(Color.white)
                 }
@@ -108,7 +108,7 @@ struct SummaryCardView: View {
                 .accessibilityLabel("Spending pace: \(statusTitle(for: paceStatus))")
             }
 
-            if carryover > 0 {
+            if carryover > .zero {
                 Label(
                     "\(SproutFormatters.currency(carryover)) carried over",
                     systemImage: "arrow.turn.down.right"
@@ -123,7 +123,7 @@ struct SummaryCardView: View {
     }
 
     private func spendingColor(progress: Double, remaining: Double) -> Color {
-        if remaining < 0 || progress >= 1 {
+        if remaining < .zero || progress >= 1 {
             return .sproutRedBright
         }
         if progress >= 0.8 {

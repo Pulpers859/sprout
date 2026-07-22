@@ -4,19 +4,20 @@ struct BudgetEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let tab: BudgetTab
-    let carryover: Double
-    let onSave: (Double) -> Void
+    let carryover: MoneyAmount
+    let onSave: (MoneyAmount) -> Void
 
     @FocusState private var isAmountFocused: Bool
     @State private var amountText: String
 
-    init(tab: BudgetTab, startingAmount: Double, carryover: Double = 0, onSave: @escaping (Double) -> Void) {
+    init(tab: BudgetTab, startingAmount: MoneyAmount, carryover: MoneyAmount = .zero, onSave: @escaping (MoneyAmount) -> Void) {
         self.tab = tab
         self.carryover = carryover
         self.onSave = onSave
-        let text = startingAmount.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(startingAmount))
-            : String(format: "%.2f", startingAmount)
+        let dollars = startingAmount.dollars
+        let text = dollars.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(dollars))
+            : String(format: "%.2f", dollars)
         _amountText = State(initialValue: text)
     }
 
@@ -46,7 +47,7 @@ struct BudgetEditorSheet: View {
                         .foregroundStyle(Color.sproutTextMuted)
                         .multilineTextAlignment(.center)
 
-                    if carryover > 0 {
+                    if carryover > .zero {
                         Label(
                             "\(SproutFormatters.currency(carryover)) is carried over from last month",
                             systemImage: "arrow.turn.down.right"
@@ -83,16 +84,20 @@ struct BudgetEditorSheet: View {
         }
     }
 
-    private var parsedAmount: Double? {
+    private var parsedAmount: MoneyAmount? {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = .current
-        if let value = formatter.number(from: amountText)?.doubleValue, value > 0, value <= TransactionDraft.maximumAmount {
-            return value
+        let dollars: Double
+        if let value = formatter.number(from: amountText)?.doubleValue {
+            dollars = value
+        } else {
+            let sanitized = amountText.replacingOccurrences(of: ",", with: "")
+            guard let value = Double(sanitized) else { return nil }
+            dollars = value
         }
-        let sanitized = amountText.replacingOccurrences(of: ",", with: "")
-        guard let value = Double(sanitized), value > 0, value <= TransactionDraft.maximumAmount else { return nil }
-        return value
+        guard dollars > 0, dollars <= TransactionDraft.maximumAmount.dollars else { return nil }
+        return MoneyAmount(dollars: dollars)
     }
 
     private func save() {

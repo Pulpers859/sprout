@@ -100,11 +100,11 @@ final class BudgetStore: ObservableObject {
             .map(\.element)
     }
 
-    func budget(for tab: BudgetTab) -> Double {
+    func budget(for tab: BudgetTab) -> MoneyAmount {
         baseBudget(for: tab) + carryover(for: tab)
     }
 
-    func baseBudget(for tab: BudgetTab) -> Double {
+    func baseBudget(for tab: BudgetTab) -> MoneyAmount {
         switch tab {
         case .personal:
             snapshot.personalBudget
@@ -113,7 +113,7 @@ final class BudgetStore: ObservableObject {
         }
     }
 
-    func carryover(for tab: BudgetTab) -> Double {
+    func carryover(for tab: BudgetTab) -> MoneyAmount {
         switch tab {
         case .personal:
             snapshot.personalCarryover
@@ -122,17 +122,17 @@ final class BudgetStore: ObservableObject {
         }
     }
 
-    func setBudget(_ amount: Double, for tab: BudgetTab) {
-        guard amount >= 0 else { return }
+    func setBudget(_ amount: MoneyAmount, for tab: BudgetTab) {
+        guard amount >= .zero else { return }
         let currentCarryover = carryover(for: tab)
-        let adjustedBase: Double
-        let adjustedCarryover: Double
+        let adjustedBase: MoneyAmount
+        let adjustedCarryover: MoneyAmount
 
         if amount >= currentCarryover {
             adjustedBase = amount - currentCarryover
             adjustedCarryover = currentCarryover
         } else {
-            adjustedBase = 0
+            adjustedBase = .zero
             adjustedCarryover = amount
         }
 
@@ -147,20 +147,21 @@ final class BudgetStore: ObservableObject {
         persist()
     }
 
-    func netSpent(for tab: BudgetTab) -> Double {
-        transactions(for: tab).reduce(0) { partialResult, item in
+    func netSpent(for tab: BudgetTab) -> MoneyAmount {
+        transactions(for: tab).reduce(.zero) { partialResult, item in
             partialResult + (item.isRefund ? -item.amount : item.amount)
         }
     }
 
-    func remaining(for tab: BudgetTab) -> Double {
+    func remaining(for tab: BudgetTab) -> MoneyAmount {
         budget(for: tab) - netSpent(for: tab)
     }
 
     func progress(for tab: BudgetTab) -> Double {
         let budget = budget(for: tab)
-        guard budget > 0 else { return 0 }
-        return min(max(netSpent(for: tab), 0) / budget, 1)
+        guard budget > .zero else { return 0 }
+        let spent = max(netSpent(for: tab), .zero)
+        return min(Double(spent.cents) / Double(budget.cents), 1)
     }
 
     func paceProgress() -> Double {
@@ -180,8 +181,8 @@ final class BudgetStore: ObservableObject {
         return .onPace
     }
 
-    func dailyAllowance(for tab: BudgetTab) -> Double {
-        remaining(for: tab) / Double(SproutDate.daysLeftInMonth())
+    func dailyAllowance(for tab: BudgetTab) -> MoneyAmount {
+        remaining(for: tab).dividedTruncating(by: SproutDate.daysLeftInMonth())
     }
 
     func recentTransactions(for tab: BudgetTab) -> [TransactionEntry] {
@@ -257,7 +258,7 @@ final class BudgetStore: ObservableObject {
     func addTransaction(mode: TransactionMode, draft: TransactionDraft, tab: BudgetTab) -> Bool {
         guard
             let amount = draft.parsedAmount,
-            amount > 0,
+            amount > .zero,
             !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
             return false
@@ -322,7 +323,7 @@ final class BudgetStore: ObservableObject {
     func updateTransaction(_ entry: TransactionEntry, with draft: TransactionDraft, mode: TransactionMode) -> Bool {
         guard
             let amount = draft.parsedAmount,
-            amount > 0,
+            amount > .zero,
             !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             let index = snapshot.transactions.firstIndex(where: { $0.id == entry.id })
         else {
@@ -503,8 +504,8 @@ final class BudgetStore: ObservableObject {
 
     private func closeOutCurrentMonth(carryOverRemainders: Bool) {
         archiveCurrentMonthIfNeeded()
-        snapshot.personalCarryover = carryOverRemainders ? max(0, remaining(for: .personal)) : 0
-        snapshot.groceryCarryover = carryOverRemainders ? max(0, remaining(for: .grocery)) : 0
+        snapshot.personalCarryover = carryOverRemainders ? max(.zero, remaining(for: .personal)) : .zero
+        snapshot.groceryCarryover = carryOverRemainders ? max(.zero, remaining(for: .grocery)) : .zero
         snapshot.transactions = []
     }
 
@@ -602,10 +603,30 @@ final class BudgetStore: ObservableObject {
         refreshForCurrentDate(referenceDate: now())
     }
 
+    /// Reads only the top-level `schemaVersion` so the decoder can interpret money
+    /// fields correctly. A missing version means a pre-versioned file, which stored
+    /// dollars, so it is treated as v1.
+    private static func peekSchemaVersion(from data: Data) -> Int {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any],
+            let version = dictionary["schemaVersion"] as? Int
+        else {
+            return 1
+        }
+        return version
+    }
+
     private func decodeSnapshot(from data: Data) throws -> (snapshot: BudgetSnapshot, issues: SproutDecodeIssueRecorder) {
         let recorder = SproutDecodeIssueRecorder()
         decoder.userInfo[.sproutDecodeIssueRecorder] = recorder
-        defer { decoder.userInfo[.sproutDecodeIssueRecorder] = nil }
+        // Money migration is driven by the file's own schema version: at v1 (or
+        // with no version) amounts are Double dollars; at v2+ they are Int cents.
+        decoder.userInfo[.sproutSchemaVersion] = Self.peekSchemaVersion(from: data)
+        defer {
+            decoder.userInfo[.sproutDecodeIssueRecorder] = nil
+            decoder.userInfo[.sproutSchemaVersion] = nil
+        }
 
         var decoded = try decoder.decode(BudgetSnapshot.self, from: data)
         decoded.schemaVersion = BudgetSnapshot.currentSchemaVersion
@@ -730,7 +751,7 @@ final class BudgetStore: ObservableObject {
     }
 
     private var shouldArchiveCurrentMonth: Bool {
-        !snapshot.transactions.isEmpty || snapshot.personalCarryover > 0 || snapshot.groceryCarryover > 0
+        !snapshot.transactions.isEmpty || snapshot.personalCarryover > .zero || snapshot.groceryCarryover > .zero
     }
 
     private func processRecurringTransactionsThroughCurrentStoredMonthIfNeeded() {

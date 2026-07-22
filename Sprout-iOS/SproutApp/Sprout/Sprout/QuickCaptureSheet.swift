@@ -188,9 +188,9 @@ struct QuickCaptureSheet: View {
             return
         }
 
-        guard let amount = draft.parsedAmount, amount > 0 else {
+        guard let amount = draft.parsedAmount, amount > .zero else {
             let raw = draft.amountText.replacingOccurrences(of: ",", with: "")
-            if let v = Double(raw), v > TransactionDraft.maximumAmount {
+            if let v = Double(raw), v > TransactionDraft.maximumAmount.dollars {
                 validationMessage = "Amount cannot exceed \(SproutFormatters.currency(TransactionDraft.maximumAmount))."
             } else {
                 validationMessage = "Enter an amount greater than zero."
@@ -201,7 +201,7 @@ struct QuickCaptureSheet: View {
 
         validationMessage = nil
         draft.name = trimmedName
-        draft.amountText = String(format: "%.2f", amount)
+        draft.amountText = String(format: "%.2f", amount.dollars)
         onSubmit(draft)
     }
 

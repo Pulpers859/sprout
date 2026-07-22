@@ -41,8 +41,8 @@ struct CalendarCardView: View {
         .padding(.vertical, 6)
     }
 
-    private func netSpending(for entries: [TransactionEntry]) -> Double {
-        entries.reduce(0) { $0 + ($1.isRefund ? -$1.amount : $1.amount) }
+    private func netSpending(for entries: [TransactionEntry]) -> MoneyAmount {
+        entries.reduce(.zero) { $0 + ($1.isRefund ? -$1.amount : $1.amount) }
     }
 
     @ViewBuilder
@@ -66,9 +66,9 @@ struct CalendarCardView: View {
                     .foregroundStyle(isToday ? Color.sproutAmber : Color.sproutText)
 
                 if !entries.isEmpty {
-                    Text("\(net < 0 ? "+" : "")\(SproutFormatters.compactCurrency(abs(net)))")
+                    Text("\(net < .zero ? "+" : "")\(SproutFormatters.compactCurrency(net.magnitude))")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(net < 0 ? Color.sageDark : Color.sproutTextSecondary)
+                        .foregroundStyle(net < .zero ? Color.sageDark : Color.sproutTextSecondary)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -83,7 +83,7 @@ struct CalendarCardView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(date.formatted(.dateTime.day(.defaultDigits).month(.wide)))\(entries.isEmpty ? "" : ", \(SproutFormatters.currency(abs(net))) \(net < 0 ? "refunded" : "spent")")")
+        .accessibilityLabel("\(date.formatted(.dateTime.day(.defaultDigits).month(.wide)))\(entries.isEmpty ? "" : ", \(SproutFormatters.currency(net.magnitude)) \(net < .zero ? "refunded" : "spent")")")
     }
 
     @ViewBuilder
@@ -126,7 +126,7 @@ struct CalendarCardView: View {
                     Spacer()
                     Text("Net: \(SproutFormatters.currency(net))")
                         .font(.system(.subheadline, design: .monospaced, weight: .semibold))
-                        .foregroundStyle(net > 0 ? Color.sproutText : Color.sageDark)
+                        .foregroundStyle(net > .zero ? Color.sproutText : Color.sageDark)
                 }
             }
         }

@@ -85,7 +85,7 @@ struct ContentView: View {
                 mode: entry.isRefund ? .payment : .expense,
                 initialDraft: TransactionDraft(
                     name: entry.name,
-                    amountText: String(format: "%.2f", entry.amount),
+                    amountText: String(format: "%.2f", entry.amount.dollars),
                     note: entry.note,
                     selectedEmoji: entry.emoji,
                     date: entry.date
