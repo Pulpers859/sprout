@@ -7,57 +7,86 @@
 	objects = {
 
 /* Begin PBXContainerItemProxy section */
-		0193115E2FBE39940000F766 /* PBXContainerItemProxy */ = {
+		018E62032FAB5FE600BCD86C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = 019311462FBE39920000F766 /* Project object */;
+			containerPortal = 018E61EB2FAB5FE400BCD86C /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 0193114D2FBE39920000F766;
+			remoteGlobalIDString = 018E61F22FAB5FE400BCD86C;
 			remoteInfo = Sprout;
 		};
-		019311682FBE39940000F766 /* PBXContainerItemProxy */ = {
+		018E620D2FAB5FE600BCD86C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = 019311462FBE39920000F766 /* Project object */;
+			containerPortal = 018E61EB2FAB5FE400BCD86C /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 0193114D2FBE39920000F766;
+			remoteGlobalIDString = 018E61F22FAB5FE400BCD86C;
 			remoteInfo = Sprout;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0193114E2FBE39920000F766 /* Sprout.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sprout.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		0193115D2FBE39940000F766 /* SproutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SproutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		019311672FBE39940000F766 /* SproutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SproutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		018E61F32FAB5FE400BCD86C /* Sprout.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sprout.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		018E62022FAB5FE600BCD86C /* SproutTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SproutTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		018E620C2FAB5FE600BCD86C /* SproutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SproutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		019311502FBE39920000F766 /* Sprout */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Sprout;
-			sourceTree = "<group>";
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		018E62842FAB60E500BCD86C /* Exceptions for "Sprout" folder in "Sprout" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Assets.xcassets,
+				BottomTabBarView.swift,
+				BudgetDashboardView.swift,
+				BudgetEditorSheet.swift,
+				BudgetModels.swift,
+				BudgetStore.swift,
+				CalendarCardView.swift,
+				CategorySettingsSheet.swift,
+				"Color+Sprout.swift",
+				ContentView.swift,
+				FlowLayout.swift,
+				QuickCaptureSheet.swift,
+				QuickEntryRequestStore.swift,
+				QuickEntryRoute.swift,
+				README.md,
+				SproutApp.swift,
+				SproutDate.swift,
+				SproutFormatters.swift,
+				SproutQuickAddIntents.swift,
+				SummaryCardView.swift,
+				TransactionEntrySheet.swift,
+				TransactionRowView.swift,
+			);
+			target = 018E61F22FAB5FE400BCD86C /* Sprout */;
 		};
-		01A000012FD139920000F766 /* SproutTests */ = {
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		018E621F2FAB60B100BCD86C /* Sprout */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SproutTests;
+			exceptions = (
+				018E62842FAB60E500BCD86C /* Exceptions for "Sprout" folder in "Sprout" target */,
+			);
+			path = Sprout;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		0193114B2FBE39920000F766 /* Frameworks */ = {
+		018E61F02FAB5FE400BCD86C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		0193115A2FBE39940000F766 /* Frameworks */ = {
+		018E61FF2FAB5FE600BCD86C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		019311642FBE39940000F766 /* Frameworks */ = {
+		018E62092FAB5FE600BCD86C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -67,21 +96,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		019311452FBE39920000F766 = {
+		018E61EA2FAB5FE400BCD86C = {
 			isa = PBXGroup;
 			children = (
-				019311502FBE39920000F766 /* Sprout */,
-				01A000012FD139920000F766 /* SproutTests */,
-				0193114F2FBE39920000F766 /* Products */,
+				018E621F2FAB60B100BCD86C /* Sprout */,
+				018E61F42FAB5FE400BCD86C /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		0193114F2FBE39920000F766 /* Products */ = {
+		018E61F42FAB5FE400BCD86C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				0193114E2FBE39920000F766 /* Sprout.app */,
-				0193115D2FBE39940000F766 /* SproutTests.xctest */,
-				019311672FBE39940000F766 /* SproutUITests.xctest */,
+				018E61F32FAB5FE400BCD86C /* Sprout.app */,
+				018E62022FAB5FE600BCD86C /* SproutTests.xctest */,
+				018E620C2FAB5FE600BCD86C /* SproutUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -89,132 +117,126 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		0193114D2FBE39920000F766 /* Sprout */ = {
+		018E61F22FAB5FE400BCD86C /* Sprout */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 019311712FBE39940000F766 /* Build configuration list for PBXNativeTarget "Sprout" */;
+			buildConfigurationList = 018E62162FAB5FE600BCD86C /* Build configuration list for PBXNativeTarget "Sprout" */;
 			buildPhases = (
-				0193114A2FBE39920000F766 /* Sources */,
-				0193114B2FBE39920000F766 /* Frameworks */,
-				0193114C2FBE39920000F766 /* Resources */,
+				018E61EF2FAB5FE400BCD86C /* Sources */,
+				018E61F02FAB5FE400BCD86C /* Frameworks */,
+				018E61F12FAB5FE400BCD86C /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				019311502FBE39920000F766 /* Sprout */,
 			);
 			name = Sprout;
 			packageProductDependencies = (
 			);
 			productName = Sprout;
-			productReference = 0193114E2FBE39920000F766 /* Sprout.app */;
+			productReference = 018E61F32FAB5FE400BCD86C /* Sprout.app */;
 			productType = "com.apple.product-type.application";
 		};
-		0193115C2FBE39940000F766 /* SproutTests */ = {
+		018E62012FAB5FE600BCD86C /* SproutTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 019311742FBE39940000F766 /* Build configuration list for PBXNativeTarget "SproutTests" */;
+			buildConfigurationList = 018E62192FAB5FE600BCD86C /* Build configuration list for PBXNativeTarget "SproutTests" */;
 			buildPhases = (
-				019311592FBE39940000F766 /* Sources */,
-				0193115A2FBE39940000F766 /* Frameworks */,
-				0193115B2FBE39940000F766 /* Resources */,
+				018E61FE2FAB5FE600BCD86C /* Sources */,
+				018E61FF2FAB5FE600BCD86C /* Frameworks */,
+				018E62002FAB5FE600BCD86C /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				0193115F2FBE39940000F766 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				01A000012FD139920000F766 /* SproutTests */,
+				018E62042FAB5FE600BCD86C /* PBXTargetDependency */,
 			);
 			name = SproutTests;
 			packageProductDependencies = (
 			);
 			productName = SproutTests;
-			productReference = 0193115D2FBE39940000F766 /* SproutTests.xctest */;
+			productReference = 018E62022FAB5FE600BCD86C /* SproutTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		019311662FBE39940000F766 /* SproutUITests */ = {
+		018E620B2FAB5FE600BCD86C /* SproutUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 019311772FBE39940000F766 /* Build configuration list for PBXNativeTarget "SproutUITests" */;
+			buildConfigurationList = 018E621C2FAB5FE600BCD86C /* Build configuration list for PBXNativeTarget "SproutUITests" */;
 			buildPhases = (
-				019311632FBE39940000F766 /* Sources */,
-				019311642FBE39940000F766 /* Frameworks */,
-				019311652FBE39940000F766 /* Resources */,
+				018E62082FAB5FE600BCD86C /* Sources */,
+				018E62092FAB5FE600BCD86C /* Frameworks */,
+				018E620A2FAB5FE600BCD86C /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				019311692FBE39940000F766 /* PBXTargetDependency */,
+				018E620E2FAB5FE600BCD86C /* PBXTargetDependency */,
 			);
 			name = SproutUITests;
 			packageProductDependencies = (
 			);
 			productName = SproutUITests;
-			productReference = 019311672FBE39940000F766 /* SproutUITests.xctest */;
+			productReference = 018E620C2FAB5FE600BCD86C /* SproutUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		019311462FBE39920000F766 /* Project object */ = {
+		018E61EB2FAB5FE400BCD86C /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2610;
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
-					0193114D2FBE39920000F766 = {
+					018E61F22FAB5FE400BCD86C = {
 						CreatedOnToolsVersion = 26.1;
 						LastSwiftMigration = 2610;
 					};
-					0193115C2FBE39940000F766 = {
+					018E62012FAB5FE600BCD86C = {
 						CreatedOnToolsVersion = 26.1;
-						TestTargetID = 0193114D2FBE39920000F766;
+						TestTargetID = 018E61F22FAB5FE400BCD86C;
 					};
-					019311662FBE39940000F766 = {
+					018E620B2FAB5FE600BCD86C = {
 						CreatedOnToolsVersion = 26.1;
-						TestTargetID = 0193114D2FBE39920000F766;
+						TestTargetID = 018E61F22FAB5FE400BCD86C;
 					};
 				};
 			};
-			buildConfigurationList = 019311492FBE39920000F766 /* Build configuration list for PBXProject "Sprout" */;
+			buildConfigurationList = 018E61EE2FAB5FE400BCD86C /* Build configuration list for PBXProject "Sprout" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = 019311452FBE39920000F766;
+			mainGroup = 018E61EA2FAB5FE400BCD86C;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 0193114F2FBE39920000F766 /* Products */;
+			productRefGroup = 018E61F42FAB5FE400BCD86C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				0193114D2FBE39920000F766 /* Sprout */,
-				0193115C2FBE39940000F766 /* SproutTests */,
-				019311662FBE39940000F766 /* SproutUITests */,
+				018E61F22FAB5FE400BCD86C /* Sprout */,
+				018E62012FAB5FE600BCD86C /* SproutTests */,
+				018E620B2FAB5FE600BCD86C /* SproutUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		0193114C2FBE39920000F766 /* Resources */ = {
+		018E61F12FAB5FE400BCD86C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		0193115B2FBE39940000F766 /* Resources */ = {
+		018E62002FAB5FE600BCD86C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		019311652FBE39940000F766 /* Resources */ = {
+		018E620A2FAB5FE600BCD86C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -224,21 +246,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		0193114A2FBE39920000F766 /* Sources */ = {
+		018E61EF2FAB5FE400BCD86C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		019311592FBE39940000F766 /* Sources */ = {
+		018E61FE2FAB5FE600BCD86C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		019311632FBE39940000F766 /* Sources */ = {
+		018E62082FAB5FE600BCD86C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -248,20 +270,20 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		0193115F2FBE39940000F766 /* PBXTargetDependency */ = {
+		018E62042FAB5FE600BCD86C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 0193114D2FBE39920000F766 /* Sprout */;
-			targetProxy = 0193115E2FBE39940000F766 /* PBXContainerItemProxy */;
+			target = 018E61F22FAB5FE400BCD86C /* Sprout */;
+			targetProxy = 018E62032FAB5FE600BCD86C /* PBXContainerItemProxy */;
 		};
-		019311692FBE39940000F766 /* PBXTargetDependency */ = {
+		018E620E2FAB5FE600BCD86C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 0193114D2FBE39920000F766 /* Sprout */;
-			targetProxy = 019311682FBE39940000F766 /* PBXContainerItemProxy */;
+			target = 018E61F22FAB5FE400BCD86C /* Sprout */;
+			targetProxy = 018E620D2FAB5FE600BCD86C /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		0193116F2FBE39940000F766 /* Debug */ = {
+		018E62142FAB5FE600BCD86C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -325,7 +347,7 @@
 			};
 			name = Debug;
 		};
-		019311702FBE39940000F766 /* Release */ = {
+		018E62152FAB5FE600BCD86C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -382,7 +404,7 @@
 			};
 			name = Release;
 		};
-		019311722FBE39940000F766 /* Debug */ = {
+		018E62172FAB5FE600BCD86C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -416,7 +438,7 @@
 			};
 			name = Debug;
 		};
-		019311732FBE39940000F766 /* Release */ = {
+		018E62182FAB5FE600BCD86C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -449,7 +471,7 @@
 			};
 			name = Release;
 		};
-		019311752FBE39940000F766 /* Debug */ = {
+		018E621A2FAB5FE600BCD86C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -471,7 +493,7 @@
 			};
 			name = Debug;
 		};
-		019311762FBE39940000F766 /* Release */ = {
+		018E621B2FAB5FE600BCD86C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -493,7 +515,7 @@
 			};
 			name = Release;
 		};
-		019311782FBE39940000F766 /* Debug */ = {
+		018E621D2FAB5FE600BCD86C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -513,7 +535,7 @@
 			};
 			name = Debug;
 		};
-		019311792FBE39940000F766 /* Release */ = {
+		018E621E2FAB5FE600BCD86C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -536,43 +558,43 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		019311492FBE39920000F766 /* Build configuration list for PBXProject "Sprout" */ = {
+		018E61EE2FAB5FE400BCD86C /* Build configuration list for PBXProject "Sprout" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				0193116F2FBE39940000F766 /* Debug */,
-				019311702FBE39940000F766 /* Release */,
+				018E62142FAB5FE600BCD86C /* Debug */,
+				018E62152FAB5FE600BCD86C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		019311712FBE39940000F766 /* Build configuration list for PBXNativeTarget "Sprout" */ = {
+		018E62162FAB5FE600BCD86C /* Build configuration list for PBXNativeTarget "Sprout" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				019311722FBE39940000F766 /* Debug */,
-				019311732FBE39940000F766 /* Release */,
+				018E62172FAB5FE600BCD86C /* Debug */,
+				018E62182FAB5FE600BCD86C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		019311742FBE39940000F766 /* Build configuration list for PBXNativeTarget "SproutTests" */ = {
+		018E62192FAB5FE600BCD86C /* Build configuration list for PBXNativeTarget "SproutTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				019311752FBE39940000F766 /* Debug */,
-				019311762FBE39940000F766 /* Release */,
+				018E621A2FAB5FE600BCD86C /* Debug */,
+				018E621B2FAB5FE600BCD86C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		019311772FBE39940000F766 /* Build configuration list for PBXNativeTarget "SproutUITests" */ = {
+		018E621C2FAB5FE600BCD86C /* Build configuration list for PBXNativeTarget "SproutUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				019311782FBE39940000F766 /* Debug */,
-				019311792FBE39940000F766 /* Release */,
+				018E621D2FAB5FE600BCD86C /* Debug */,
+				018E621E2FAB5FE600BCD86C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = 019311462FBE39920000F766 /* Project object */;
+	rootObject = 018E61EB2FAB5FE400BCD86C /* Project object */;
 }
