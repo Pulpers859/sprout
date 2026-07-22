@@ -625,7 +625,7 @@ struct BudgetStoreTests {
         var draft = TransactionDraft(name: "Rent", amountText: "900", selectedEmoji: "🏠", date: entryDate)
         draft.isRecurring = true
         draft.recurringFrequency = .monthly
-        draft.recurringNextDate = TransactionDraft.defaultRecurringNextDate(from: entryDate, frequency: .monthly)
+        draft.recurringNextDate = TransactionDraft.defaultRecurringNextDate(from: entryDate, frequency: .monthly, calendar: calendar)
         _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
 
         #expect(store.recurringRules(for: .personal).first?.anchorDay == 31)
