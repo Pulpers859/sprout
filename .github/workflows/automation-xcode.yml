@@ -55,7 +55,7 @@ jobs:
             -scheme 'Sprout'
             -configuration 'Debug'
             -sdk 'iphonesimulator'
-            -destination 'platform=iOS Simulator,name=iPhone 16'
+            -destination 'platform=iOS Simulator,name=iPhone 17'
             -resultBundlePath 'xcode-result.xcresult'
             CODE_SIGNING_ALLOWED=NO
             test

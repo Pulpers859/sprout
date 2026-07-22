@@ -27,7 +27,7 @@ This repository is configured by `.swift-automation.json` using schema version 1
 
 ## Evidence Checkpoint
 
-- Repository commit when this handoff was rendered: `9605174dc8630275797d3aeb073dc2de7a6113bc`
+- Repository commit when this handoff was rendered: `0da5aeac9ddfa6ffa77de84835047b59b89ba77c`
 - Local profile validation: passed.
 - Latest GitHub Actions result, observed HTTP-call count, and physical-device result: not recorded by the installer; verify and update after execution.
 
