@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           has_available_ios_runtime() {
-            xcrun simctl list runtimes | grep -Eq '^[[:space:]]*iOS .* \(available\)$'
+            xcrun simctl list runtimes 2>/dev/null | grep -E '^[[:space:]]*iOS ' | grep -vqi 'unavailable'
           }
           if has_available_ios_runtime; then
             exit 0
@@ -73,7 +73,7 @@ jobs:
         with:
           name: xcode-diagnostics
           path: |
-            'Sprout-iOS/SproutApp/Sprout/xcode.log'
-            'Sprout-iOS/SproutApp/Sprout/xcode-result.xcresult'
+            Sprout-iOS/SproutApp/Sprout/xcode.log
+            Sprout-iOS/SproutApp/Sprout/xcode-result.xcresult
           if-no-files-found: warn
           retention-days: 14
