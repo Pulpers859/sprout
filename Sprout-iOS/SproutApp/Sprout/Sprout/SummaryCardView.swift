@@ -122,7 +122,7 @@ struct SummaryCardView: View {
         .shadow(color: tab.accentDarkColor.opacity(0.2), radius: 18, x: 0, y: 10)
     }
 
-    private func spendingColor(progress: Double, remaining: Double) -> Color {
+    private func spendingColor(progress: Double, remaining: MoneyAmount) -> Color {
         if remaining < .zero || progress >= 1 {
             return .sproutRedBright
         }
