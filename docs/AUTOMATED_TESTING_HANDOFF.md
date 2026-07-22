@@ -40,3 +40,21 @@ Live jobs are manual, require the exact confirmation phrase, and depend on the d
 3. Keep each paid feature in its own `run_live_<surface>` job.
 4. Never print or persist secret values.
 5. Report what CI proves separately from what still needs Xcode on a physical Apple device.
+
+## Verified Execution Evidence
+
+Appended manually after real runs (the installer regenerates the sections above; keep this section when regenerating).
+
+- **Latest green run:** GitHub Actions run `29882255196` on commit `0c8e883`, workflow `Xcode Test`, `macos-latest`.
+- **Toolchain observed on runner:** Xcode 26.5, iPhoneSimulator 26.5 SDK, simulator `iPhone 17`.
+- **Result:** `** TEST SUCCEEDED **`. Swift Testing reported `Test run with 62 tests in 1 suite passed`. The zero-test guard matched that line; the lone `Executed 0 tests` entry is the empty XCTest suite (this target has no XCTest cases) and correctly does not satisfy the `[1-9]` guard.
+
+### What this CI proves
+- The full app (SwiftUI + models + store) compiles for the iOS Simulator on real Xcode, and the `SproutTests` Swift Testing suite executes and passes on a booted simulator. Every push to `main` and every PR re-verifies this, and the job fails if zero tests are discovered.
+
+### What it does NOT prove (still needs a physical Apple device)
+- On-device persistence/Keychain/file-protection behavior, App Intents / `sprout://` quick-add from Shortcuts and the widget, haptics, and real UI. `physicalDeviceRequired` is `true` for a reason: green CI is necessary, not sufficient, for release.
+
+### Known limitations / follow-ups
+- **Simulator device name is pinned** (`iPhone 17`). When GitHub bumps the `macos-latest` image to a newer device lineup, update `xcode.destination` in `.swift-automation.json` and regenerate. A runtime "newest available iPhone" resolver in the kit would remove this maintenance step and is the recommended next hardening.
+- **Failure-only diagnostics upload** (`xcode.log`, `xcode-result.xcresult`) was corrected in the kit (paths are no longer literal-quoted inside the block list) but has only been exercised on green runs here; confirm the artifact appears on the next genuinely failing run.

@@ -94,6 +94,18 @@ Do not say the repository is fully assessed, synchronized, or up to date while o
 - Use `/handoff-note` to leave a compact state summary for the next session.
 - Use `docs/agent-sandbox-workflow.md` when a task is risky enough to justify an isolated AI-agent sandbox.
 
+## Automated Testing (Swift Agent Automation Kit)
+
+CI for this repo is managed by the **Swift Agent Automation Kit** (`swift-ci-bootstrap`). Do not hand-write, copy, or edit workflow YAML directly.
+
+Before changing any CI, workflow, or test automation:
+
+1. Read `.swift-automation.json` (the machine-readable profile that drives generation) and `docs/AUTOMATED_TESTING_HANDOFF.md` (contract, real-run evidence, and known limitations).
+2. Make changes by editing the profile and regenerating with the kit's installer, not by editing `.github/workflows/automation-xcode.yml` by hand — hand edits are overwritten on the next regeneration and drift from the profile.
+3. Keep the generated Xcode workflow's guarantees intact: pinned action SHAs, `cancel-in-progress`, the iOS-simulator runtime preflight, and the zero-test guard that fails CI when no tests execute.
+4. The current setup is `projectType: xcode`, running the `SproutTests` target via a shared `Sprout` scheme on an iOS Simulator on `macos-latest`. Pushing workflow files requires the GitHub token to hold the **Workflows: read and write** permission (fine-grained) or `workflow` scope (classic).
+5. Report what CI proves (compile + simulator test execution) separately from what still requires a physical Apple device (`physicalDeviceRequired: true`).
+
 ## Deliberately Not Included
 
 These are low ROI for this project right now:
