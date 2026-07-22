@@ -112,8 +112,9 @@ struct BudgetStoreTests {
     @Test func dailyAllowanceNeverDividesByZero() {
         let store = makeStore()
         let allowance = store.dailyAllowance(for: .personal)
-        #expect(allowance.isFinite)
-        #expect(allowance > 0)
+        // MoneyAmount is integer-backed, so it can never be non-finite; a normal
+        // month (days remaining >= 1) leaves a positive daily allowance.
+        #expect(allowance > .zero)
     }
 
     @Test func tabsAreIndependent() {
