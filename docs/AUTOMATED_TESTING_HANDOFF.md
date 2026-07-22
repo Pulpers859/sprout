@@ -45,9 +45,10 @@ Live jobs are manual, require the exact confirmation phrase, and depend on the d
 
 Appended manually after real runs (the installer regenerates the sections above; keep this section when regenerating).
 
-- **Latest green run:** GitHub Actions run `29882255196` on commit `0c8e883`, workflow `Xcode Test`, `macos-latest`.
+- **Latest green run:** GitHub Actions run `29887254452` on commit `1ce070f`, workflow `Xcode Test`, `macos-latest`.
 - **Toolchain observed on runner:** Xcode 26.5, iPhoneSimulator 26.5 SDK, simulator `iPhone 17`.
-- **Result:** `** TEST SUCCEEDED **`. Swift Testing reported `Test run with 62 tests in 1 suite passed`. The zero-test guard matched that line; the lone `Executed 0 tests` entry is the empty XCTest suite (this target has no XCTest cases) and correctly does not satisfy the `[1-9]` guard.
+- **Result:** `** TEST SUCCEEDED **`. Swift Testing reported `Test run with 64 tests in 1 suite passed`. The zero-test guard matched that line; the lone `Executed 0 tests` entry is the empty XCTest suite (this target has no XCTest cases) and correctly does not satisfy the `[1-9]` guard.
+- **Money is stored as integer cents (`MoneyAmount`), schema v2.** Legacy v1/unversioned files (Double dollars) migrate to cents on load and are re-persisted at v2. Migration is covered by tests (`legacyV1DollarsMigrateToExactCents`, `v2FileRoundTripsExactCents`).
 
 ### What this CI proves
 - The full app (SwiftUI + models + store) compiles for the iOS Simulator on real Xcode, and the `SproutTests` Swift Testing suite executes and passes on a booted simulator. Every push to `main` and every PR re-verifies this, and the job fails if zero tests are discovered.
