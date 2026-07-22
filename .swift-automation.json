@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "appName": "Sprout",
+  "projectType": "xcode",
+  "platform": "ios",
+  "defaultBranch": "main",
+  "workflowMode": "generate",
+  "physicalDeviceRequired": true,
+  "existingWorkflowPaths": [],
+  "swiftPackage": {
+    "enabled": false
+  },
+  "xcode": {
+    "enabled": true,
+    "workingDirectory": "Sprout-iOS/SproutApp/Sprout",
+    "containerType": "project",
+    "containerPath": "Sprout.xcodeproj",
+    "selectorType": "scheme",
+    "selector": "Sprout",
+    "configuration": "Debug",
+    "sdk": "iphonesimulator",
+    "destination": "platform=iOS Simulator,name=iPhone 16",
+    "action": "test",
+    "timeoutMinutes": 30
+  },
+  "liveAI": {
+    "enabled": false,
+    "surfaces": []
+  }
+}

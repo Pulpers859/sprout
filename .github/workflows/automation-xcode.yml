@@ -1,0 +1,79 @@
+name: Xcode Test
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xcode-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xcode:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: 'Sprout-iOS/SproutApp/Sprout'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Ensure iOS Simulator runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          has_available_ios_runtime() {
+            xcrun simctl list runtimes | grep -Eq '^[[:space:]]*iOS .* \(available\)$'
+          }
+          if has_available_ios_runtime; then
+            exit 0
+          fi
+          runtime_export_path="${RUNNER_TEMP}/ios-simulator-runtime"
+          mkdir -p "$runtime_export_path"
+          xcodebuild -downloadPlatform iOS -exportPath "$runtime_export_path"
+          runtime_package="$(find "$runtime_export_path" -mindepth 1 -maxdepth 1 \( -name '*.dmg' -o -name '*.exportedBundle' \) -print -quit)"
+          if [[ -z "$runtime_package" ]]; then
+            echo 'Xcode did not export an iOS Simulator runtime.' >&2
+            exit 1
+          fi
+          xcodebuild -importPlatform "$runtime_package"
+          if ! has_available_ios_runtime; then
+            echo 'No available iOS Simulator runtime after import.' >&2
+            exit 1
+          fi
+      - name: Run Xcode test
+        shell: bash
+        run: |
+          set -o pipefail
+          args=(
+            -project 'Sprout.xcodeproj'
+            -scheme 'Sprout'
+            -configuration 'Debug'
+            -sdk 'iphonesimulator'
+            -destination 'platform=iOS Simulator,name=iPhone 16'
+            -resultBundlePath 'xcode-result.xcresult'
+            CODE_SIGNING_ALLOWED=NO
+            test
+          )
+          xcodebuild "${args[@]}" 2>&1 | tee xcode.log
+          xcode_status=${PIPESTATUS[0]}
+          if [[ "$xcode_status" -ne 0 ]]; then exit "$xcode_status"; fi
+          if ! grep -Eq '(Executed|Test run with) [1-9][0-9]* tests?' xcode.log; then
+            echo 'Xcode test completed without evidence that any tests ran.' >&2
+            exit 1
+          fi
+      - name: Upload Xcode diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xcode-diagnostics
+          path: |
+            'Sprout-iOS/SproutApp/Sprout/xcode.log'
+            'Sprout-iOS/SproutApp/Sprout/xcode-result.xcresult'
+          if-no-files-found: warn
+          retention-days: 14
