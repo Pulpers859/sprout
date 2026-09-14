@@ -96,16 +96,18 @@ struct ContentView: View {
             get: { store.needsMonthResetPrompt && store.persistenceAlert == nil },
             set: { store.needsMonthResetPrompt = $0 }
         )) {
-            Button("Keep") {
-                store.keepCurrentTransactions()
+            // Most-likely intent first; the irreversible clear is not the middle
+            // button any more.
+            Button("Carry Over") {
+                HapticFeedback.light()
+                store.resetMonth(carryOverRemainders: true)
             }
             Button("Reset Fresh", role: .destructive) {
                 HapticFeedback.warning()
                 store.resetMonth(carryOverRemainders: false)
             }
-            Button("Carry Over") {
-                HapticFeedback.light()
-                store.resetMonth(carryOverRemainders: true)
+            Button("Keep", role: .cancel) {
+                store.keepCurrentTransactions()
             }
         } message: {
             Text("\(store.currentMonthLabel) is over. Reset Fresh clears this period's transactions and starts at your full budget. Carry Over clears them too but adds any positive leftover to next month. Keep leaves everything exactly as it is.")
@@ -158,8 +160,8 @@ struct ContentView: View {
             }
             presentQuickEntryIfPossible()
         }
-        .onChange(of: transactionSheet == nil) { _, isSheetCleared in
-            guard isSheetCleared else { return }
+        .onChange(of: isPresentingAnySheet) { _, isPresenting in
+            guard !isPresenting else { return }
             presentQuickEntryIfPossible()
             restoreDeferredMonthResetPromptIfNeeded()
         }
@@ -184,9 +186,20 @@ struct ContentView: View {
         return true
     }
 
+    /// SwiftUI presents one sheet per view, so a quick-entry request arriving while
+    /// Settings, the budget editor, or an edit sheet is up used to be consumed and
+    /// then silently dropped — the sheet simply never appeared. The request is now
+    /// held until every sheet is down.
+    private var isPresentingAnySheet: Bool {
+        transactionSheet != nil
+            || budgetEditorTab != nil
+            || editingTransaction != nil
+            || isShowingSettings
+    }
+
     private func presentQuickEntryIfPossible() {
         guard let request = quickEntryCoordinator.activeRequest else { return }
-        guard transactionSheet == nil else { return }
+        guard !isPresentingAnySheet else { return }
 
         if store.needsMonthResetPrompt {
             shouldRestoreMonthResetPrompt = true
@@ -216,7 +229,7 @@ struct ContentView: View {
 
     private func restoreDeferredMonthResetPromptIfNeeded() {
         guard shouldRestoreMonthResetPrompt else { return }
-        guard transactionSheet == nil else { return }
+        guard !isPresentingAnySheet else { return }
         guard quickEntryCoordinator.activeRequest == nil else { return }
 
         shouldRestoreMonthResetPrompt = false

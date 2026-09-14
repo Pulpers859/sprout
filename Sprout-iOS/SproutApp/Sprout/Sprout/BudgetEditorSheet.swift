@@ -8,6 +8,8 @@ struct BudgetEditorSheet: View {
     let onSave: (MoneyAmount) -> Void
 
     @FocusState private var isAmountFocused: Bool
+    @ScaledMetric(relativeTo: .largeTitle) private var amountFontSize: CGFloat = 54
+    @ScaledMetric(relativeTo: .title2) private var currencySymbolFontSize: CGFloat = 28
     @State private var amountText: String
 
     init(tab: BudgetTab, startingAmount: MoneyAmount, carryover: MoneyAmount = .zero, onSave: @escaping (MoneyAmount) -> Void) {
@@ -26,13 +28,13 @@ struct BudgetEditorSheet: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(SproutFormatters.currencySymbol)
-                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                        .font(.system(size: currencySymbolFontSize, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color.sproutTextSecondary)
 
                     TextField("0", text: $amountText)
                         .accessibilityLabel("Monthly budget amount")
                         .keyboardType(.decimalPad)
-                        .font(.system(size: 54, weight: .bold, design: .rounded))
+                        .font(.system(size: amountFontSize, weight: .bold, design: .rounded))
                         .multilineTextAlignment(.center)
                         .focused($isAmountFocused)
                         .minimumScaleFactor(0.65)

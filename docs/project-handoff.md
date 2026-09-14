@@ -61,6 +61,11 @@
 - Quick-entry routing and pending request flow
 - Cross-surface drift between web and iOS
 
+## Cross-surface drift
+- Recorded in `docs/surface-drift.md`, refreshed during the September 2026 audit.
+- iOS is authoritative for money representation, rollover, recurring rules, parsing, and corruption recovery.
+- The web prototype is knowingly behind on those; it remains the reference only for shared product shape.
+
 ## Verification limits
 - Windows can verify repo structure and web behavior.
 - Windows cannot prove SwiftUI runtime behavior or Xcode-only build behavior.

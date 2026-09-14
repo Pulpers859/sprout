@@ -7,8 +7,9 @@ struct CalendarCardView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 7)
     private var weekdaySymbols: [String] {
-        let symbols = Calendar.current.veryShortStandaloneWeekdaySymbols
-        let offset = Calendar.current.firstWeekday - 1
+        let calendar = Calendar.current
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        let offset = min(max(calendar.firstWeekday - 1, 0), symbols.count - 1)
         return Array(symbols[offset...]) + Array(symbols[..<offset])
     }
 
@@ -32,6 +33,19 @@ struct CalendarCardView: View {
                             .frame(height: 46)
                     }
                 }
+            }
+
+            let outsideCount = store.transactionsOutsideDisplayedMonth(for: tab)
+            if outsideCount > 0 {
+                // These are in the totals and in the transaction list but have no
+                // cell here, so the grid would otherwise look like it disagreed
+                // with the summary card.
+                Label(
+                    "\(outsideCount) transaction\(outsideCount == 1 ? " is" : "s are") dated outside \(store.currentMonthLabel) and counted in the totals below.",
+                    systemImage: "info.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(Color.sproutTextMuted)
             }
 
             if let selected = store.selectedCalendarDate {
@@ -69,6 +83,10 @@ struct CalendarCardView: View {
                     Text("\(net < .zero ? "+" : "")\(SproutFormatters.compactCurrency(net.magnitude))")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(net < .zero ? Color.sageDark : Color.sproutTextSecondary)
+                        // A cell is ~46pt wide; an amount with a cents tail needs to
+                        // shrink rather than truncate mid-figure.
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 }
             }
             .frame(maxWidth: .infinity)

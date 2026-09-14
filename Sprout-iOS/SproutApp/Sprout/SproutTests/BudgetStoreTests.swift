@@ -1006,4 +1006,83 @@ struct BudgetStoreTests {
         let schemes = (types ?? []).flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
         #expect(schemes.contains("sprout"))
     }
+
+    // MARK: - Pacing and calendar honesty
+
+    @Test func earlyMonthSpendingIsNotFlaggedAsTooFast() {
+        // Day 1 of a 30-day month: even pacing is 3.3%, so a flat 2% band turned
+        // the card red for any purchase over about 5% of the budget — on the first
+        // day of the month, for a $10 coffee run on a $200 budget.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 4, 1))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let draft = TransactionDraft(name: "Coffee", amountText: "12.00", selectedEmoji: "☕️", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.spendingPaceStatus(for: .personal) != .aheadOfPace)
+
+        // The band still narrows: the same 6% of budget late in the month, when
+        // even pacing is near 100%, reads as comfortably under plan.
+        #expect(store.paceTolerance() > 0.02)
+        clock.date = Self.makeDate(2025, 4, 30)
+        #expect(store.paceTolerance() == 0.02)
+        #expect(store.spendingPaceStatus(for: .personal) == .belowPace)
+    }
+
+    @Test func runawayEarlyMonthSpendingIsStillFlagged() {
+        // The wider early band must not swallow a real overspend.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 4, 1))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let draft = TransactionDraft(name: "Sneakers", amountText: "150.00", selectedEmoji: "👟", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.spendingPaceStatus(for: .personal) == .aheadOfPace)
+    }
+
+    @Test func transactionsOutsideTheDisplayedMonthAreCounted() {
+        // "Keep" after a gap, or a back-dated entry, leaves rows that are in every
+        // total but have no cell in the calendar grid. The calendar says so.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 5, 10))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let thisMonth = TransactionDraft(name: "Now", amountText: "10.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 5, 2))
+        let backDated = TransactionDraft(name: "Then", amountText: "20.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 3, 2))
+        #expect(store.addTransaction(mode: .expense, draft: thisMonth, tab: .personal))
+        #expect(store.addTransaction(mode: .expense, draft: backDated, tab: .personal))
+
+        #expect(store.transactionsOutsideDisplayedMonth(for: .personal) == 1)
+        #expect(store.transactionsOutsideDisplayedMonth(for: .grocery) == 0)
+        // Both still count toward the total the summary card shows.
+        #expect(store.netSpent(for: .personal).cents == 3000)
+    }
+
+    @Test func keepAfterAGapLeavesEveryRowAccountedFor() {
+        // Full "Keep" journey: skip two months, let the recurring rule catch up,
+        // and confirm nothing is lost or double-counted.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 1, 5))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        var draft = TransactionDraft(name: "Streaming", amountText: "15.00", selectedEmoji: "📺", date: clock.date)
+        draft.isRecurring = true
+        draft.recurringFrequency = .monthly
+        draft.recurringNextDate = TransactionDraft.defaultRecurringNextDate(from: clock.date, frequency: .monthly, calendar: calendar)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.netSpent(for: .personal).cents == 1500)
+
+        clock.date = Self.makeDate(2025, 3, 10)
+        store.refreshForCurrentDate()
+        #expect(store.needsMonthResetPrompt)
+
+        store.keepCurrentTransactions()
+        #expect(store.displayedMonthKey == "2025-03")
+        #expect(!store.needsMonthResetPrompt)
+        // January's original charge plus the February and March catch-up postings.
+        #expect(store.transactions(for: .personal).count == 3)
+        #expect(store.netSpent(for: .personal).cents == 4500)
+        // Two of them are dated outside March, which the calendar has to disclose.
+        #expect(store.transactionsOutsideDisplayedMonth(for: .personal) == 2)
+    }
 }

@@ -17,8 +17,8 @@ struct BudgetScopePicker: View {
                         Text(tab.shortTitle)
                             .font(.subheadline.weight(.semibold))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .padding(.vertical, 6)
                     .foregroundStyle(selection == tab ? Color.white : Color.sproutTextSecondary)
                     .background(
                         Capsule()

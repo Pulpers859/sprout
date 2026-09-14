@@ -207,7 +207,19 @@ final class BudgetStore: ObservableObject {
         SproutDate.paceProgress(inMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
     }
 
-    func spendingPaceStatus(for tab: BudgetTab, tolerance: Double = 0.02) -> SpendingPaceStatus {
+    /// How far from perfectly even pacing counts as "on plan".
+    ///
+    /// A flat 2% made the indicator useless in the first days of a month: on day 1
+    /// even pacing is 3%, so on a $200 budget any purchase over about $10 turned
+    /// the card red and told the user they were spending too fast. The band starts
+    /// wide and narrows as the month fills in, which is also when the signal is
+    /// actually meaningful.
+    func paceTolerance(base: Double = 0.02, earlyMonthAllowance: Double = 0.1) -> Double {
+        base + (1 - paceProgress()) * earlyMonthAllowance
+    }
+
+    func spendingPaceStatus(for tab: BudgetTab, tolerance: Double? = nil) -> SpendingPaceStatus {
+        let tolerance = tolerance ?? paceTolerance()
         let actual = progress(for: tab)
         let pace = paceProgress()
 
@@ -218,6 +230,19 @@ final class BudgetStore: ObservableObject {
             return .belowPace
         }
         return .onPace
+    }
+
+    /// Entries dated outside the month the dashboard is showing. They count toward
+    /// every total but have no cell in the calendar grid, so the calendar has to
+    /// say so rather than appear to contradict the summary.
+    func transactionsOutsideDisplayedMonth(for tab: BudgetTab) -> Int {
+        let monthKey = snapshot.currentMonth
+        return snapshot.transactions.reduce(0) { count, entry in
+            guard entry.tab == tab else { return count }
+            return String(SproutDate.dayKey(for: entry.date, calendar: calendar).prefix(7)) == monthKey
+                ? count
+                : count + 1
+        }
     }
 
     func dailyAllowance(for tab: BudgetTab) -> MoneyAmount {
@@ -752,6 +777,7 @@ final class BudgetStore: ObservableObject {
         do {
             try? fileManager.removeItem(at: destination)
             try fileManager.moveItem(at: saveURL, to: destination)
+            pruneQuarantinedFiles(keeping: 3)
             return destination
         } catch {
             // The corrupt bytes are still sitting at saveURL. Rotating them into the
@@ -759,6 +785,35 @@ final class BudgetStore: ObservableObject {
             // the next rotation.
             corruptFileLeftInPlace = true
             return nil
+        }
+    }
+
+    /// Each quarantined copy is a full copy of the user's ledger and nothing ever
+    /// removed them, so repeated corruption grew the app's storage without bound.
+    /// Only files this method itself names are ever considered for deletion.
+    private func pruneQuarantinedFiles(keeping limit: Int) {
+        let directory = saveURL.deletingLastPathComponent()
+        guard
+            let contents = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
+            return
+        }
+
+        let quarantined = contents
+            .filter { $0.lastPathComponent.hasPrefix("budget-data.corrupt-") && $0.pathExtension == "json" }
+            .sorted { lhs, rhs in
+                let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                if lhsDate == rhsDate { return lhs.lastPathComponent > rhs.lastPathComponent }
+                return lhsDate > rhsDate
+            }
+
+        for url in quarantined.dropFirst(limit) {
+            try? fileManager.removeItem(at: url)
         }
     }
 

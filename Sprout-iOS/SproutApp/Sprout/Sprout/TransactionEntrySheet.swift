@@ -12,6 +12,10 @@ struct TransactionEntrySheet: View {
     let onSubmit: (TransactionDraft) -> Bool
 
     @FocusState private var focusedField: Field?
+    /// Fixed point sizes ignore Dynamic Type; these scale with it and fall back
+    /// on `minimumScaleFactor` when a long amount would overflow the row.
+    @ScaledMetric(relativeTo: .largeTitle) private var amountFontSize: CGFloat = 52
+    @ScaledMetric(relativeTo: .title2) private var currencySymbolFontSize: CGFloat = 28
     @State private var draft: TransactionDraft
     @State private var validationMessage: String?
     @State private var hasCustomizedRecurringDate = false
@@ -96,12 +100,12 @@ struct TransactionEntrySheet: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(SproutFormatters.currencySymbol)
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    .font(.system(size: currencySymbolFontSize, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.sproutTextSecondary)
 
                 TextField(SproutMoneyText.editable(.zero), text: $draft.amountText)
                     .keyboardType(.decimalPad)
-                    .font(.system(size: 52, weight: .bold, design: .rounded))
+                    .font(.system(size: amountFontSize, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.sproutText)
                     .focused($focusedField, equals: .amount)
                     .multilineTextAlignment(.center)

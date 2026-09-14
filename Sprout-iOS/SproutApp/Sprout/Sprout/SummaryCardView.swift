@@ -6,6 +6,11 @@ struct SummaryCardView: View {
     let tab: BudgetTab
     let onEditBudget: () -> Void
 
+    /// `.system(size:)` is fixed, so the headline figure ignored Dynamic Type
+    /// entirely. Scaling it keeps the card readable at accessibility sizes; the
+    /// existing `minimumScaleFactor` keeps it inside the card at the extremes.
+    @ScaledMetric(relativeTo: .largeTitle) private var remainingFontSize: CGFloat = 44
+
     var body: some View {
         let spent = max(store.netSpent(for: tab), .zero)
         let remaining = store.remaining(for: tab)
@@ -20,10 +25,10 @@ struct SummaryCardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(remaining < .zero ? "OVER BUDGET" : "AVAILABLE")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.white.opacity(0.68))
+                        .foregroundStyle(Color.white.opacity(0.80))
 
                     Text(SproutFormatters.currency(remaining.magnitude))
-                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .font(.system(size: remainingFontSize, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.white)
                         .contentTransition(.numericText())
                         .minimumScaleFactor(0.72)
@@ -37,7 +42,7 @@ struct SummaryCardView: View {
                     Image(systemName: "pencil")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(tab.accentDarkColor)
-                        .frame(width: 42, height: 42)
+                        .frame(width: 44, height: 44)
                         .background(Color.white.opacity(0.96), in: Circle())
                         .shadow(color: Color.black.opacity(0.12), radius: 8, y: 4)
                 }
@@ -72,7 +77,7 @@ struct SummaryCardView: View {
                     Text("\(SproutFormatters.currency(store.budget(for: tab))) budget")
                 }
                 .font(.caption.weight(.medium))
-                .foregroundStyle(Color.white.opacity(0.72))
+                .foregroundStyle(Color.white.opacity(0.85))
             }
 
             Divider()
@@ -82,7 +87,7 @@ struct SummaryCardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(dailyAllowanceLabel(dailyAllowance))
                         .font(.caption)
-                        .foregroundStyle(Color.white.opacity(0.62))
+                        .foregroundStyle(Color.white.opacity(0.80))
 
                     Text("\(SproutFormatters.currency(dailyAllowance.magnitude))/day")
                         .font(.system(.headline, design: .rounded, weight: .bold))
@@ -99,7 +104,7 @@ struct SummaryCardView: View {
                     Text(statusTitle(for: paceStatus))
                         .font(.caption.weight(.semibold))
                 }
-                .foregroundStyle(Color.white.opacity(0.82))
+                .foregroundStyle(Color.white.opacity(0.92))
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Spending pace: \(statusTitle(for: paceStatus))")
             }
@@ -110,7 +115,7 @@ struct SummaryCardView: View {
                     systemImage: "arrow.turn.down.right"
                 )
                 .font(.caption.weight(.medium))
-                .foregroundStyle(Color.white.opacity(0.68))
+                .foregroundStyle(Color.white.opacity(0.85))
             }
         }
         .padding(22)

@@ -81,7 +81,7 @@ struct BudgetDashboardView: View {
                 Image(systemName: "gearshape")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Color.sproutText)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 44, height: 44)
                     .background(Color.sproutCard, in: Circle())
                     .overlay(Circle().stroke(Color.sproutBorderDark, lineWidth: 1))
                     .shadow(color: Color.sproutShadow, radius: 6, y: 3)
@@ -97,7 +97,7 @@ struct BudgetDashboardView: View {
                 Image(systemName: "ellipsis")
                     .font(.body.weight(.bold))
                     .foregroundStyle(Color.sproutText)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 44, height: 44)
                     .background(Color.sproutCard, in: Circle())
                     .overlay(Circle().stroke(Color.sproutBorderDark, lineWidth: 1))
                     .shadow(color: Color.sproutShadow, radius: 6, y: 3)
@@ -210,8 +210,13 @@ struct BudgetDashboardView: View {
             }
 
         return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Transactions", detail: "\(allTransactions.count)")
-                .padding(.bottom, 8)
+            sectionHeader(
+                "Transactions",
+                detail: searchText.isEmpty
+                    ? "\(allTransactions.count)"
+                    : "\(filtered.count) of \(allTransactions.count)"
+            )
+            .padding(.bottom, 8)
 
             if allTransactions.count >= 5 {
                 HStack(spacing: 8) {
@@ -220,6 +225,9 @@ struct BudgetDashboardView: View {
                     TextField("Search transactions", text: $searchText)
                         .font(.subheadline)
                         .foregroundStyle(Color.sproutText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
                     if !searchText.isEmpty {
                         Button {
                             searchText = ""
@@ -228,6 +236,7 @@ struct BudgetDashboardView: View {
                                 .foregroundStyle(Color.sproutTextMuted)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Clear search")
                     }
                 }
                 .padding(.horizontal, 12)
@@ -246,9 +255,10 @@ struct BudgetDashboardView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
             } else if filtered.isEmpty {
-                Text("No matching transactions")
+                Text("No transactions match \u{201C}\(searchText)\u{201D}")
                     .font(.subheadline)
                     .foregroundStyle(Color.sproutTextMuted)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
             } else {

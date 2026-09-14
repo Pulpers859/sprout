@@ -51,7 +51,9 @@ struct TransactionRowView: View {
                 Image(systemName: "ellipsis")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.sproutTextMuted)
-                    .frame(width: 32, height: 32)
+                    // 44pt is the minimum comfortable touch target; 32 was below it.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 12)

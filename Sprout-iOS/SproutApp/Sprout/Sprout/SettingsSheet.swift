@@ -353,7 +353,8 @@ private struct RecurringTransactionsSheet: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(Color.sproutTextMuted)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 4)
