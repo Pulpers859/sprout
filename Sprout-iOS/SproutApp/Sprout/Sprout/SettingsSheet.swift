@@ -173,12 +173,26 @@ struct SettingsSheet: View {
             // the instant a file was chosen, with no idea what was in it.
             Text("This replaces your current budgets, transactions, recurring items, categories, and month history with the backup's.\n\nBackup contains: \(pending.summary)")
         }
-        .alert(item: $statusMessage) { status in
-            Alert(
-                title: Text(status.title),
-                message: Text(status.message),
-                dismissButton: .default(Text("OK"))
-            )
+        .alert(
+            statusMessage?.title ?? "",
+            isPresented: Binding(
+                get: { statusMessage != nil },
+                set: { if !$0 { statusMessage = nil } }
+            ),
+            presenting: statusMessage
+        ) { status in
+            // Confirming an import is not the same as being able to change your
+            // mind about it, so the undo is offered at the moment the user finds
+            // out what they actually replaced.
+            if status.offersUndoImport {
+                Button("Undo Import", role: .destructive) {
+                    statusMessage = nil
+                    undoImport()
+                }
+            }
+            Button("OK", role: .cancel) { statusMessage = nil }
+        } message: { status in
+            Text(status.message)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -233,11 +247,28 @@ struct SettingsSheet: View {
             try store.importBackupData(pending.data)
             statusMessage = SettingsStatusMessage(
                 title: "Backup Imported",
-                message: "Your Sprout data has been restored from the selected backup."
+                message: "Your Sprout data has been restored from the selected backup. "
+                    + "If this was the wrong file, Undo Import puts back exactly what was here a moment ago.",
+                offersUndoImport: store.canUndoImport
             )
         } catch {
             statusMessage = SettingsStatusMessage(
                 title: "Import Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func undoImport() {
+        do {
+            try store.undoImport()
+            statusMessage = SettingsStatusMessage(
+                title: "Import Undone",
+                message: "Your previous budgets, transactions, and history are back."
+            )
+        } catch {
+            statusMessage = SettingsStatusMessage(
+                title: "Couldn't Undo",
                 message: error.localizedDescription
             )
         }
@@ -406,6 +437,8 @@ private struct SettingsStatusMessage: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    /// Set when the action that produced this message can still be reversed.
+    var offersUndoImport = false
 }
 
 private struct RecentMonthsSheet: View {

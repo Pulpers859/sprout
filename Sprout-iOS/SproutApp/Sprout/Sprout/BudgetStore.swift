@@ -45,6 +45,10 @@ final class BudgetStore: ObservableObject {
     private let fileManager: FileManager
     private let saveURL: URL
     private let previousSaveURL: URL
+    /// What the ledger looked like immediately before the last backup import.
+    /// Deliberately outside the save rotation and outside the quarantine prune,
+    /// so it survives every subsequent write until the user undoes or replaces it.
+    private let preImportSaveURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let calendar: Calendar
@@ -69,6 +73,9 @@ final class BudgetStore: ObservableObject {
         self.previousSaveURL = resolvedSaveURL
             .deletingPathExtension()
             .appendingPathExtension("previous.json")
+        self.preImportSaveURL = resolvedSaveURL
+            .deletingPathExtension()
+            .appendingPathExtension("pre-import.json")
         self.calendar = calendar
         self.now = now
 
@@ -207,26 +214,42 @@ final class BudgetStore: ObservableObject {
         SproutDate.paceProgress(inMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
     }
 
-    /// How far from perfectly even pacing counts as "on plan".
+    /// Base half-width of the "on plan" band, as a fraction of the budget.
+    static let basePaceTolerance = 0.02
+
+    /// Extra headroom added to the *too fast* threshold only, largest at the start
+    /// of the month and gone by the end of it.
+    static let earlyMonthPaceAllowance = 0.1
+
+    /// The "spending too fast" threshold for the displayed month.
     ///
-    /// A flat 2% made the indicator useless in the first days of a month: on day 1
-    /// even pacing is 3%, so on a $200 budget any purchase over about $10 turned
-    /// the card red and told the user they were spending too fast. The band starts
-    /// wide and narrows as the month fills in, which is also when the signal is
-    /// actually meaningful.
-    func paceTolerance(base: Double = 0.02, earlyMonthAllowance: Double = 0.1) -> Double {
-        base + (1 - paceProgress()) * earlyMonthAllowance
+    /// A flat band made the indicator useless in the first days: on day 1 even
+    /// pacing is 3%, so on a $200 budget any purchase over about $10 turned the
+    /// card red. This widens early and narrows as the month fills in, which is
+    /// also when the signal starts to mean something.
+    func aheadOfPaceThreshold(base: Double = BudgetStore.basePaceTolerance) -> Double {
+        let pace = paceProgress()
+        return pace + base + (1 - pace) * Self.earlyMonthPaceAllowance
+    }
+
+    /// The "under plan" threshold, which deliberately does NOT widen.
+    ///
+    /// Widening both sides was wrong: it made the encouraging state unreachable
+    /// for the first week, so a user who had spent nothing on the 1st was shown
+    /// an amber "on plan" instead of a green "under plan". Only false alarms
+    /// needed damping, not praise.
+    func belowPaceThreshold(base: Double = BudgetStore.basePaceTolerance) -> Double {
+        paceProgress() - base
     }
 
     func spendingPaceStatus(for tab: BudgetTab, tolerance: Double? = nil) -> SpendingPaceStatus {
-        let tolerance = tolerance ?? paceTolerance()
+        let base = tolerance ?? Self.basePaceTolerance
         let actual = progress(for: tab)
-        let pace = paceProgress()
 
-        if actual > pace + tolerance {
+        if actual > aheadOfPaceThreshold(base: base) {
             return .aheadOfPace
         }
-        if actual < pace - tolerance {
+        if actual < belowPaceThreshold(base: base) {
             return .belowPace
         }
         return .onPace
@@ -635,9 +658,52 @@ final class BudgetStore: ObservableObject {
             + "\(monthCount) archived month\(monthCount == 1 ? "" : "s")"
     }
 
+    struct NothingToUndoError: LocalizedError {
+        var errorDescription: String? {
+            "There is no imported backup to undo."
+        }
+    }
+
+    /// True while the previous ledger is still recoverable.
+    var canUndoImport: Bool {
+        fileManager.fileExists(atPath: preImportSaveURL.path)
+    }
+
+    /// Restores the ledger as it was immediately before the last import.
+    ///
+    /// Confirming an import is not the same as being able to change your mind
+    /// about it. The `.previous.json` rotation only survives until the next save,
+    /// which the import itself performs — so without this, a wrong-file import
+    /// that the user approved was unrecoverable.
+    func undoImport() throws {
+        guard canUndoImport, let data = try? Data(contentsOf: preImportSaveURL) else {
+            throw NothingToUndoError()
+        }
+
+        let result = try decodeSnapshot(from: data)
+        snapshot = result.snapshot
+        persistenceAlert = Self.alert(for: result.issues, context: .backupImport) ?? persistenceAlert
+        selectedCalendarDate = nil
+        refreshForCurrentDate(referenceDate: now())
+        persist()
+        try? fileManager.removeItem(at: preImportSaveURL)
+    }
+
+    /// Writes the current ledger somewhere the save rotation will not reclaim, so
+    /// the import that follows can be undone.
+    private func writePreImportSafetyCopy() {
+        guard let data = try? encoder.encode(snapshot) else { return }
+        try? fileManager.createDirectory(
+            at: preImportSaveURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: preImportSaveURL, options: [.atomic, .completeFileProtectionUnlessOpen])
+    }
+
     func importBackupData(_ data: Data) throws {
         guard Self.looksLikeBackup(data) else { throw BackupNotRecognizedError() }
         let result = try decodeSnapshot(from: data)
+        writePreImportSafetyCopy()
         snapshot = result.snapshot
         // Never clear a pending save failure just because the import itself was clean.
         persistenceAlert = Self.alert(for: result.issues, context: .backupImport) ?? persistenceAlert
@@ -874,11 +940,25 @@ final class BudgetStore: ObservableObject {
         }
     }
 
+    /// An empty label is renamed, never dropped.
+    ///
+    /// Deleting the row was the dangerous primitive here. Normalization runs on
+    /// every save, so clearing the name field to retype it deleted the category
+    /// out from under the user mid-edit — and clearing the last remaining one
+    /// made `cleaned` empty, which replaced the user's whole category set with
+    /// the defaults. The entry sheet debounce keeps a half-typed name from ever
+    /// reaching this function; this makes it harmless if one does.
     private func normalizedCategories(_ categories: [PersonalCategory]) -> [PersonalCategory] {
-        let cleaned = categories
-            .map { PersonalCategory(id: $0.id, emoji: $0.emoji, label: $0.label.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            .filter { !$0.label.isEmpty }
+        let cleaned = categories.map { category in
+            let label = category.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            return PersonalCategory(
+                id: category.id,
+                emoji: category.emoji.isEmpty ? "🪴" : category.emoji,
+                label: label.isEmpty ? "Untitled" : label
+            )
+        }
 
+        // Only a genuinely empty list falls back to the defaults.
         return cleaned.isEmpty ? PersonalCategory.defaults : cleaned
     }
 

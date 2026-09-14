@@ -1035,15 +1035,23 @@ struct BudgetStoreTests {
         let clock = TestClock(Self.makeDate(2025, 4, 1))
         let store = makeStore(calendar: calendar, now: { clock.date })
 
+        // Nothing spent yet on the 1st reads as under plan, not merely "on plan".
+        // Widening both sides of the band (the first attempt at this fix) made the
+        // encouraging state unreachable for the first week.
+        #expect(store.spendingPaceStatus(for: .personal) == .belowPace)
+
         let draft = TransactionDraft(name: "Coffee", amountText: "12.00", selectedEmoji: "☕️", date: clock.date)
         #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
         #expect(store.spendingPaceStatus(for: .personal) != .aheadOfPace)
 
-        // The band still narrows: the same 6% of budget late in the month, when
-        // even pacing is near 100%, reads as comfortably under plan.
-        #expect(store.paceTolerance() > 0.02)
+        // Only the "too fast" side is damped, and only early.
+        #expect(store.aheadOfPaceThreshold() > store.paceProgress() + BudgetStore.basePaceTolerance)
+        #expect(store.belowPaceThreshold() == store.paceProgress() - BudgetStore.basePaceTolerance)
+
+        // By the end of the month the damping is gone and 6% of budget is plainly
+        // under plan.
         clock.date = Self.makeDate(2025, 4, 30)
-        #expect(store.paceTolerance() == 0.02)
+        #expect(store.aheadOfPaceThreshold() == 1 + BudgetStore.basePaceTolerance)
         #expect(store.spendingPaceStatus(for: .personal) == .belowPace)
     }
 
@@ -1137,5 +1145,96 @@ struct BudgetStoreTests {
         #expect(oldNormalization == "12.50")
         #expect(SproutMoneyText.parse(oldNormalization, locale: german)?.cents == 125_000)
         #expect(SproutMoneyText.editable(MoneyAmount(cents: 1250), locale: german) != oldNormalization)
+    }
+
+    // MARK: - Second-pass fixes
+
+    @Test func clearingACategoryNameRenamesItRatherThanDeletingIt() {
+        // Normalization runs on every save, and it used to *drop* empty-label
+        // categories — so clearing the name field to retype it deleted the
+        // category mid-edit, and clearing the last one reset the whole set to
+        // defaults. Renaming preserves the row and its id either way.
+        let store = makeStore()
+        let original = store.categories(for: .personal)
+        let first = try! #require(original.first)
+
+        var blanked = first
+        blanked.label = "   "
+        store.updateCategory(blanked)
+
+        let after = store.categories(for: .personal)
+        #expect(after.count == original.count)
+        #expect(after.first?.id == first.id)
+        #expect(after.first?.label == "Untitled")
+    }
+
+    @Test func blankingEveryCategoryDoesNotWipeTheSet() {
+        let store = makeStore()
+        let ids = store.categories(for: .personal).map(\.id)
+        for category in store.categories(for: .personal) {
+            var blanked = category
+            blanked.label = ""
+            store.updateCategory(blanked)
+        }
+        #expect(store.categories(for: .personal).map(\.id) == ids)
+    }
+
+    @Test func aWrongBackupImportCanBeUndone() throws {
+        // Confirming an import is not the same as being able to change your mind.
+        // The `.previous.json` rotation only survives until the next save, which
+        // the import itself performs, so the pre-import copy is kept separately.
+        let store = makeStore()
+        store.setBudget(MoneyAmount(dollars: 275), for: .personal)
+        let mine = TransactionDraft(name: "Mine", amountText: "31.00", selectedEmoji: "🧾")
+        #expect(store.addTransaction(mode: .expense, draft: mine, tab: .personal))
+        #expect(!store.canUndoImport)
+
+        // A real but unrelated backup — the "wrong file" case.
+        let other = makeStore()
+        other.setBudget(MoneyAmount(dollars: 10), for: .personal)
+        let theirs = TransactionDraft(name: "Theirs", amountText: "2.00", selectedEmoji: "🧾")
+        #expect(other.addTransaction(mode: .expense, draft: theirs, tab: .personal))
+
+        try store.importBackupData(try other.exportBackupData())
+        #expect(store.transactions(for: .personal).map(\.name) == ["Theirs"])
+        #expect(store.canUndoImport)
+
+        try store.undoImport()
+        #expect(store.transactions(for: .personal).map(\.name) == ["Mine"])
+        #expect(store.budget(for: .personal).cents == 27_500)
+        // The undo is spent, not repeatable.
+        #expect(!store.canUndoImport)
+        #expect(throws: BudgetStore.NothingToUndoError.self) { try store.undoImport() }
+    }
+
+    @Test func undoneImportSurvivesRelaunch() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        let mine = TransactionDraft(name: "Mine", amountText: "31.00", selectedEmoji: "🧾")
+        #expect(store.addTransaction(mode: .expense, draft: mine, tab: .personal))
+
+        let other = makeStore()
+        #expect(other.addTransaction(
+            mode: .expense,
+            draft: TransactionDraft(name: "Theirs", amountText: "2.00", selectedEmoji: "🧾"),
+            tab: .personal
+        ))
+        try store.importBackupData(try other.exportBackupData())
+        try store.undoImport()
+
+        let reloaded = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(reloaded.transactions(for: .personal).map(\.name) == ["Mine"])
+    }
+
+    @Test func theGeneratedInfoPlistKeysSurvivedAddingOurOwn() throws {
+        // Setting INFOPLIST_FILE alongside GENERATE_INFOPLIST_FILE is supposed to
+        // *merge*. If it ever replaced instead, CFBundleURLTypes would be present
+        // and everything Xcode generates would silently be gone — so assert both
+        // halves, not just the key we added.
+        let bundle = Bundle.main
+        #expect(bundle.object(forInfoDictionaryKey: "CFBundleURLTypes") != nil)
+        #expect(bundle.object(forInfoDictionaryKey: "UILaunchScreen") != nil)
+        #expect(bundle.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil)
+        #expect(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == "1.0")
     }
 }
