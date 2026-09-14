@@ -62,6 +62,11 @@ struct BudgetDashboardView: View {
             .padding(.horizontal, 18)
             .padding(.top, 8)
             .padding(.bottom, 40)
+            // The target list includes iPad and iPhone landscape, where an
+            // unconstrained single column stretched the cards across the full
+            // width and left the eye tracking a very long line.
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.sproutBackground.ignoresSafeArea())
         .animation(.snappy(duration: 0.25), value: tab)
