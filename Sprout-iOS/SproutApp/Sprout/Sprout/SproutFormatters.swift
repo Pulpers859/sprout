@@ -23,8 +23,9 @@ enum SproutMoneyText {
     /// Deliberately strict: only digits and the locale's own separators are
     /// accepted. That is what rejects `"-5"`, `"1e9"`, and `"Infinity"` — the last
     /// of which `Double.init` happily produces and `Int(_:)` then traps on.
-    static func evaluate(_ text: String) -> ParseResult {
-        let locale = Locale.current
+    /// `locale` is injectable so the round trip can be tested in the locales where
+    /// it actually broke, not only wherever the test runner happens to be set.
+    static func evaluate(_ text: String, locale: Locale = .current) -> ParseResult {
         // A locale can report an empty separator; falling through to "" would make
         // the allowed-character set and the replacements below meaningless.
         let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
@@ -60,24 +61,24 @@ enum SproutMoneyText {
         return .valid(MoneyAmount(dollars: dollars))
     }
 
-    static func parse(_ text: String) -> MoneyAmount? {
-        if case .valid(let amount) = evaluate(text) { return amount }
+    static func parse(_ text: String, locale: Locale = .current) -> MoneyAmount? {
+        if case .valid(let amount) = evaluate(text, locale: locale) { return amount }
         return nil
     }
 
     /// Seed text for an editable amount field, always with two decimal places and
     /// no grouping, using the locale's own decimal separator so `evaluate` reads
     /// it back to the identical cents value.
-    static func editable(_ money: MoneyAmount) -> String {
-        let separator = Locale.current.decimalSeparator ?? "."
+    static func editable(_ money: MoneyAmount, locale: Locale = .current) -> String {
+        let separator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
         let cents = abs(money.cents)
         return "\(cents / 100)\(separator)\(String(format: "%02d", cents % 100))"
     }
 
     /// Same as `editable(_:)` but drops a `.00` tail, for fields where a whole
     /// budget figure reads better than a padded one.
-    static func editableWhole(_ money: MoneyAmount) -> String {
-        money.cents % 100 == 0 ? String(abs(money.cents) / 100) : editable(money)
+    static func editableWhole(_ money: MoneyAmount, locale: Locale = .current) -> String {
+        money.cents % 100 == 0 ? String(abs(money.cents) / 100) : editable(money, locale: locale)
     }
 }
 

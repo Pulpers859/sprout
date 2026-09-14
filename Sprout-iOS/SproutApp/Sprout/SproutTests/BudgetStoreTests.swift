@@ -1103,4 +1103,39 @@ struct BudgetStoreTests {
         // Two of them are dated outside March, which the calendar has to disclose.
         #expect(store.transactionsOutsideDisplayedMonth(for: .personal) == 2)
     }
+
+    // MARK: - The locale bug this audit was named for
+
+    @Test func amountRoundTripsInEveryDecimalSeparatorConvention() {
+        // en_US groups with "," and decimates with "."; de_DE and fr_FR are the
+        // reverse; and fr_FR groups with a narrow no-break space.
+        for identifier in ["en_US", "de_DE", "fr_FR", "pt_BR", "ja_JP", "en_IN"] {
+            let locale = Locale(identifier: identifier)
+            for cents in [1, 50, 100, 1250, 99_999, 12_345_678] {
+                let amount = MoneyAmount(cents: cents)
+                let text = SproutMoneyText.editable(amount, locale: locale)
+                #expect(
+                    SproutMoneyText.parse(text, locale: locale)?.cents == cents,
+                    "\(identifier): \(cents) serialized to \"\(text)\" and did not read back"
+                )
+            }
+        }
+    }
+
+    @Test func theCommaDecimalCorruptionIsGone() {
+        let german = Locale(identifier: "de_DE")
+
+        // What the user types on a German keypad, and what the app now writes back.
+        #expect(SproutMoneyText.parse("12,50", locale: german)?.cents == 1250)
+        #expect(SproutMoneyText.editable(MoneyAmount(cents: 1250), locale: german) == "12,50")
+
+        // The old failure, pinned so it cannot come back: the sheets normalized the
+        // validated amount with `String(format: "%.2f", …)`, which always emits ".".
+        // In de_DE "." is the *grouping* separator, so the store re-read that text
+        // as a hundredfold larger amount — a saved 12,50 became 1.250,00.
+        let oldNormalization = String(format: "%.2f", MoneyAmount(cents: 1250).dollars)
+        #expect(oldNormalization == "12.50")
+        #expect(SproutMoneyText.parse(oldNormalization, locale: german)?.cents == 125_000)
+        #expect(SproutMoneyText.editable(MoneyAmount(cents: 1250), locale: german) != oldNormalization)
+    }
 }
