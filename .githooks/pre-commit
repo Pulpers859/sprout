@@ -34,10 +34,18 @@ found_secret=0
 # secret and block the commit with nothing to show for it.
 echo "$staged_files" | while IFS= read -r path; do
   [ -n "$path" ] || continue
-  if git grep --cached -nI -E "$secret_patterns" -- "$path" 2>/dev/null; then
-    echo "  ^ potential secret in staged file: $path"
-  fi
-done > "$scan_output"
+  # git grep: 0 = match, 1 = no match, >1 = it could not scan the file. Collapsing
+  # the last two into "clean" would silently skip a file the scanner choked on —
+  # a name with pathspec magic, an unreadable blob — which is the one case where
+  # a secret is most likely to slip through unnoticed.
+  grep_stderr="$(git grep --cached -nI -E "$secret_patterns" -- "$path" 2>&1 1>&3)"
+  status=$?
+  case "$status" in
+    0) echo "  ^ potential secret in staged file: $path" ;;
+    1) : ;;
+    *) echo "  ! could not scan staged file: $path ${grep_stderr:+($grep_stderr)}" ;;
+  esac
+done 3>&1 > "$scan_output"
 
 if [ -s "$scan_output" ]; then
   cat "$scan_output" >&2

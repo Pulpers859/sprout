@@ -324,6 +324,13 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
         budget(for: tab) - netSpent(for: tab)
     }
 
+    /// A month the user never recorded anything in. Placeholder rows like this are
+    /// written for skipped months, and must never evict a month that holds data
+    /// when the history is trimmed to its cap.
+    var isEmpty: Bool {
+        transactions.isEmpty && personalCarryover == .zero && groceryCarryover == .zero
+    }
+
     func transactions(for tab: BudgetTab) -> [TransactionEntry] {
         transactions
             .enumerated()
@@ -347,12 +354,16 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
     private(set) var hadUnreadableTransactionList = false
     private(set) var droppedArchivedMonths = 0
     private(set) var droppedRecurringRules = 0
+    private(set) var hadUnreadableArchiveList = false
+    private(set) var hadUnreadableRuleList = false
 
     var hasIssues: Bool {
         droppedTransactions > 0
             || hadUnreadableTransactionList
             || droppedArchivedMonths > 0
             || droppedRecurringRules > 0
+            || hadUnreadableArchiveList
+            || hadUnreadableRuleList
     }
 
     func recordDroppedTransaction() {
@@ -370,6 +381,16 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
 
     func recordDroppedRecurringRule() {
         droppedRecurringRules += 1
+    }
+
+    /// Whole-list failures can't be counted row by row. Reporting them as "1"
+    /// told the user one archived month was lost when the answer was all of them.
+    func recordUnreadableArchiveList() {
+        hadUnreadableArchiveList = true
+    }
+
+    func recordUnreadableRuleList() {
+        hadUnreadableRuleList = true
     }
 }
 
@@ -549,14 +570,14 @@ struct BudgetSnapshot: Codable {
             in: container,
             forKey: .recurringRules,
             onDroppedElement: { recorder?.recordDroppedRecurringRule() },
-            onUnreadableList: { recorder?.recordDroppedRecurringRule() }
+            onUnreadableList: { recorder?.recordUnreadableRuleList() }
         )
         monthHistory = SproutLossyDecoding.elements(
             ArchivedBudgetMonth.self,
             in: container,
             forKey: .monthHistory,
             onDroppedElement: { recorder?.recordDroppedArchivedMonth() },
-            onUnreadableList: { recorder?.recordDroppedArchivedMonth() }
+            onUnreadableList: { recorder?.recordUnreadableArchiveList() }
         )
         currentMonth = (try? container.decodeIfPresent(String.self, forKey: .currentMonth)) ?? SproutDate.currentMonthKey()
         personalCategories = (try? container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories)) ?? PersonalCategory.defaults

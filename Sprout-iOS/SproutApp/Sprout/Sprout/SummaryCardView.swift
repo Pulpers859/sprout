@@ -74,7 +74,10 @@ struct SummaryCardView: View {
                 HStack {
                     Text("\(SproutFormatters.currency(spent)) spent")
                     Spacer()
-                    Text("\(SproutFormatters.currency(store.budget(for: tab))) budget")
+                    // Not "budget": this is base + carryover, while the editor
+                    // edits the base. Labelling both "budget" invited the user to
+                    // add them together.
+                    Text("\(SproutFormatters.currency(store.budget(for: tab))) available")
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Color.white.opacity(0.85))
@@ -135,8 +138,10 @@ struct SummaryCardView: View {
     private func dailyAllowanceLabel(_ dailyAllowance: MoneyAmount) -> String {
         // A per-day allowance is meaningless for a period that has already ended.
         if store.isViewingClosedMonth {
+            // The dashboard banner says this month is "still open", so this must
+            // not simultaneously call it ended.
             let remaining = store.remaining(for: tab)
-            return remaining < .zero ? "\(store.currentMonthLabel) ended over budget" : "Left at the end of \(store.currentMonthLabel)"
+            return remaining < .zero ? "\(store.currentMonthLabel) is over budget" : "Unspent in \(store.currentMonthLabel)"
         }
         if dailyAllowance < .zero { return "Daily overage" }
         let days = store.daysLeftInDisplayedMonth

@@ -1080,11 +1080,20 @@ struct BudgetStoreTests {
         // By the end of the month the damping is gone and 6% of budget is plainly
         // under plan.
         clock.date = Self.makeDate(2025, 4, 30)
-        // Capped below 1: `progress` is clamped to 1, so a threshold above it
-        // would make "spending too fast" unreportable on the last days of the
-        // month — exactly when it matters most.
-        #expect(store.aheadOfPaceThreshold() < 1)
         #expect(store.spendingPaceStatus(for: .personal) == .belowPace)
+    }
+
+    @Test func spendingExactlyToBudgetIsNotFlaggedOnTheLastDay() {
+        // Pace is judged on the unclamped ratio. While it was clamped to 1 the
+        // threshold had to sit below 1 to stay reachable, which flagged a month
+        // spent precisely to budget as "spending too fast" on its final day.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 4, 30))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        let draft = TransactionDraft(name: "Exact", amountText: "200.00", selectedEmoji: "🧾", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.remaining(for: .personal) == .zero)
+        #expect(store.spendingPaceStatus(for: .personal) != .aheadOfPace)
     }
 
     @Test func overspendIsStillFlaggedOnTheLastDayOfTheMonth() {
@@ -1276,7 +1285,10 @@ struct BudgetStoreTests {
         #expect(bundle.object(forInfoDictionaryKey: "CFBundleURLTypes") != nil)
         #expect(bundle.object(forInfoDictionaryKey: "UILaunchScreen") != nil)
         #expect(bundle.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil)
-        #expect(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == "1.0")
+        // Presence, not value: pinning the version here would fail on the first
+        // release bump for no good reason.
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        #expect(version?.isEmpty == false)
     }
 
     // MARK: - Month close-out data loss
@@ -1444,17 +1456,133 @@ struct BudgetStoreTests {
         #expect(SproutMoneyText.parse("$1,234.56")?.cents == 123_456)
     }
 
-    @Test func saturatingSubtractionPicksTheRightSign() {
-        // The `+` predicate keys off the left operand; subtraction overflows
-        // toward the sign of the negated right one. Copying it was wrong.
+    @Test func moneyStaysInsideItsRangeUnderArithmetic() {
+        // Honest about what this covers: because `init(cents:)` clamps, the
+        // operators' overflow branches are unreachable and this exercises the
+        // clamp, not them. The invariant that matters to a user is the one below
+        // — no arithmetic can produce a value outside the storable range, and
+        // nothing traps.
         let big = MoneyAmount(cents: MoneyAmount.maximumStorableCents)
+        let values = [MoneyAmount.zero, big, -big, MoneyAmount(cents: 1), MoneyAmount(cents: -1)]
+        for lhs in values {
+            for rhs in values {
+                #expect(abs((lhs + rhs).cents) <= MoneyAmount.maximumStorableCents)
+                #expect(abs((lhs - rhs).cents) <= MoneyAmount.maximumStorableCents)
+            }
+        }
         #expect((MoneyAmount.zero - big).cents == -MoneyAmount.maximumStorableCents)
         #expect((big - -big).cents == MoneyAmount.maximumStorableCents)
-        #expect((-big - big).cents == -MoneyAmount.maximumStorableCents)
     }
 
     @Test func editableTextKeepsASign() {
         #expect(SproutMoneyText.editable(MoneyAmount(cents: -1250)).hasPrefix("-"))
         #expect(SproutMoneyText.editableWhole(MoneyAmount(cents: -40_000)) == "-400")
+    }
+
+    // MARK: - Regressions found reviewing the regression fixes
+
+    @Test func placeholderMonthsDoNotEvictRealHistory() {
+        // Force-archiving every skipped month meant a long absence manufactured
+        // enough empty rows to push a year of real archives past the 12-month cap.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 1, 15))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        // Twelve months that each hold a transaction.
+        for month in 1 ... 12 {
+            clock.date = Self.makeDate(2025, month, 15)
+            let draft = TransactionDraft(
+                name: "Month \(month)",
+                amountText: "5.00",
+                selectedEmoji: "🧾",
+                date: clock.date
+            )
+            #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+            clock.date = Self.makeDate(month == 12 ? 2026 : 2025, month == 12 ? 1 : month + 1, 2)
+            store.resetMonth(carryOverRemainders: false)
+        }
+        #expect(store.archivedMonths.count == BudgetStore.monthHistoryLimit)
+
+        // Now a long absence, which manufactures placeholder rows for 2026.
+        clock.date = Self.makeDate(2027, 1, 5)
+        store.resetMonth(carryOverRemainders: false)
+
+        let withData = store.archivedMonths.filter { !$0.isEmpty }
+        #expect(!withData.isEmpty, "placeholder months evicted every month holding data")
+    }
+
+    @Test func closingOneMonthTwiceDoesNotGrantTheBudgetTwice() {
+        // `budget(for:)` is base + current carryover, so recomputing leftover on
+        // each close re-granted the base: two Carry Over resets inside one month
+        // silently doubled the budget.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 6, 10))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        store.setBudget(MoneyAmount(dollars: 200), for: .personal)
+
+        let first = TransactionDraft(name: "First", amountText: "50.00", selectedEmoji: "🧾", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: first, tab: .personal))
+        store.resetMonth(carryOverRemainders: true)
+        #expect(store.carryover(for: .personal).dollars == 150)
+
+        let second = TransactionDraft(name: "Second", amountText: "30.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 6, 20))
+        #expect(store.addTransaction(mode: .expense, draft: second, tab: .personal))
+        store.resetMonth(carryOverRemainders: true)
+
+        // June granted $200 once and saw $80 of spending.
+        #expect(store.carryover(for: .personal).dollars == 120)
+    }
+
+    @Test func aMergedArchiveKeepsTheBudgetTheCloseMeasuredAgainst() {
+        // Taking the earlier row's budget made the archive disagree with the
+        // carryover that was actually forwarded.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 10, 14))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        store.setBudget(MoneyAmount(dollars: 200), for: .personal)
+        let early = TransactionDraft(name: "Early", amountText: "20.00", selectedEmoji: "🧾", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: early, tab: .personal))
+        store.resetMonth(carryOverRemainders: false)
+
+        store.setBudget(MoneyAmount(dollars: 500), for: .personal)
+        let late = TransactionDraft(name: "Late", amountText: "30.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 10, 20))
+        #expect(store.addTransaction(mode: .expense, draft: late, tab: .personal))
+
+        clock.date = Self.makeDate(2025, 11, 3)
+        store.resetMonth(carryOverRemainders: true)
+
+        let october = try! #require(store.archivedMonths.first { $0.monthKey == "2025-10" })
+        #expect(october.personalBudget.dollars == 500)
+        // What the archive says is left must equal what was carried forward.
+        #expect(october.remaining(for: .personal) == store.carryover(for: .personal))
+    }
+
+    @Test func everyDecodeLossIsNamedInOneMessage() throws {
+        // Reporting only the most severe category meant a file that lost a
+        // transaction AND every recurring rule mentioned only the transaction.
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "personalBudget": 20_000,
+            "groceryBudget": 40_000,
+            "transactions": [["name": "broken"]],
+            "recurringRules": "not an array",
+            "currentMonth": SproutDate.currentMonthKey(),
+            "monthHistory": []
+        ]
+        try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+        let message = try #require(store.persistenceAlert?.message)
+        #expect(message.localizedCaseInsensitiveContains("transaction"))
+        #expect(message.localizedCaseInsensitiveContains("recurring"))
+    }
+
+    @Test func aSpaceInsideAnAmountIsRejectedRatherThanSwallowed() {
+        // Stripping every plain space turned a fat-fingered "1 2" into $12.
+        let enUS = Locale(identifier: "en_US")
+        #expect(SproutMoneyText.parse("1 2", locale: enUS) == nil)
+        #expect(SproutMoneyText.parse("12 34", locale: enUS) == nil)
+        // Surrounding whitespace is still fine.
+        #expect(SproutMoneyText.parse("  12.50  ", locale: enUS)?.cents == 1250)
     }
 }

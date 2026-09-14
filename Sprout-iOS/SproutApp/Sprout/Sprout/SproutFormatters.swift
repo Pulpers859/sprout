@@ -66,12 +66,20 @@ enum SproutMoneyText {
         for symbol in [locale.currencySymbol, locale.currency?.identifier].compactMap({ $0 }) where !symbol.isEmpty {
             candidate = candidate.replacingOccurrences(of: symbol, with: "")
         }
-        // Several locales group with a space; users type the plain one.
-        return candidate
+        // Non-breaking spaces are never typed deliberately, so they always go.
+        var result = candidate
             .replacingOccurrences(of: "\u{00A0}", with: "")
             .replacingOccurrences(of: "\u{202F}", with: "")
-            .replacingOccurrences(of: " ", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // A plain space is only noise in locales that actually group with one.
+        // Stripping it everywhere turned a fat-fingered "1 2" into $12 instead of
+        // a validation error.
+        let grouping = locale.groupingSeparator ?? ""
+        if !grouping.isEmpty, grouping.allSatisfy(\.isWhitespace) {
+            result = result.replacingOccurrences(of: " ", with: "")
+        }
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The digits of an amount, with separators removed.

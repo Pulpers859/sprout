@@ -105,14 +105,14 @@ struct BudgetEditorSheet: View {
         return nil
     }
 
-    /// Zero is the one amount the shared parser deliberately refuses, so it is
-    /// recognised here instead — using the same normalization `evaluate` applies,
-    /// rather than a second, weaker copy that choked on "$0" or a stray space.
     /// What the user can actually spend: the budget in the field plus carryover.
     private var availableThisMonth: MoneyAmount {
         (parsedAmount ?? .zero) + carryover
     }
 
+    /// Zero is the one amount the shared parser deliberately refuses, so it is
+    /// recognised here instead — using the same normalization `evaluate` applies,
+    /// rather than a second, weaker copy that choked on "$0" or a stray space.
     private var isExplicitZero: Bool {
         SproutMoneyText.isZeroAmount(amountText)
     }

@@ -187,7 +187,11 @@ struct SettingsSheet: View {
             if status.offersUndoImport {
                 Button("Undo Import", role: .destructive) {
                     statusMessage = nil
-                    undoImport()
+                    // Deferred one runloop hop: assigning the next message here
+                    // would be cleared by this alert's own dismissal, so the undo
+                    // happened with no confirmation and a *failed* undo said
+                    // nothing at all.
+                    DispatchQueue.main.async { undoImport() }
                 }
             }
             Button("OK", role: .cancel) { statusMessage = nil }
@@ -245,11 +249,14 @@ struct SettingsSheet: View {
     private func applyImport(_ pending: PendingBackupImport) {
         do {
             try store.importBackupData(pending.data)
+            let canUndo = store.canUndoImport
             statusMessage = SettingsStatusMessage(
                 title: "Backup Imported",
-                message: "Your Sprout data has been restored from the selected backup. "
-                    + "If this was the wrong file, Undo Import puts back exactly what was here a moment ago.",
-                offersUndoImport: store.canUndoImport
+                message: canUndo
+                    ? "Your Sprout data has been restored from the selected backup. "
+                        + "If this was the wrong file, Undo Import puts back exactly what was here a moment ago."
+                    : "Your Sprout data has been restored from the selected backup.",
+                offersUndoImport: canUndo
             )
         } catch {
             statusMessage = SettingsStatusMessage(
