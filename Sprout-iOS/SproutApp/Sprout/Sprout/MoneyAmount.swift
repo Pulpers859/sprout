@@ -25,9 +25,12 @@ struct MoneyAmount: Codable, Hashable, Comparable, Sendable {
     /// Rounds to the nearest cent. Use only at the text-input boundary — never to
     /// re-derive money that is already exact in cents.
     ///
-    /// Non-finite input yields zero rather than trapping: `Int(Double.nan)` and
-    /// `Int(Double.infinity)` are runtime traps, and "Infinity" is a string a user
-    /// can paste into the amount field.
+    /// Non-finite input yields **zero** rather than trapping or clamping:
+    /// `Int(Double.nan)` and `Int(Double.infinity)` are runtime traps, and
+    /// "Infinity" is a string a user can paste into the amount field. Zero is the
+    /// right answer there — an unparseable amount must not silently become the
+    /// largest amount the app can hold. Finite values outside the range are
+    /// clamped, since those carry real magnitude and sign.
     init(dollars: Double) {
         guard dollars.isFinite else {
             self.cents = 0

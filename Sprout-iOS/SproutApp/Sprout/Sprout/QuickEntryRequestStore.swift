@@ -16,8 +16,7 @@ struct QuickEntryRequest: Codable, Equatable, Identifiable {
 }
 
 enum QuickEntryRequestStore {
-    private static let defaults = UserDefaults.standard
-    private static let key = "sprout.pendingQuickEntryRequest"
+    static let key = "sprout.pendingQuickEntryRequest"
 
     /// A Shortcut or deep link that never actually reached the app leaves a
     /// pending request behind. Without an expiry it was replayed on the next cold
@@ -25,14 +24,14 @@ enum QuickEntryRequestStore {
     /// sheet they asked for on Tuesday.
     static let maximumAge: TimeInterval = 10 * 60
 
-    static func save(_ request: QuickEntryRequest) {
+    static func save(_ request: QuickEntryRequest, defaults: UserDefaults = .standard) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(request) else { return }
         defaults.set(data, forKey: key)
     }
 
-    static func consume(now: Date = .now) -> QuickEntryRequest? {
+    static func consume(now: Date = .now, defaults: UserDefaults = .standard) -> QuickEntryRequest? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let data = defaults.data(forKey: key) else { return nil }

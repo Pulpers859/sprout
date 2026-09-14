@@ -857,9 +857,17 @@ struct BudgetStoreTests {
     }
 
     @Test func moneyFromNonFiniteDollarsIsZeroNotATrap() {
-        #expect(MoneyAmount(dollars: .infinity).cents == MoneyAmount.maximumStorableCents)
-        #expect(MoneyAmount(dollars: -.infinity).cents == -MoneyAmount.maximumStorableCents)
+        // `Int(Double.infinity)` and `Int(Double.nan)` are runtime traps, and
+        // "Infinity" is a string a user can paste into the amount field. Zero
+        // rather than a clamp: an unparseable amount must not silently become the
+        // largest amount the app can hold.
+        #expect(MoneyAmount(dollars: .infinity).cents == 0)
+        #expect(MoneyAmount(dollars: -.infinity).cents == 0)
         #expect(MoneyAmount(dollars: .nan).cents == 0)
+        // Finite values outside the range carry real magnitude and sign, so those
+        // are clamped instead.
+        #expect(MoneyAmount(dollars: 1e18).cents == MoneyAmount.maximumStorableCents)
+        #expect(MoneyAmount(dollars: -1e18).cents == -MoneyAmount.maximumStorableCents)
     }
 
     @Test func moneyArithmeticSaturatesInsteadOfTrapping() {
@@ -983,18 +991,28 @@ struct BudgetStoreTests {
         #expect(QuickEntryRoute(url: URL(string: "https://quick-add")!) == nil)
     }
 
-    @Test func staleQuickEntryRequestsAreNotReplayed() {
+    @Test func staleQuickEntryRequestsAreNotReplayed() throws {
+        // Its own suite, not `.standard`: the test host is the real app, whose
+        // ContentView observes `UserDefaults.didChangeNotification` and consumes
+        // this key the instant it is written. Sharing the suite made the test race
+        // the app it runs inside.
+        let suiteName = "sprout.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         let fresh = QuickEntryRequest(tab: .grocery, mode: .expense, createdAt: .now)
-        QuickEntryRequestStore.save(fresh)
-        #expect(QuickEntryRequestStore.consume()?.tab == .grocery)
+        QuickEntryRequestStore.save(fresh, defaults: defaults)
+        #expect(QuickEntryRequestStore.consume(defaults: defaults)?.tab == .grocery)
+        // Consuming clears the slot.
+        #expect(QuickEntryRequestStore.consume(defaults: defaults) == nil)
 
         // A Shortcut run that never reached the app must not ambush the user with a
         // quick-add sheet on some later cold launch.
         let stale = QuickEntryRequest(tab: .grocery, mode: .expense, createdAt: Date(timeIntervalSinceNow: -3600))
-        QuickEntryRequestStore.save(stale)
-        #expect(QuickEntryRequestStore.consume() == nil)
-        // Consuming clears the slot either way.
-        #expect(QuickEntryRequestStore.consume() == nil)
+        QuickEntryRequestStore.save(stale, defaults: defaults)
+        #expect(QuickEntryRequestStore.consume(defaults: defaults) == nil)
+        // ...and it is cleared rather than left to be retried forever.
+        #expect(defaults.data(forKey: QuickEntryRequestStore.key) == nil)
     }
 
     // MARK: - URL scheme registration
