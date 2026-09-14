@@ -41,7 +41,7 @@ struct BudgetEditorSheet: View {
                 }
 
                 VStack(spacing: 6) {
-                    Text("Set the total amount available for this month.")
+                    Text("Your budget for every month. Any leftover carried over is added on top of it.")
                         .font(.footnote)
                         .foregroundStyle(Color.sproutTextMuted)
                         .multilineTextAlignment(.center)
@@ -56,12 +56,15 @@ struct BudgetEditorSheet: View {
                     }
 
                     if carryover > .zero {
+                        // Spell the arithmetic out, so it is obvious the figure in
+                        // the field is not the same as this month's spending power.
                         Label(
-                            "\(SproutFormatters.currency(carryover)) is carried over from last month",
+                            "Plus \(SproutFormatters.currency(carryover)) carried over — \(SproutFormatters.currency(availableThisMonth)) available this month",
                             systemImage: "arrow.turn.down.right"
                         )
                         .font(.caption.weight(.medium))
                         .foregroundStyle(Color.sageDark)
+                        .multilineTextAlignment(.center)
                     }
                 }
             }
@@ -105,6 +108,11 @@ struct BudgetEditorSheet: View {
     /// Zero is the one amount the shared parser deliberately refuses, so it is
     /// recognised here instead — using the same normalization `evaluate` applies,
     /// rather than a second, weaker copy that choked on "$0" or a stray space.
+    /// What the user can actually spend: the budget in the field plus carryover.
+    private var availableThisMonth: MoneyAmount {
+        (parsedAmount ?? .zero) + carryover
+    }
+
     private var isExplicitZero: Bool {
         SproutMoneyText.isZeroAmount(amountText)
     }
