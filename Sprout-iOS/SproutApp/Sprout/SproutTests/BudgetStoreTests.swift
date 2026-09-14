@@ -1585,4 +1585,137 @@ struct BudgetStoreTests {
         // Surrounding whitespace is still fine.
         #expect(SproutMoneyText.parse("  12.50  ", locale: enUS)?.cents == 1250)
     }
+
+    // MARK: - Ledger invariants under random month sequences
+
+    /// Reproducible PRNG: a failing trial has to be replayable.
+    struct SeededGenerator: RandomNumberGenerator {
+        private var state: UInt64
+        init(seed: UInt64) { state = seed }
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    /// Randomised sequences of the operations that move money between the live
+    /// ledger and the archive, checking invariants after every step.
+    ///
+    /// Three consecutive rounds of this audit put a data-loss bug in the month
+    /// close-out path, and each time the hand-picked example tests passed. The
+    /// bugs were all invariant violations — a transaction filed into the wrong
+    /// month, a row evicted, a budget granted twice — so the invariants are
+    /// asserted directly instead of being approximated by more examples.
+    @Test func ledgerInvariantsHoldAcrossRandomMonthSequences() {
+        var rng = SeededGenerator(seed: 0xC0FF_EE00_1234_5678)
+        let calendar = Self.gregorian
+
+        for trial in 0 ..< 12 {
+            var year = 2025
+            var month = 1
+            var day = 3
+            let clock = TestClock(Self.makeDate(year, month, day))
+            let store = makeStore(calendar: calendar, now: { clock.date })
+            var namesAdded: [String] = []
+
+            for step in 0 ..< 14 {
+                switch Int.random(in: 0 ..< 5, using: &rng) {
+                case 0, 1:
+                    let name = "t\(trial)-\(step)"
+                    let cents = Int.random(in: 1 ... 9_000, using: &rng)
+                    let draft = TransactionDraft(
+                        name: name,
+                        amountText: SproutMoneyText.editable(MoneyAmount(cents: cents)),
+                        selectedEmoji: "🧾",
+                        date: clock.date
+                    )
+                    let tab: BudgetTab = Bool.random(using: &rng) ? .personal : .grocery
+                    if store.addTransaction(mode: .expense, draft: draft, tab: tab) {
+                        namesAdded.append(name)
+                    }
+                case 2:
+                    // Advance the clock, sometimes across a month boundary.
+                    day += Int.random(in: 1 ... 20, using: &rng)
+                    while day > 28 {
+                        day -= 28
+                        month += 1
+                        if month > 12 { month = 1; year += 1 }
+                    }
+                    clock.date = Self.makeDate(year, month, day)
+                    store.refreshForCurrentDate()
+                case 3:
+                    // Leftover can never exceed the budget it was left over from.
+                    let before = BudgetTab.allCases.map { store.budget(for: $0) }
+                    store.resetMonth(carryOverRemainders: Bool.random(using: &rng))
+                    for (index, tab) in BudgetTab.allCases.enumerated() {
+                        #expect(
+                            store.carryover(for: tab) <= before[index],
+                            "trial \(trial) step \(step): carryover exceeded the budget it came from"
+                        )
+                    }
+                default:
+                    let tab: BudgetTab = Bool.random(using: &rng) ? .personal : .grocery
+                    store.setBudget(MoneyAmount(cents: Int.random(in: 0 ... 80_000, using: &rng)), for: tab)
+                }
+
+                assertLedgerInvariants(store, calendar: calendar, trial: trial, step: step)
+            }
+
+            // Nothing the user entered may simply disappear: every name is either
+            // still live or preserved in an archive that has not been trimmed away.
+            let live = Set(store.snapshot.transactions.map(\.name))
+            let archived = Set(store.archivedMonths.flatMap { $0.transactions }.map(\.name))
+            let survivingKeys = Set(store.archivedMonths.map(\.monthKey))
+            for name in namesAdded where !live.contains(name) && !archived.contains(name) {
+                // The only acceptable loss is a month pushed off a history that is
+                // full of months which themselves hold data. Losing an entry while
+                // an *empty* placeholder row is still retained is the eviction bug
+                // this trial exists to catch, so that must not pass.
+                #expect(
+                    survivingKeys.count >= BudgetStore.monthHistoryLimit
+                        && store.archivedMonths.allSatisfy { !$0.isEmpty },
+                    "trial \(trial): \(name) vanished while an empty month was retained"
+                )
+            }
+        }
+    }
+
+    private func assertLedgerInvariants(
+        _ store: BudgetStore,
+        calendar: Calendar,
+        trial: Int,
+        step: Int
+    ) {
+        let context = "trial \(trial) step \(step)"
+
+        // Carryover is a leftover, so it can never be negative.
+        for tab in BudgetTab.allCases {
+            #expect(store.carryover(for: tab) >= .zero, "\(context): negative carryover on \(tab)")
+            #expect(store.baseBudget(for: tab) >= .zero, "\(context): negative base budget on \(tab)")
+        }
+
+        // No transaction may exist twice anywhere.
+        let allIDs = store.snapshot.transactions.map(\.id)
+            + store.archivedMonths.flatMap { $0.transactions }.map(\.id)
+        #expect(Set(allIDs).count == allIDs.count, "\(context): duplicated transaction")
+
+        // The history cap is honoured, and month keys are unique within it.
+        #expect(store.archivedMonths.count <= BudgetStore.monthHistoryLimit, "\(context): history over cap")
+        let keys = store.archivedMonths.map(\.monthKey)
+        #expect(Set(keys).count == keys.count, "\(context): duplicate archived month")
+
+        // An entry may never be filed into a month earlier than its own date.
+        for archived in store.archivedMonths {
+            for entry in archived.transactions {
+                let entryKey = SproutDate.currentMonthKey(now: entry.date, calendar: calendar)
+                #expect(
+                    entryKey <= archived.monthKey,
+                    "\(context): \(entry.name) dated \(entryKey) filed under \(archived.monthKey)"
+                )
+            }
+        }
+    }
 }
