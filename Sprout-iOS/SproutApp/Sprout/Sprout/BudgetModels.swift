@@ -345,9 +345,14 @@ struct ArchivedBudgetMonth: Codable, Hashable, Identifiable {
 final class SproutDecodeIssueRecorder: @unchecked Sendable {
     private(set) var droppedTransactions = 0
     private(set) var hadUnreadableTransactionList = false
+    private(set) var droppedArchivedMonths = 0
+    private(set) var droppedRecurringRules = 0
 
     var hasIssues: Bool {
-        droppedTransactions > 0 || hadUnreadableTransactionList
+        droppedTransactions > 0
+            || hadUnreadableTransactionList
+            || droppedArchivedMonths > 0
+            || droppedRecurringRules > 0
     }
 
     func recordDroppedTransaction() {
@@ -357,6 +362,14 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
     /// The array itself was unreadable, so the loss can't be counted row by row.
     func recordUnreadableTransactionList() {
         hadUnreadableTransactionList = true
+    }
+
+    func recordDroppedArchivedMonth() {
+        droppedArchivedMonths += 1
+    }
+
+    func recordDroppedRecurringRule() {
+        droppedRecurringRules += 1
     }
 }
 
@@ -379,6 +392,35 @@ enum SproutLossyDecoding {
         init(from decoder: Decoder) throws {
             value = try? Wrapped(from: decoder)
         }
+    }
+
+    /// Decodes an array element by element, dropping and counting only the rows
+    /// that fail.
+    ///
+    /// `try? container.decode([T].self)` fails the *whole* array on one bad
+    /// element and then swallows the error, so a single damaged archived month
+    /// silently returned zero archived months — with a "Backup Imported" success
+    /// message on top of it.
+    static func elements<Element: Decodable, Key: CodingKey>(
+        _: Element.Type,
+        in container: KeyedDecodingContainer<Key>,
+        forKey key: Key,
+        onDroppedElement: () -> Void,
+        onUnreadableList: () -> Void
+    ) -> [Element] {
+        guard container.contains(key), !((try? container.decodeNil(forKey: key)) ?? true) else {
+            return []
+        }
+
+        guard let wrapped = try? container.decode([Failable<Element>].self, forKey: key) else {
+            onUnreadableList()
+            return []
+        }
+
+        for element in wrapped where element.value == nil {
+            onDroppedElement()
+        }
+        return wrapped.compactMap(\.value)
     }
 
     static func transactions<Key: CodingKey>(
@@ -498,8 +540,24 @@ struct BudgetSnapshot: Codable {
             forKey: .transactions,
             recorder: decoder.sproutDecodeIssueRecorder
         )
-        recurringRules = (try? container.decodeIfPresent([RecurringTransactionRule].self, forKey: .recurringRules)) ?? []
-        monthHistory = (try? container.decodeIfPresent([ArchivedBudgetMonth].self, forKey: .monthHistory)) ?? []
+        // Element-wise, like transactions: one malformed rule must not silently
+        // cost the user every recurring rule they have, and one malformed archived
+        // month must not erase their entire history.
+        let recorder = decoder.sproutDecodeIssueRecorder
+        recurringRules = SproutLossyDecoding.elements(
+            RecurringTransactionRule.self,
+            in: container,
+            forKey: .recurringRules,
+            onDroppedElement: { recorder?.recordDroppedRecurringRule() },
+            onUnreadableList: { recorder?.recordDroppedRecurringRule() }
+        )
+        monthHistory = SproutLossyDecoding.elements(
+            ArchivedBudgetMonth.self,
+            in: container,
+            forKey: .monthHistory,
+            onDroppedElement: { recorder?.recordDroppedArchivedMonth() },
+            onUnreadableList: { recorder?.recordDroppedArchivedMonth() }
+        )
         currentMonth = (try? container.decodeIfPresent(String.self, forKey: .currentMonth)) ?? SproutDate.currentMonthKey()
         personalCategories = (try? container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories)) ?? PersonalCategory.defaults
         updatedAt = (try? container.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? .now

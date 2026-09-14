@@ -27,12 +27,17 @@ found_secret=0
 
 # Every offending file is reported, not just the first: stopping at one hides the
 # rest and turns cleanup into several rounds.
+#
+# Only stdout is captured. Folding stderr in here and then judging the file by
+# non-emptiness made any noise from git — a locale warning, an unresolvable
+# pathspec, a filename containing glob characters — look exactly like a detected
+# secret and block the commit with nothing to show for it.
 echo "$staged_files" | while IFS= read -r path; do
   [ -n "$path" ] || continue
-  if git grep --cached -nI -E "$secret_patterns" -- "$path"; then
-    echo "  ^ potential secret in staged file: $path" >&2
+  if git grep --cached -nI -E "$secret_patterns" -- "$path" 2>/dev/null; then
+    echo "  ^ potential secret in staged file: $path"
   fi
-done > "$scan_output" 2>&1
+done > "$scan_output"
 
 if [ -s "$scan_output" ]; then
   cat "$scan_output" >&2

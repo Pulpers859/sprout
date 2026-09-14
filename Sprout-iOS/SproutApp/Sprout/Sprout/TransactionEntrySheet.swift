@@ -6,9 +6,11 @@ struct TransactionEntrySheet: View {
 
     let tab: BudgetTab
     let mode: TransactionMode
-    /// Editing an existing entry cannot create a recurring rule, so the section is
-    /// hidden there rather than shown and ignored.
-    let allowsRecurring: Bool
+    /// Editing an existing entry: the sheet used to title itself "Add Expense"
+    /// with a "Save expense" button, so the only sign the edit had landed was the
+    /// toast afterwards. Editing also cannot create a recurring rule, so that
+    /// section is hidden rather than shown and silently ignored.
+    let isEditing: Bool
     let onSubmit: (TransactionDraft) -> Bool
 
     @FocusState private var focusedField: Field?
@@ -24,13 +26,13 @@ struct TransactionEntrySheet: View {
     init(
         tab: BudgetTab,
         mode: TransactionMode,
-        allowsRecurring: Bool = true,
+        isEditing: Bool = false,
         initialDraft: TransactionDraft,
         onSubmit: @escaping (TransactionDraft) -> Bool
     ) {
         self.tab = tab
         self.mode = mode
-        self.allowsRecurring = allowsRecurring
+        self.isEditing = isEditing
         self.onSubmit = onSubmit
         _draft = State(initialValue: initialDraft)
     }
@@ -44,7 +46,7 @@ struct TransactionEntrySheet: View {
                     composerFields
                     metadataRow
 
-                    if allowsRecurring {
+                    if !isEditing {
                         recurringSection
                     }
 
@@ -61,7 +63,7 @@ struct TransactionEntrySheet: View {
             .safeAreaInset(edge: .bottom) {
                 saveButton
             }
-            .navigationTitle(mode.title)
+            .navigationTitle(isEditing ? (mode == .payment ? "Edit Payment" : "Edit Expense") : mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -247,8 +249,8 @@ struct TransactionEntrySheet: View {
             submit()
         } label: {
             Label(
-                mode == .payment ? "Save payment" : "Save expense",
-                systemImage: mode.symbol
+                isEditing ? "Save changes" : (mode == .payment ? "Save payment" : "Save expense"),
+                systemImage: isEditing ? "checkmark.circle.fill" : mode.symbol
             )
             .font(.headline)
             .frame(maxWidth: .infinity)

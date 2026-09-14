@@ -834,6 +834,16 @@
   }
 
   function handleSignOut() {
+    // Order matters. `signOut` is async and `onAuthStateChanged` has not fired
+    // yet, so `state.user` is still set and any save scheduled in the last 500ms
+    // is still pending. Resetting state first and letting that timer fire would
+    // write the *emptied* snapshot to the signed-out user's Firestore document
+    // and local cache — permanently destroying their budgets, history and
+    // transactions. Cancel the write and drop the identity before clearing.
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    state.user = null;
+
     signOut(auth);
     // Clearing only `transactions` left budgets, carryover, categories and month
     // history from the previous account on screen and in memory.

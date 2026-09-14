@@ -8,6 +8,7 @@ struct PersistenceAlert: Identifiable, Equatable {
         case saveFailed
         case recoveredFromPreviousSave
         case droppedUnreadableRows(count: Int)
+        case droppedHistoryOrRules
         case unreadableTransactionList
         case startedFreshAfterCorruption
     }
@@ -24,6 +25,8 @@ struct PersistenceAlert: Identifiable, Equatable {
             "Restored a previous save"
         case .droppedUnreadableRows:
             "Some entries couldn't be read"
+        case .droppedHistoryOrRules:
+            "Some saved items couldn't be read"
         case .unreadableTransactionList:
             "Transactions couldn't be read"
         case .startedFreshAfterCorruption:
@@ -116,6 +119,10 @@ final class BudgetStore: ObservableObject {
         SproutDate.monthGridDates(forMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
     }
 
+    var hasRecurringRules: Bool {
+        !snapshot.recurringRules.isEmpty
+    }
+
     var archivedMonths: [ArchivedBudgetMonth] {
         snapshot.monthHistory
     }
@@ -162,27 +169,23 @@ final class BudgetStore: ObservableObject {
         }
     }
 
+    /// Sets the recurring monthly budget. Carryover is separate and untouched.
+    ///
+    /// This used to take the *total available* (base + carryover) and back out a
+    /// new base from it, which had two bad consequences. Raising the figure by
+    /// $50 for one month permanently raised the base by $50, and the drift
+    /// compounded every month because each edit was applied to the already-shifted
+    /// base. Worse, entering anything below the carryover set the base to zero
+    /// forever and silently deleted the difference in carryover — so "tighten up
+    /// to $100 this month" quietly wiped out the standing budget.
     func setBudget(_ amount: MoneyAmount, for tab: BudgetTab) {
         guard amount >= .zero else { return }
-        let currentCarryover = carryover(for: tab)
-        let adjustedBase: MoneyAmount
-        let adjustedCarryover: MoneyAmount
-
-        if amount >= currentCarryover {
-            adjustedBase = amount - currentCarryover
-            adjustedCarryover = currentCarryover
-        } else {
-            adjustedBase = .zero
-            adjustedCarryover = amount
-        }
 
         switch tab {
         case .personal:
-            snapshot.personalBudget = adjustedBase
-            snapshot.personalCarryover = adjustedCarryover
+            snapshot.personalBudget = amount
         case .grocery:
-            snapshot.groceryBudget = adjustedBase
-            snapshot.groceryCarryover = adjustedCarryover
+            snapshot.groceryBudget = amount
         }
         persist()
     }
@@ -190,7 +193,11 @@ final class BudgetStore: ObservableObject {
     /// Order is irrelevant to a sum, so this reads the raw ledger rather than the
     /// sorted view — it is on the hot path for every summary figure.
     func netSpent(for tab: BudgetTab) -> MoneyAmount {
-        snapshot.transactions.reduce(.zero) { partialResult, item in
+        netSpent(in: snapshot.transactions, for: tab)
+    }
+
+    private func netSpent(in transactions: [TransactionEntry], for tab: BudgetTab) -> MoneyAmount {
+        transactions.reduce(.zero) { partialResult, item in
             guard item.tab == tab else { return partialResult }
             return partialResult + (item.isRefund ? -item.amount : item.amount)
         }
@@ -229,7 +236,10 @@ final class BudgetStore: ObservableObject {
     /// also when the signal starts to mean something.
     func aheadOfPaceThreshold(base: Double = BudgetStore.basePaceTolerance) -> Double {
         let pace = paceProgress()
-        return pace + base + (1 - pace) * Self.earlyMonthPaceAllowance
+        // `progress(for:)` is clamped to 1, so a threshold above 1 is unreachable
+        // and "spending too fast" would silently stop being reportable in the last
+        // days of the month, exactly when it matters most. Keep it inside range.
+        return min(pace + base + (1 - pace) * Self.earlyMonthPaceAllowance, 0.999)
     }
 
     /// The "under plan" threshold, which deliberately does NOT widen.
@@ -242,6 +252,8 @@ final class BudgetStore: ObservableObject {
         paceProgress() - base
     }
 
+    /// `tolerance` is the *base* half-width; the ahead-of-pace side still gets the
+    /// early-month allowance on top of it. It is not an absolute band.
     func spendingPaceStatus(for tab: BudgetTab, tolerance: Double? = nil) -> SpendingPaceStatus {
         let base = tolerance ?? Self.basePaceTolerance
         let actual = progress(for: tab)
@@ -517,6 +529,23 @@ final class BudgetStore: ObservableObject {
                 }
                 snapshot.recurringRules[index].nextOccurrenceDate = nextDate
             }
+
+            // Exhausting the bound used to leave the rule still due, so the next
+            // foreground pass appended another 600 rows, and the next, forever.
+            // The bound has to converge: snap the rule past the cutoff so the
+            // catch-up is capped in total rather than capped per pass.
+            if calendar.startOfDay(for: snapshot.recurringRules[index].nextOccurrenceDate) <= cutoffDate {
+                let rule = snapshot.recurringRules[index]
+                let resumed = rule.frequency.advanced(
+                    from: cutoffDate,
+                    calendar: calendar,
+                    anchorDay: rule.anchorDay
+                )
+                if calendar.startOfDay(for: resumed) > cutoffDate {
+                    snapshot.recurringRules[index].nextOccurrenceDate = resumed
+                    hasChanges = true
+                }
+            }
         }
 
         if hasChanges, persistChanges {
@@ -582,7 +611,7 @@ final class BudgetStore: ObservableObject {
                 processRecurringTransactions(through: lastDate, persistChanges: false)
             }
 
-            closeOutCurrentMonth(carryOverRemainders: carryOverRemainders)
+            closeOutCurrentMonth(carryOverRemainders: carryOverRemainders, alwaysArchive: true)
             didCloseAnyMonth = true
 
             guard let nextKey = SproutDate.nextMonthKey(after: snapshot.currentMonth, calendar: calendar) else {
@@ -595,7 +624,7 @@ final class BudgetStore: ObservableObject {
         // double-run after the walk already closed the final month, or carryover
         // would be recomputed against an emptied month.
         if !didCloseAnyMonth {
-            closeOutCurrentMonth(carryOverRemainders: carryOverRemainders)
+            closeOutCurrentMonth(carryOverRemainders: carryOverRemainders, alwaysArchive: false)
         }
 
         // A reset always lands on today's month, even if the walk bailed early.
@@ -607,11 +636,37 @@ final class BudgetStore: ObservableObject {
         persist()
     }
 
-    private func closeOutCurrentMonth(carryOverRemainders: Bool) {
-        archiveCurrentMonthIfNeeded()
-        snapshot.personalCarryover = carryOverRemainders ? max(.zero, remaining(for: .personal)) : .zero
-        snapshot.groceryCarryover = carryOverRemainders ? max(.zero, remaining(for: .grocery)) : .zero
-        snapshot.transactions = []
+    private func closeOutCurrentMonth(carryOverRemainders: Bool, alwaysArchive: Bool) {
+        let closingKey = snapshot.currentMonth
+
+        // An entry the user dated in a later month belongs to that month. Closing
+        // out used to archive and clear the *whole* ledger regardless of date, so
+        // a coffee logged on Oct 1 while the September rollover prompt was still
+        // pending got buried in September's archive and vanished from October.
+        var closing: [TransactionEntry] = []
+        var carriedForward: [TransactionEntry] = []
+        for entry in snapshot.transactions {
+            if monthKey(for: entry.date) <= closingKey {
+                closing.append(entry)
+            } else {
+                carriedForward.append(entry)
+            }
+        }
+
+        archiveClosingMonth(transactions: closing, force: alwaysArchive)
+
+        // Carryover is the closing month's leftover, so it must be computed from
+        // that month's entries only — not from ones being carried forward.
+        let personalRemaining = budget(for: .personal) - netSpent(in: closing, for: .personal)
+        let groceryRemaining = budget(for: .grocery) - netSpent(in: closing, for: .grocery)
+
+        snapshot.personalCarryover = carryOverRemainders ? max(.zero, personalRemaining) : .zero
+        snapshot.groceryCarryover = carryOverRemainders ? max(.zero, groceryRemaining) : .zero
+        snapshot.transactions = carriedForward
+    }
+
+    private func monthKey(for date: Date) -> String {
+        SproutDate.currentMonthKey(now: date, calendar: calendar)
     }
 
     func exportBackupData() throws -> Data {
@@ -782,16 +837,41 @@ final class BudgetStore: ObservableObject {
             return PersistenceAlert(kind: .unreadableTransactionList, message: message)
         }
 
-        let count = issues.droppedTransactions
-        let plural = count == 1 ? "" : "s"
+        if issues.droppedTransactions > 0 {
+            let count = issues.droppedTransactions
+            let plural = count == 1 ? "" : "s"
+            let message: String
+            switch context {
+            case .liveFile:
+                message = "\(count) unreadable transaction\(plural) could not be restored. Everything else was recovered."
+            case .backupImport:
+                message = "Restored from backup, but \(count) unreadable transaction\(plural) had to be skipped."
+            }
+            return PersistenceAlert(kind: .droppedUnreadableRows(count: count), message: message)
+        }
+
+        // Archived months and recurring rules used to fail whole-array and be
+        // swallowed, so a damaged file could leave the user with no history and no
+        // rules while the app reported success. Losing them silently is the part
+        // that matters: rent simply stops posting and nobody is told.
+        var lost: [String] = []
+        if issues.droppedArchivedMonths > 0 {
+            lost.append("\(issues.droppedArchivedMonths) archived month\(issues.droppedArchivedMonths == 1 ? "" : "s")")
+        }
+        if issues.droppedRecurringRules > 0 {
+            lost.append("\(issues.droppedRecurringRules) recurring item\(issues.droppedRecurringRules == 1 ? "" : "s")")
+        }
+        guard !lost.isEmpty else { return nil }
+
+        let subject = lost.joined(separator: " and ")
         let message: String
         switch context {
         case .liveFile:
-            message = "\(count) unreadable transaction\(plural) could not be restored. Everything else was recovered."
+            message = "\(subject) couldn't be read and are missing. Your budgets and transactions were kept — restoring a backup in Settings may recover them."
         case .backupImport:
-            message = "Restored from backup, but \(count) unreadable transaction\(plural) had to be skipped."
+            message = "Restored from backup, but \(subject) couldn't be read and had to be skipped."
         }
-        return PersistenceAlert(kind: .droppedUnreadableRows(count: count), message: message)
+        return PersistenceAlert(kind: .droppedHistoryOrRules, message: message)
     }
 
     private func finishLoad() {
@@ -977,25 +1057,54 @@ final class BudgetStore: ObservableObject {
         snapshot.currentMonth != SproutDate.currentMonthKey(now: referenceDate, calendar: calendar)
     }
 
-    private func archiveCurrentMonthIfNeeded() {
-        guard shouldArchiveCurrentMonth else { return }
+    /// Archives the month being closed, merging into any row that month already has.
+    ///
+    /// Archiving used to `removeAll` the existing row for the month and append a
+    /// new one. A deliberate mid-month reset on Oct 14 followed by the real Nov 1
+    /// rollover therefore *replaced* the Oct 1-14 archive with the Oct 15-31 one,
+    /// and since the reset had already cleared those entries from the live ledger,
+    /// the first half of October was gone from the only copy that held it.
+    private func archiveClosingMonth(transactions: [TransactionEntry], force: Bool) {
+        let closingKey = snapshot.currentMonth
+        let existing = snapshot.monthHistory.first { $0.monthKey == closingKey }
+
+        let hasSomethingToRecord = !transactions.isEmpty
+            || snapshot.personalCarryover > .zero
+            || snapshot.groceryCarryover > .zero
+        guard force || hasSomethingToRecord || existing != nil else { return }
+
+        var merged = transactions
+        // The month opened with whatever the earlier archive recorded; the figures
+        // on the snapshot now are the post-mid-month-reset ones.
+        var personalBudget = snapshot.personalBudget
+        var groceryBudget = snapshot.groceryBudget
+        var personalCarryover = snapshot.personalCarryover
+        var groceryCarryover = snapshot.groceryCarryover
+
+        if let existing {
+            var seen = Set(merged.map(\.id))
+            for entry in existing.transactions where !seen.contains(entry.id) {
+                merged.append(entry)
+                seen.insert(entry.id)
+            }
+            personalBudget = existing.personalBudget
+            groceryBudget = existing.groceryBudget
+            personalCarryover = existing.personalCarryover
+            groceryCarryover = existing.groceryCarryover
+        }
 
         let archivedMonth = ArchivedBudgetMonth(
-            monthKey: snapshot.currentMonth,
-            personalBudget: snapshot.personalBudget,
-            groceryBudget: snapshot.groceryBudget,
-            personalCarryover: snapshot.personalCarryover,
-            groceryCarryover: snapshot.groceryCarryover,
-            transactions: snapshot.transactions,
+            monthKey: closingKey,
+            personalBudget: personalBudget,
+            groceryBudget: groceryBudget,
+            personalCarryover: personalCarryover,
+            groceryCarryover: groceryCarryover,
+            transactions: merged,
             archivedAt: now()
         )
 
-        snapshot.monthHistory.removeAll { $0.monthKey == archivedMonth.monthKey }
+        snapshot.monthHistory.removeAll { $0.monthKey == closingKey }
         snapshot.monthHistory.append(archivedMonth)
-    }
-
-    private var shouldArchiveCurrentMonth: Bool {
-        !snapshot.transactions.isEmpty || snapshot.personalCarryover > .zero || snapshot.groceryCarryover > .zero
     }
 
     private func processRecurringTransactionsThroughCurrentStoredMonthIfNeeded() {

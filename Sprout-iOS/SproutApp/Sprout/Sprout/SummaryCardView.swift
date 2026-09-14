@@ -89,7 +89,14 @@ struct SummaryCardView: View {
                         .font(.caption)
                         .foregroundStyle(Color.white.opacity(0.80))
 
-                    Text("\(SproutFormatters.currency(dailyAllowance.magnitude))/day")
+                    // A closed month has one "day left" by construction, which made
+                    // the per-day figure equal the entire remaining balance — the
+                    // one number in the app whose job is to say what you may spend
+                    // today, telling you to spend all of it. Show the leftover
+                    // instead, which is what the figure actually means now.
+                    Text(store.isViewingClosedMonth
+                         ? SproutFormatters.currency(store.remaining(for: tab).magnitude)
+                         : "\(SproutFormatters.currency(dailyAllowance.magnitude))/day")
                         .font(.system(.headline, design: .rounded, weight: .bold))
                         .foregroundStyle(Color.white)
                 }
@@ -126,6 +133,11 @@ struct SummaryCardView: View {
     /// Day count comes from the store's displayed month, so a ledger the user has
     /// not rolled over yet is described by its own month rather than today's.
     private func dailyAllowanceLabel(_ dailyAllowance: MoneyAmount) -> String {
+        // A per-day allowance is meaningless for a period that has already ended.
+        if store.isViewingClosedMonth {
+            let remaining = store.remaining(for: tab)
+            return remaining < .zero ? "\(store.currentMonthLabel) ended over budget" : "Left at the end of \(store.currentMonthLabel)"
+        }
         if dailyAllowance < .zero { return "Daily overage" }
         let days = store.daysLeftInDisplayedMonth
         return "Daily allowance · \(days) day\(days == 1 ? "" : "s") left"

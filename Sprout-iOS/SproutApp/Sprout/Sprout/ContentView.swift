@@ -60,7 +60,7 @@ struct ContentView: View {
         .sheet(item: $budgetEditorTab) { tab in
             BudgetEditorSheet(
                 tab: tab,
-                startingAmount: store.budget(for: tab),
+                startingAmount: store.baseBudget(for: tab),
                 carryover: store.carryover(for: tab)
             ) { amount in
                 HapticFeedback.light()
@@ -78,7 +78,7 @@ struct ContentView: View {
                 mode: entry.isRefund ? .payment : .expense,
                 // Editing does not create recurring rules, so offering the toggle
                 // here only ever silently discarded the user's choice.
-                allowsRecurring: false,
+                isEditing: true,
                 initialDraft: store.makeEditDraft(for: entry)
             ) { draft in
                 let mode: TransactionMode = entry.isRefund ? .payment : .expense
@@ -96,21 +96,28 @@ struct ContentView: View {
             get: { store.needsMonthResetPrompt && store.persistenceAlert == nil },
             set: { store.needsMonthResetPrompt = $0 }
         )) {
-            // Most-likely intent first; the irreversible clear is not the middle
-            // button any more.
-            Button("Carry Over") {
-                HapticFeedback.light()
-                store.resetMonth(carryOverRemainders: true)
+            // Safest option first. Reordering this to put "Carry Over" on top was a
+            // mistake: it also clears the ledger, so anyone tapping the first
+            // button out of habit lost their transactions, and it carries no
+            // destructive role to warn them.
+            //
+            // "Keep" must NOT take the .cancel role either. It is not a no-op — it
+            // advances the stored month and posts recurring catch-up — and .cancel
+            // is what iOS invokes for an implicit dismissal, so a VoiceOver escape
+            // gesture would silently roll the month forward.
+            Button("Keep") {
+                store.keepCurrentTransactions()
             }
             Button("Reset Fresh", role: .destructive) {
                 HapticFeedback.warning()
                 store.resetMonth(carryOverRemainders: false)
             }
-            Button("Keep", role: .cancel) {
-                store.keepCurrentTransactions()
+            Button("Carry Over") {
+                HapticFeedback.light()
+                store.resetMonth(carryOverRemainders: true)
             }
         } message: {
-            Text("\(store.currentMonthLabel) is over. Reset Fresh clears this period's transactions and starts at your full budget. Carry Over clears them too but adds any positive leftover to next month. Keep leaves everything exactly as it is.")
+            Text(monthResetMessage)
         }
         .alert("Remove transaction?", isPresented: Binding(
             get: { pendingDeleteTransaction != nil },
@@ -176,6 +183,17 @@ struct ContentView: View {
             }
         }
         .animation(.snappy(duration: 0.35), value: successToastMessage != nil)
+    }
+
+    /// Every option runs the recurring catch-up, so claiming Keep changes nothing
+    /// was inaccurate whenever a rule had come due.
+    private var monthResetMessage: String {
+        let base = "\(store.currentMonthLabel) is over. "
+            + "Reset Fresh clears this period's transactions and starts at your full budget. "
+            + "Carry Over clears them too but adds any positive leftover to next month. "
+            + "Keep leaves this period's transactions in place."
+        guard store.hasRecurringRules else { return base }
+        return base + " Either way, any recurring items that came due are added."
     }
 
     private func saveNewTransaction(request: TransactionSheetRequest, draft: TransactionDraft) -> Bool {

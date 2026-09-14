@@ -70,6 +70,8 @@ struct BudgetDashboardView: View {
         }
         .background(Color.sproutBackground.ignoresSafeArea())
         .animation(.snappy(duration: 0.25), value: tab)
+        // A query typed on one tab silently filtered the other one.
+        .onChange(of: tab) { _, _ in searchText = "" }
     }
 
     private var dashboardHeader: some View {
@@ -207,23 +209,29 @@ struct BudgetDashboardView: View {
 
     private var transactionsSection: some View {
         let allTransactions = store.transactions(for: tab)
-        let filtered = searchText.isEmpty
+        // The field only appears at five or more rows, but the filter used to keep
+        // applying after it disappeared: deleting rows down to four left the list
+        // showing "No transactions match" with no box and no way to clear it. The
+        // filter is now inert whenever its control is not on screen.
+        let isSearchable = allTransactions.count >= 5
+        let activeQuery = isSearchable ? searchText : ""
+        let filtered = activeQuery.isEmpty
             ? allTransactions
             : allTransactions.filter {
-                $0.name.localizedCaseInsensitiveContains(searchText) ||
-                $0.note.localizedCaseInsensitiveContains(searchText)
+                $0.name.localizedCaseInsensitiveContains(activeQuery) ||
+                $0.note.localizedCaseInsensitiveContains(activeQuery)
             }
 
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(
                 "Transactions",
-                detail: searchText.isEmpty
+                detail: activeQuery.isEmpty
                     ? "\(allTransactions.count)"
                     : "\(filtered.count) of \(allTransactions.count)"
             )
             .padding(.bottom, 8)
 
-            if allTransactions.count >= 5 {
+            if isSearchable {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(Color.sproutTextMuted)
@@ -260,7 +268,7 @@ struct BudgetDashboardView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
             } else if filtered.isEmpty {
-                Text("No transactions match \u{201C}\(searchText)\u{201D}")
+                Text("No transactions match \u{201C}\(activeQuery)\u{201D}")
                     .font(.subheadline)
                     .foregroundStyle(Color.sproutTextMuted)
                     .multilineTextAlignment(.center)

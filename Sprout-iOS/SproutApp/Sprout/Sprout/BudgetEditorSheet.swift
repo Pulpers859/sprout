@@ -102,13 +102,11 @@ struct BudgetEditorSheet: View {
         return nil
     }
 
+    /// Zero is the one amount the shared parser deliberately refuses, so it is
+    /// recognised here instead — using the same normalization `evaluate` applies,
+    /// rather than a second, weaker copy that choked on "$0" or a stray space.
     private var isExplicitZero: Bool {
-        let separator = Locale.current.decimalSeparator ?? "."
-        let digits = amountText
-            .replacingOccurrences(of: separator, with: "")
-            .replacingOccurrences(of: Locale.current.groupingSeparator ?? ",", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !digits.isEmpty && digits.allSatisfy { $0 == "0" }
+        SproutMoneyText.isZeroAmount(amountText)
     }
 
     private var validationMessage: String? {

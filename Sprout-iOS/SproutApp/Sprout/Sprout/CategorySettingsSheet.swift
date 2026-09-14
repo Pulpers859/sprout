@@ -46,6 +46,7 @@ struct CategorySettingsSheet: View {
 }
 
 private struct CategoryRow: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var store: BudgetStore
     @State var category: PersonalCategory
     @State private var isShowingEmojiPicker = false
@@ -72,7 +73,10 @@ private struct CategoryRow: View {
                 if category.emoji.isEmpty {
                     category.emoji = "🪴"
                 }
-                commit()
+                // An icon change must land even while the name field is mid-edit,
+                // so it bypasses the blank-label guard rather than being swallowed
+                // by it.
+                commit(allowBlankLabel: true)
             }
 
             TextField("Category name", text: $category.label)
@@ -102,16 +106,25 @@ private struct CategoryRow: View {
             commit()
         }
         .onDisappear { commit() }
+        // `.onDisappear` does not fire when the app is backgrounded, so without
+        // this a rename made in the last half second was simply lost.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { commit() }
+        }
     }
 
-    private func commit() {
+    private func commit(allowBlankLabel: Bool = false) {
         guard !isRemoved else { return }
         // `.task(id:)` also fires on first appearance, so an unchanged row must not
         // trigger a save just because the sheet opened.
         guard store.categories(for: .personal).first(where: { $0.id == category.id }) != category else { return }
-        // A blank name is filtered out by the store's normalization, which would
-        // delete the category mid-edit. Mid-typing empties are simply not written.
-        guard !category.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // A half-typed empty name is not written, so the row keeps its old label
+        // until the user commits a real one. The store no longer deletes blank
+        // rows either, so this is a courtesy rather than the safety net it was.
+        if !allowBlankLabel, category.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
         store.updateCategory(category)
     }
 }

@@ -31,22 +31,20 @@ enum SproutMoneyText {
         let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
         let groupingSeparator = locale.groupingSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? ","
 
-        var candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        for symbol in [locale.currencySymbol, locale.currency?.identifier].compactMap({ $0 }) where !symbol.isEmpty {
-            candidate = candidate.replacingOccurrences(of: symbol, with: "")
-        }
-        // Several locales group with a non-breaking or narrow space.
-        candidate = candidate
-            .replacingOccurrences(of: "\u{00A0}", with: "")
-            .replacingOccurrences(of: "\u{202F}", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
+        let candidate = stripped(text, locale: locale)
         guard !candidate.isEmpty else { return .invalid }
 
         var allowed = CharacterSet(charactersIn: "0123456789")
         allowed.formUnion(CharacterSet(charactersIn: decimalSeparator))
         allowed.formUnion(CharacterSet(charactersIn: groupingSeparator))
-        guard candidate.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return .invalid }
+        // The strict scan only knows Latin digits. A locale whose default
+        // numbering system is not `latn` — Arabic-Indic, Devanagari, Bengali —
+        // produces digits from the user's own keyboard that this would reject,
+        // with a "greater than zero" error for a perfectly good amount. Hand
+        // those to NumberFormatter, which understands the locale's own digits.
+        guard candidate.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return evaluateWithLocaleFormatter(candidate, locale: locale)
+        }
 
         var normalized = candidate
         if groupingSeparator != decimalSeparator {
@@ -61,6 +59,54 @@ enum SproutMoneyText {
         return .valid(MoneyAmount(dollars: dollars))
     }
 
+    /// Removes currency decoration and grouping whitespace. Shared so every
+    /// caller normalizes identically.
+    private static func stripped(_ text: String, locale: Locale) -> String {
+        var candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for symbol in [locale.currencySymbol, locale.currency?.identifier].compactMap({ $0 }) where !symbol.isEmpty {
+            candidate = candidate.replacingOccurrences(of: symbol, with: "")
+        }
+        // Several locales group with a space; users type the plain one.
+        return candidate
+            .replacingOccurrences(of: "\u{00A0}", with: "")
+            .replacingOccurrences(of: "\u{202F}", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The digits of an amount, with separators removed.
+    private static func normalizedDigits(_ text: String, locale: Locale) -> String {
+        let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
+        let groupingSeparator = locale.groupingSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? ","
+        var value = stripped(text, locale: locale)
+        if groupingSeparator != decimalSeparator {
+            value = value.replacingOccurrences(of: groupingSeparator, with: "")
+        }
+        return value.replacingOccurrences(of: decimalSeparator, with: "")
+    }
+
+    /// Fallback for non-Latin numbering systems. Still refuses anything the
+    /// formatter does not consume in full, so trailing text cannot sneak through.
+    private static func evaluateWithLocaleFormatter(_ candidate: String, locale: Locale) -> ParseResult {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = locale
+        formatter.isLenient = false
+
+        guard let number = formatter.number(from: candidate) else { return .invalid }
+        let dollars = number.doubleValue
+        guard dollars.isFinite, dollars > 0 else { return .invalid }
+        guard dollars <= maximum.dollars else { return .exceedsMaximum }
+        return .valid(MoneyAmount(dollars: dollars))
+    }
+
+    /// True when the text is a well-formed zero. `evaluate` rejects zero because
+    /// no transaction may be zero, but a zero *budget* is a legitimate choice.
+    static func isZeroAmount(_ text: String, locale: Locale = .current) -> Bool {
+        let digits = normalizedDigits(text, locale: locale)
+        return !digits.isEmpty && digits.allSatisfy { $0 == "0" }
+    }
+
     static func parse(_ text: String, locale: Locale = .current) -> MoneyAmount? {
         if case .valid(let amount) = evaluate(text, locale: locale) { return amount }
         return nil
@@ -72,13 +118,14 @@ enum SproutMoneyText {
     static func editable(_ money: MoneyAmount, locale: Locale = .current) -> String {
         let separator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
         let cents = abs(money.cents)
-        return "\(cents / 100)\(separator)\(String(format: "%02d", cents % 100))"
+        let sign = money.cents < 0 ? "-" : ""
+        return "\(sign)\(cents / 100)\(separator)\(String(format: "%02d", cents % 100))"
     }
 
     /// Same as `editable(_:)` but drops a `.00` tail, for fields where a whole
     /// budget figure reads better than a padded one.
     static func editableWhole(_ money: MoneyAmount, locale: Locale = .current) -> String {
-        money.cents % 100 == 0 ? String(abs(money.cents) / 100) : editable(money, locale: locale)
+        money.cents % 100 == 0 ? String(money.cents / 100) : editable(money, locale: locale)
     }
 }
 

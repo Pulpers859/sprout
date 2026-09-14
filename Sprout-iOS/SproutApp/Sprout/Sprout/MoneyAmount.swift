@@ -71,7 +71,10 @@ struct MoneyAmount: Codable, Hashable, Comparable, Sendable {
 
     static func - (lhs: MoneyAmount, rhs: MoneyAmount) -> MoneyAmount {
         let (difference, overflowed) = lhs.cents.subtractingReportingOverflow(rhs.cents)
-        return MoneyAmount(cents: overflowed ? (lhs.cents > 0 ? Int.max : Int.min) : difference)
+        // Subtraction overflows toward the sign of the *negated* right operand, not
+        // the left one: `0 - Int.min` is positive. Copying the `+` predicate here
+        // would have saturated it the wrong way.
+        return MoneyAmount(cents: overflowed ? (rhs.cents < 0 ? Int.max : Int.min) : difference)
     }
 
     static prefix func - (value: MoneyAmount) -> MoneyAmount { MoneyAmount(cents: -value.cents) }

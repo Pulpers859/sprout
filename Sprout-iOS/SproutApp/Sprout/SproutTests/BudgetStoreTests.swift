@@ -58,6 +58,7 @@ struct BudgetStoreTests {
     @Test func setBudgetUpdatesTotal() {
         let store = makeStore()
         store.setBudget(MoneyAmount(dollars: 500), for: .personal)
+        #expect(store.baseBudget(for: .personal).dollars == 500)
         #expect(store.budget(for: .personal).dollars == 500)
     }
 
@@ -127,24 +128,52 @@ struct BudgetStoreTests {
 
     // MARK: - Carryover
 
-    @Test func setBudgetPreservesCarryover() {
+    @Test func setBudgetSetsTheRecurringBudgetAndLeavesCarryoverAlone() {
+        // The editor used to take base + carryover and back a new base out of it,
+        // so a one-month bump permanently moved the recurring budget and the drift
+        // compounded. It now sets the monthly budget directly; carryover is added
+        // on top and is not the editor's business.
         let store = makeStore()
         store.resetMonth(carryOverRemainders: true)
         let carryover = store.carryover(for: .personal)
+
         store.setBudget(MoneyAmount(dollars: 500), for: .personal)
         #expect(store.carryover(for: .personal) == carryover)
-        #expect(store.baseBudget(for: .personal) == MoneyAmount(dollars: 500) - carryover)
+        #expect(store.baseBudget(for: .personal).dollars == 500)
+        #expect(store.budget(for: .personal) == MoneyAmount(dollars: 500) + carryover)
     }
 
-    @Test func setBudgetBelowCarryoverClampsCarryover() {
+    @Test func aBudgetBelowTheCarryoverNoLongerZerosTheRecurringBudget() {
+        // The old branch set the base to zero forever and silently deleted the
+        // difference in carryover, so "tighten up to $100 this month" wiped out
+        // the standing budget with nothing on screen to say so.
         let store = makeStore()
+        store.setBudget(MoneyAmount(dollars: 200), for: .personal)
+        let draft = TransactionDraft(name: "Light month", amountText: "20.00", selectedEmoji: "🧾")
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
         store.resetMonth(carryOverRemainders: true)
-        let carryover = store.carryover(for: .personal)
-        guard carryover > .zero else { return }
 
-        store.setBudget(carryover.dividedTruncating(by: 2), for: .personal)
-        #expect(store.carryover(for: .personal) == carryover.dividedTruncating(by: 2))
-        #expect(store.baseBudget(for: .personal) == .zero)
+        let carryover = store.carryover(for: .personal)
+        #expect(carryover.dollars == 180)
+
+        store.setBudget(MoneyAmount(dollars: 100), for: .personal)
+        #expect(store.baseBudget(for: .personal).dollars == 100)
+        #expect(store.carryover(for: .personal) == carryover)
+
+        // And it stays put across the next rollover rather than decaying to zero.
+        store.resetMonth(carryOverRemainders: false)
+        #expect(store.baseBudget(for: .personal).dollars == 100)
+    }
+
+    @Test func repeatedBudgetEditsDoNotDriftTheRecurringBudget() {
+        let store = makeStore()
+        store.setBudget(MoneyAmount(dollars: 200), for: .personal)
+        for _ in 0 ..< 4 {
+            store.resetMonth(carryOverRemainders: true)
+            // Re-entering the same figure the editor shows must be a no-op.
+            store.setBudget(store.baseBudget(for: .personal), for: .personal)
+        }
+        #expect(store.baseBudget(for: .personal).dollars == 200)
     }
 
     // MARK: - Transaction Validation
@@ -1051,8 +1080,20 @@ struct BudgetStoreTests {
         // By the end of the month the damping is gone and 6% of budget is plainly
         // under plan.
         clock.date = Self.makeDate(2025, 4, 30)
-        #expect(store.aheadOfPaceThreshold() == 1 + BudgetStore.basePaceTolerance)
+        // Capped below 1: `progress` is clamped to 1, so a threshold above it
+        // would make "spending too fast" unreportable on the last days of the
+        // month — exactly when it matters most.
+        #expect(store.aheadOfPaceThreshold() < 1)
         #expect(store.spendingPaceStatus(for: .personal) == .belowPace)
+    }
+
+    @Test func overspendIsStillFlaggedOnTheLastDayOfTheMonth() {
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 4, 30))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        let draft = TransactionDraft(name: "Blowout", amountText: "500.00", selectedEmoji: "💸", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.spendingPaceStatus(for: .personal) == .aheadOfPace)
     }
 
     @Test func runawayEarlyMonthSpendingIsStillFlagged() {
@@ -1236,5 +1277,184 @@ struct BudgetStoreTests {
         #expect(bundle.object(forInfoDictionaryKey: "UILaunchScreen") != nil)
         #expect(bundle.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil)
         #expect(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == "1.0")
+    }
+
+    // MARK: - Month close-out data loss
+
+    @Test func aSecondCloseOfTheSameMonthMergesRatherThanReplaces() {
+        // Manual mid-month reset on Oct 14, then the real Nov 1 rollover. The
+        // archive used to be keyed by month and REPLACED, so the first half of
+        // October was deleted from the only copy that still held it.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 10, 14))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let firstHalf = TransactionDraft(name: "Early", amountText: "10.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 10, 3))
+        #expect(store.addTransaction(mode: .expense, draft: firstHalf, tab: .personal))
+        store.resetMonth(carryOverRemainders: false)
+
+        let secondHalf = TransactionDraft(name: "Late", amountText: "20.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 10, 20))
+        #expect(store.addTransaction(mode: .expense, draft: secondHalf, tab: .personal))
+
+        clock.date = Self.makeDate(2025, 11, 2)
+        store.resetMonth(carryOverRemainders: false)
+
+        let october = try! #require(store.archivedMonths.first { $0.monthKey == "2025-10" })
+        #expect(Set(october.transactions.map(\.name)) == ["Early", "Late"])
+    }
+
+    @Test func anEntryDatedInTheNewMonthSurvivesTheReset() {
+        // The rollover prompt is deferrable, so logging a coffee dated Oct 1 while
+        // still on September's ledger is a supported state. Close-out used to
+        // archive the WHOLE ledger regardless of date, burying it in September.
+        let calendar = Self.gregorian
+        // Created in September, so the stored month is September; moving the clock
+        // to October without answering the prompt is the deferred-rollover state.
+        let clock = TestClock(Self.makeDate(2025, 9, 20))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        #expect(store.displayedMonthKey == "2025-09")
+
+        let september = TransactionDraft(name: "Sept thing", amountText: "15.00", selectedEmoji: "🧾", date: Self.makeDate(2025, 9, 20))
+        #expect(store.addTransaction(mode: .expense, draft: september, tab: .personal))
+
+        clock.date = Self.makeDate(2025, 10, 1)
+        let october = TransactionDraft(name: "Oct coffee", amountText: "5.00", selectedEmoji: "☕️", date: Self.makeDate(2025, 10, 1))
+        #expect(store.addTransaction(mode: .expense, draft: october, tab: .personal))
+        #expect(store.displayedMonthKey == "2025-09")
+
+        store.resetMonth(carryOverRemainders: true)
+
+        // The October entry stays live; only the September one is archived.
+        #expect(store.transactions(for: .personal).map(\.name) == ["Oct coffee"])
+        let archived = try! #require(store.archivedMonths.first { $0.monthKey == "2025-09" })
+        #expect(archived.transactions.map(\.name) == ["Sept thing"])
+        // Carryover reflects September's spending only, not the October coffee.
+        #expect(store.carryover(for: .personal).dollars == 185)
+    }
+
+    @Test func skippedMonthsEachGetAnArchiveRow() {
+        // resetMonth's own doc comment promises every closed month its own entry,
+        // but the archive guard skipped months with nothing in them.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 1, 10))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        let draft = TransactionDraft(name: "January", amountText: "10.00", selectedEmoji: "🧾", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+
+        clock.date = Self.makeDate(2025, 4, 5)
+        store.resetMonth(carryOverRemainders: false)
+
+        let keys = Set(store.archivedMonths.map(\.monthKey))
+        #expect(keys.isSuperset(of: ["2025-01", "2025-02", "2025-03"]))
+    }
+
+    @Test func aStuckRecurringRuleConvergesInsteadOfRepostingForever() {
+        // The 600-occurrence bound was a resting state, not a safety net: it left
+        // the rule still due, so every foreground pass appended another 600 rows.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 6, 1))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        var draft = TransactionDraft(name: "Weekly", amountText: "5.00", selectedEmoji: "🔁", date: Self.makeDate(1990, 1, 1))
+        draft.isRecurring = true
+        draft.recurringFrequency = .weekly
+        draft.recurringNextDate = Self.makeDate(1990, 1, 8)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+
+        store.processRecurringTransactionsIfNeeded(referenceDate: clock.date)
+        let afterFirstPass = store.transactions(for: .personal).count
+
+        store.processRecurringTransactionsIfNeeded(referenceDate: clock.date)
+        let afterSecondPass = store.transactions(for: .personal).count
+
+        // A converged rule adds nothing on the next pass.
+        #expect(afterSecondPass == afterFirstPass)
+        let rule = try! #require(store.recurringRules(for: .personal).first)
+        #expect(rule.nextOccurrenceDate > clock.date)
+    }
+
+    @Test func oneBadArchivedMonthDoesNotEraseTheRest() throws {
+        // `try? decode([T].self)` fails the whole array on one bad element and
+        // swallows it, so a single damaged row returned ZERO archived months —
+        // with a success message on top.
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "personalBudget": 20_000,
+            "groceryBudget": 40_000,
+            "personalCarryover": 0,
+            "groceryCarryover": 0,
+            "transactions": [],
+            "recurringRules": [],
+            "currentMonth": SproutDate.currentMonthKey(),
+            "personalCategories": [],
+            "monthHistory": [
+                ["monthKey": "2025-01", "personalBudget": 20_000, "groceryBudget": 40_000,
+                 "personalCarryover": 0, "groceryCarryover": 0, "transactions": []],
+                ["notAMonth": true],
+                ["monthKey": "2025-02", "personalBudget": 20_000, "groceryBudget": 40_000,
+                 "personalCarryover": 0, "groceryCarryover": 0, "transactions": []]
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+
+        try store.importBackupData(data)
+        #expect(Set(store.archivedMonths.map(\.monthKey)) == ["2025-01", "2025-02"])
+        // And the loss is reported rather than passing as a clean restore.
+        #expect(store.persistenceAlert?.kind == .droppedHistoryOrRules)
+    }
+
+    // MARK: - Regressions found reviewing this audit's own changes
+
+    @Test func aClosedMonthDoesNotAdvertiseItsWholeBalanceAsADailyAllowance() {
+        // Anchoring a past month to its last day makes days-left 1 by
+        // construction, so the per-day figure became the entire remaining
+        // balance — the one number whose job is to say what you may spend today
+        // telling you to spend all of it. The card now shows the leftover instead,
+        // which `isViewingClosedMonth` is what gates.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 9, 20))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        let draft = TransactionDraft(name: "Sept", amountText: "100.00", selectedEmoji: "🧾", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(!store.isViewingClosedMonth)
+
+        clock.date = Self.makeDate(2025, 10, 3)
+        #expect(store.isViewingClosedMonth)
+        #expect(store.daysLeftInDisplayedMonth == 1)
+        // The raw allowance still equals the remainder; the card must not present
+        // it as a per-day figure while this flag is set.
+        #expect(store.dailyAllowance(for: .personal) == store.remaining(for: .personal))
+    }
+
+    @Test func zeroIsRecognisedThroughTheSharedNormalization() {
+        // The budget editor's own copy of this check choked on decoration the
+        // shared parser strips, so a zero budget could not be entered as "$0".
+        for text in ["0", "0.00", "00", "$0", "$0.00", " 0 "] {
+            #expect(SproutMoneyText.isZeroAmount(text), "expected \(text) to read as zero")
+        }
+        for text in ["", "   ", "1", "0.01", "abc"] {
+            #expect(!SproutMoneyText.isZeroAmount(text), "expected \(text) not to read as zero")
+        }
+    }
+
+    @Test func amountsSurviveCurrencyDecorationAndPlainSpaces() {
+        #expect(SproutMoneyText.parse("$12.50")?.cents == 1250)
+        #expect(SproutMoneyText.parse("  12.50  ")?.cents == 1250)
+        #expect(SproutMoneyText.parse("$1,234.56")?.cents == 123_456)
+    }
+
+    @Test func saturatingSubtractionPicksTheRightSign() {
+        // The `+` predicate keys off the left operand; subtraction overflows
+        // toward the sign of the negated right one. Copying it was wrong.
+        let big = MoneyAmount(cents: MoneyAmount.maximumStorableCents)
+        #expect((MoneyAmount.zero - big).cents == -MoneyAmount.maximumStorableCents)
+        #expect((big - -big).cents == MoneyAmount.maximumStorableCents)
+        #expect((-big - big).cents == -MoneyAmount.maximumStorableCents)
+    }
+
+    @Test func editableTextKeepsASign() {
+        #expect(SproutMoneyText.editable(MoneyAmount(cents: -1250)).hasPrefix("-"))
+        #expect(SproutMoneyText.editableWhole(MoneyAmount(cents: -40_000)) == "-400")
     }
 }
