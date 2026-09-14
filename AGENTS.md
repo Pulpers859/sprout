@@ -49,6 +49,7 @@ Optimize work around these risks first:
 - After making code or documentation changes, commit them and push them to GitHub before handing off unless I explicitly tell you not to.
 - Do not hide Git mutation: tell me what you committed and pushed.
 - Do not auto-deploy or add silent mutating hooks.
+- `.githooks/pre-commit` scans staged files for live credentials, but Git ignores it until `git config core.hooksPath .githooks` has been run in the clone. Verify that before relying on it.
 - Do not introduce broad background automation.
 - Do not assume the current folder is the source of truth without checking; normal work should happen in `C:\Dev\Sprout`.
 - Start each new task by fetching from Git so repo assumptions are current.

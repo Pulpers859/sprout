@@ -34,6 +34,20 @@ Runtime-critical work is concentrated in the two app folders above. Everything e
 - Treat `.netlify/` as generated local output.
 - Treat old Desktop/OneDrive copies as stale if they reappear; this repo is the active working copy.
 
+## Secret scanning
+
+`.githooks/pre-commit` blocks a commit that would introduce a live API key or
+private key. **Git does not use it until the clone is pointed at that
+directory**, which has to be done once per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+Until that runs, the hook file is inert. Live Firebase values belong in
+`Sprout-html/sprout-firebase-config.local.js`, which is ignored; commit only
+`sprout-firebase-config.example.js`.
+
 ## Verification notes
 
 - Web behavior can be checked from this Windows workspace.

@@ -1,28 +1,49 @@
 #!/bin/sh
+#
+# Blocks a commit that would introduce a live credential.
+#
+# This hook is NOT active by default — Git only runs hooks from .git/hooks
+# unless the repo is pointed at this directory. Enable it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Until that is run, this file is inert. `tools/Launch-Sprout-Claude.ps1` and the
+# README both mention it; if you are reading this because a secret leaked, that
+# config line is probably what was missing.
+
+set -u
 
 secret_patterns='AIza[0-9A-Za-z_-]{35}|ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{20,}|sk-[0-9A-Za-z_-]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+[ -n "$staged_files" ] || exit 0
+
+# A predictable path in a world-writable directory is the wrong place for this;
+# the scan output can quote the secret it just found.
+scan_output="$(mktemp "${TMPDIR:-/tmp}/sprout-secret-scan.XXXXXX")" || exit 1
+trap 'rm -f "$scan_output"' EXIT INT TERM
+
 found_secret=0
 
-if [ -n "$staged_files" ]; then
-  while IFS= read -r path; do
-    [ -z "$path" ] && continue
-
-    if git grep --cached -nI -E "$secret_patterns" -- "$path" >/tmp/sprout-secret-scan.txt 2>/dev/null; then
-      echo "Potential secret detected in staged file: $path"
-      cat /tmp/sprout-secret-scan.txt
-      found_secret=1
-      break
-    fi
-  done <<EOF
-$staged_files
-EOF
-
-  if [ "$found_secret" -ne 0 ]; then
-    rm -f /tmp/sprout-secret-scan.txt
-    echo "Commit blocked. Move live secrets into ignored local config files before committing."
-    exit 1
+# Every offending file is reported, not just the first: stopping at one hides the
+# rest and turns cleanup into several rounds.
+echo "$staged_files" | while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  if git grep --cached -nI -E "$secret_patterns" -- "$path"; then
+    echo "  ^ potential secret in staged file: $path" >&2
   fi
+done > "$scan_output" 2>&1
+
+if [ -s "$scan_output" ]; then
+  cat "$scan_output" >&2
+  found_secret=1
 fi
 
-rm -f /tmp/sprout-secret-scan.txt
+if [ "$found_secret" -ne 0 ]; then
+  echo "" >&2
+  echo "Commit blocked. Move live secrets into an ignored local config file" >&2
+  echo "(see Sprout-html/sprout-firebase-config.example.js) before committing." >&2
+  exit 1
+fi
+
+exit 0
