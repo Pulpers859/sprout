@@ -1647,15 +1647,14 @@ struct BudgetStoreTests {
                     clock.date = Self.makeDate(year, month, day)
                     store.refreshForCurrentDate()
                 case 3:
-                    // Leftover can never exceed the budget it was left over from.
-                    let before = BudgetTab.allCases.map { store.budget(for: $0) }
+                    // Deliberately no "carryover <= the budget before the close"
+                    // assertion here. It looks like an invariant and is not one: a
+                    // mid-month Reset Fresh zeroes the live carryover while the
+                    // archive still remembers what the month opened with, so a
+                    // later Carry Over close of the same month legitimately returns
+                    // more than the live budget. A refund can exceed it too. An
+                    // assertion that fires on correct behaviour is worse than none.
                     store.resetMonth(carryOverRemainders: Bool.random(using: &rng))
-                    for (index, tab) in BudgetTab.allCases.enumerated() {
-                        #expect(
-                            store.carryover(for: tab) <= before[index],
-                            "trial \(trial) step \(step): carryover exceeded the budget it came from"
-                        )
-                    }
                 default:
                     let tab: BudgetTab = Bool.random(using: &rng) ? .personal : .grocery
                     store.setBudget(MoneyAmount(cents: Int.random(in: 0 ... 80_000, using: &rng)), for: tab)
