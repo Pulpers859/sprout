@@ -1171,7 +1171,7 @@
     </div>
     <div class="form-row">
       <input class="form-input small" placeholder="Note (optional)" id="formNote" value="${escapeHtml(state.formNote)}">
-      <input class="form-input date" type="date" id="formDate" value="${state.formDate}">
+      <input class="form-input date" type="date" id="formDate" value="${escapeHtml(state.formDate)}">
     </div>
     <div class="form-actions">
       <button class="btn-submit" id="formSubmit">${isPayment ? "Add Payment" : "Add Expense"}</button>
@@ -1505,7 +1505,7 @@
     document.getElementById("budgetEdit")?.addEventListener("click", () => { state.editingBudget = true; render(); });
     document.getElementById("budgetSave")?.addEventListener("click", () => {
       const v = parseFloat(document.getElementById("budgetInput").value);
-      if (!isNaN(v) && v >= 0) {
+      if (Number.isFinite(v) && v >= 0 && v <= MAX_AMOUNT) {
         const currentCarryover = getCarryover(state.activeTab);
         let adjustedBase, adjustedCarryover;
         if (v >= currentCarryover) {
