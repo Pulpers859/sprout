@@ -19,6 +19,12 @@ enum QuickEntryRequestStore {
     private static let defaults = UserDefaults.standard
     private static let key = "sprout.pendingQuickEntryRequest"
 
+    /// A Shortcut or deep link that never actually reached the app leaves a
+    /// pending request behind. Without an expiry it was replayed on the next cold
+    /// launch — the user opens Sprout days later and is ambushed by a quick-add
+    /// sheet they asked for on Tuesday.
+    static let maximumAge: TimeInterval = 10 * 60
+
     static func save(_ request: QuickEntryRequest) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -26,12 +32,14 @@ enum QuickEntryRequestStore {
         defaults.set(data, forKey: key)
     }
 
-    static func consume() -> QuickEntryRequest? {
+    static func consume(now: Date = .now) -> QuickEntryRequest? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let data = defaults.data(forKey: key) else { return nil }
         defaults.removeObject(forKey: key)
-        return try? decoder.decode(QuickEntryRequest.self, from: data)
+        guard let request = try? decoder.decode(QuickEntryRequest.self, from: data) else { return nil }
+        guard abs(now.timeIntervalSince(request.createdAt)) <= maximumAge else { return nil }
+        return request
     }
 }
 

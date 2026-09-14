@@ -10,14 +10,42 @@ struct MoneyAmount: Codable, Hashable, Comparable, Sendable {
     /// Signed cents. Negative values are meaningful (e.g. an over-budget remainder).
     var cents: Int
 
+    /// Hard ceiling on any single stored amount, in cents ($1 trillion).
+    ///
+    /// Nothing a user can type comes close; this exists so a corrupt or hostile
+    /// file can't seed a value whose sums overflow `Int` and trap at render time.
+    /// Every arithmetic result is clamped back inside this range, which leaves
+    /// ~1e7 headroom for summing before `Int` itself is at risk.
+    static let maximumStorableCents = 100_000_000_000_000
+
     init(cents: Int) {
-        self.cents = cents
+        self.cents = Self.clamped(cents)
     }
 
     /// Rounds to the nearest cent. Use only at the text-input boundary — never to
     /// re-derive money that is already exact in cents.
+    ///
+    /// Non-finite input yields zero rather than trapping: `Int(Double.nan)` and
+    /// `Int(Double.infinity)` are runtime traps, and "Infinity" is a string a user
+    /// can paste into the amount field.
     init(dollars: Double) {
-        self.cents = Int((dollars * 100).rounded())
+        guard dollars.isFinite else {
+            self.cents = 0
+            return
+        }
+        let scaled = (dollars * 100).rounded()
+        let ceiling = Double(Self.maximumStorableCents)
+        if scaled >= ceiling {
+            self.cents = Self.maximumStorableCents
+        } else if scaled <= -ceiling {
+            self.cents = -Self.maximumStorableCents
+        } else {
+            self.cents = Int(scaled)
+        }
+    }
+
+    private static func clamped(_ cents: Int) -> Int {
+        min(max(cents, -maximumStorableCents), maximumStorableCents)
     }
 
     /// Dollars for display and text seeding only. Not for arithmetic.
@@ -29,11 +57,23 @@ struct MoneyAmount: Codable, Hashable, Comparable, Sendable {
     var magnitude: MoneyAmount { MoneyAmount(cents: abs(cents)) }
 
     static func < (lhs: MoneyAmount, rhs: MoneyAmount) -> Bool { lhs.cents < rhs.cents }
-    static func + (lhs: MoneyAmount, rhs: MoneyAmount) -> MoneyAmount { MoneyAmount(cents: lhs.cents + rhs.cents) }
-    static func - (lhs: MoneyAmount, rhs: MoneyAmount) -> MoneyAmount { MoneyAmount(cents: lhs.cents - rhs.cents) }
+
+    // Saturating rather than trapping. Values are already clamped on the way in,
+    // so overflow is only reachable by summing an implausible number of rows —
+    // and a budgeting app must not crash on arithmetic it can clamp instead.
+    static func + (lhs: MoneyAmount, rhs: MoneyAmount) -> MoneyAmount {
+        let (sum, overflowed) = lhs.cents.addingReportingOverflow(rhs.cents)
+        return MoneyAmount(cents: overflowed ? (lhs.cents > 0 ? Int.max : Int.min) : sum)
+    }
+
+    static func - (lhs: MoneyAmount, rhs: MoneyAmount) -> MoneyAmount {
+        let (difference, overflowed) = lhs.cents.subtractingReportingOverflow(rhs.cents)
+        return MoneyAmount(cents: overflowed ? (lhs.cents > 0 ? Int.max : Int.min) : difference)
+    }
+
     static prefix func - (value: MoneyAmount) -> MoneyAmount { MoneyAmount(cents: -value.cents) }
-    static func += (lhs: inout MoneyAmount, rhs: MoneyAmount) { lhs.cents += rhs.cents }
-    static func -= (lhs: inout MoneyAmount, rhs: MoneyAmount) { lhs.cents -= rhs.cents }
+    static func += (lhs: inout MoneyAmount, rhs: MoneyAmount) { lhs = lhs + rhs }
+    static func -= (lhs: inout MoneyAmount, rhs: MoneyAmount) { lhs = lhs - rhs }
 
     /// Divides the amount into an integer per-part cents value, truncating any
     /// sub-cent remainder. Used for display-only figures like a daily allowance.
@@ -49,10 +89,9 @@ struct MoneyAmount: Codable, Hashable, Comparable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if decoder.sproutSchemaVersion >= 2 {
-            self.cents = try container.decode(Int.self)
+            self.init(cents: try container.decode(Int.self))
         } else {
-            let dollars = try container.decode(Double.self)
-            self.cents = Int((dollars * 100).rounded())
+            self.init(dollars: try container.decode(Double.self))
         }
     }
 

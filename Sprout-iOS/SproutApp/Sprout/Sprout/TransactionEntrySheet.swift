@@ -6,16 +6,27 @@ struct TransactionEntrySheet: View {
 
     let tab: BudgetTab
     let mode: TransactionMode
-    let onSubmit: (TransactionDraft) -> Void
+    /// Editing an existing entry cannot create a recurring rule, so the section is
+    /// hidden there rather than shown and ignored.
+    let allowsRecurring: Bool
+    let onSubmit: (TransactionDraft) -> Bool
 
     @FocusState private var focusedField: Field?
     @State private var draft: TransactionDraft
     @State private var validationMessage: String?
     @State private var hasCustomizedRecurringDate = false
+    @State private var isSubmitting = false
 
-    init(tab: BudgetTab, mode: TransactionMode, initialDraft: TransactionDraft, onSubmit: @escaping (TransactionDraft) -> Void) {
+    init(
+        tab: BudgetTab,
+        mode: TransactionMode,
+        allowsRecurring: Bool = true,
+        initialDraft: TransactionDraft,
+        onSubmit: @escaping (TransactionDraft) -> Bool
+    ) {
         self.tab = tab
         self.mode = mode
+        self.allowsRecurring = allowsRecurring
         self.onSubmit = onSubmit
         _draft = State(initialValue: initialDraft)
     }
@@ -28,7 +39,10 @@ struct TransactionEntrySheet: View {
                     categoryPicker
                     composerFields
                     metadataRow
-                    recurringSection
+
+                    if allowsRecurring {
+                        recurringSection
+                    }
 
                     if let validationMessage {
                         Label(validationMessage, systemImage: "exclamationmark.circle.fill")
@@ -81,11 +95,11 @@ struct TransactionEntrySheet: View {
                 .foregroundStyle(Color.sproutTextMuted)
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("$")
+                Text(SproutFormatters.currencySymbol)
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.sproutTextSecondary)
 
-                TextField("0.00", text: $draft.amountText)
+                TextField(SproutMoneyText.editable(.zero), text: $draft.amountText)
                     .keyboardType(.decimalPad)
                     .font(.system(size: 52, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.sproutText)
@@ -238,6 +252,7 @@ struct TransactionEntrySheet: View {
         }
         .buttonStyle(.glassProminent)
         .tint(tab.accentDarkColor)
+        .disabled(isSubmitting)
         .padding(.horizontal, 20)
         .padding(.top, 10)
         .padding(.bottom, 12)
@@ -273,6 +288,11 @@ struct TransactionEntrySheet: View {
     }
 
     private func submit() {
+        // The sheet is dismissed by the caller after a successful save, which
+        // leaves a window where a second tap lands on a still-live button and
+        // files the expense twice.
+        guard !isSubmitting else { return }
+
         let trimmedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             validationMessage = "Add a short description first."
@@ -280,21 +300,34 @@ struct TransactionEntrySheet: View {
             return
         }
 
-        guard let amount = draft.parsedAmount, amount > .zero else {
-            let raw = draft.amountText.replacingOccurrences(of: ",", with: "")
-            if let v = Double(raw), v > TransactionDraft.maximumAmount.dollars {
-                validationMessage = "Amount cannot exceed \(SproutFormatters.currency(TransactionDraft.maximumAmount))."
-            } else {
-                validationMessage = "Enter an amount greater than zero."
-            }
+        let amount: MoneyAmount
+        switch draft.amountParseResult {
+        case .valid(let parsed):
+            amount = parsed
+        case .exceedsMaximum:
+            validationMessage = "Amount cannot exceed \(SproutFormatters.currency(SproutMoneyText.maximum))."
+            focusedField = .amount
+            return
+        case .invalid:
+            validationMessage = "Enter an amount greater than zero."
             focusedField = .amount
             return
         }
 
         validationMessage = nil
+        isSubmitting = true
         draft.name = trimmedName
-        draft.amountText = String(format: "%.2f", amount.dollars)
-        onSubmit(draft)
+        // Re-serialized through the same helper the parser reads, so the value the
+        // store re-parses is exactly the one validated here. The old
+        // `String(format: "%.2f", …)` always wrote a "." separator, which locales
+        // that group with "." read back as a hundredfold larger amount.
+        draft.amountText = SproutMoneyText.editable(amount)
+
+        guard onSubmit(draft) else {
+            isSubmitting = false
+            validationMessage = "Sprout couldn't save this entry. Check the amount and try again."
+            return
+        }
     }
 
     private func updateRecurringDate(force: Bool) {

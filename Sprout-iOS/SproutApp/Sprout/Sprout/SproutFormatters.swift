@@ -1,24 +1,144 @@
 import Foundation
 
-enum SproutFormatters {
-    private static let currencyFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.locale = .current
-        return formatter
-    }()
+/// The single parser and serializer for user-typed money text.
+///
+/// Amount text used to be parsed with a locale `NumberFormatter` but written back
+/// with `String(format: "%.2f", …)`, which always emits a `.` decimal separator.
+/// In any locale where `.` is the *grouping* separator (de_DE, fr_FR, pt_BR, …)
+/// that round trip silently multiplied the amount by 100 — a saved 12,50 came
+/// back as 1.250,00. Parsing and seeding now share one representation so the
+/// round trip is exact in every locale.
+enum SproutMoneyText {
+    /// Largest amount a single transaction or budget may hold.
+    static let maximum = MoneyAmount(dollars: 999_999.99)
 
-    static func currency(_ money: MoneyAmount) -> String {
-        currencyFormatter.string(from: NSNumber(value: money.dollars)) ?? "$0.00"
+    enum ParseResult: Equatable {
+        case valid(MoneyAmount)
+        case exceedsMaximum
+        case invalid
     }
 
-    static func compactCurrency(_ money: MoneyAmount) -> String {
-        if money == .zero { return currencyFormatter.currencySymbol + "0" }
-        let value = money.dollars
-        if value < 1 { return currency(money) }
-        if value == value.rounded(.down) {
-            return currencyFormatter.currencySymbol + "\(Int(value))"
+    /// Parses an amount the user typed or that `editable(_:)` produced.
+    ///
+    /// Deliberately strict: only digits and the locale's own separators are
+    /// accepted. That is what rejects `"-5"`, `"1e9"`, and `"Infinity"` — the last
+    /// of which `Double.init` happily produces and `Int(_:)` then traps on.
+    static func evaluate(_ text: String) -> ParseResult {
+        let locale = Locale.current
+        // A locale can report an empty separator; falling through to "" would make
+        // the allowed-character set and the replacements below meaningless.
+        let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
+        let groupingSeparator = locale.groupingSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? ","
+
+        var candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for symbol in [locale.currencySymbol, locale.currency?.identifier].compactMap({ $0 }) where !symbol.isEmpty {
+            candidate = candidate.replacingOccurrences(of: symbol, with: "")
         }
-        return currency(money)
+        // Several locales group with a non-breaking or narrow space.
+        candidate = candidate
+            .replacingOccurrences(of: "\u{00A0}", with: "")
+            .replacingOccurrences(of: "\u{202F}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !candidate.isEmpty else { return .invalid }
+
+        var allowed = CharacterSet(charactersIn: "0123456789")
+        allowed.formUnion(CharacterSet(charactersIn: decimalSeparator))
+        allowed.formUnion(CharacterSet(charactersIn: groupingSeparator))
+        guard candidate.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return .invalid }
+
+        var normalized = candidate
+        if groupingSeparator != decimalSeparator {
+            normalized = normalized.replacingOccurrences(of: groupingSeparator, with: "")
+        }
+        normalized = normalized.replacingOccurrences(of: decimalSeparator, with: ".")
+
+        guard normalized.filter({ $0 == "." }).count <= 1 else { return .invalid }
+        guard let dollars = Double(normalized), dollars.isFinite, dollars > 0 else { return .invalid }
+        guard dollars <= maximum.dollars else { return .exceedsMaximum }
+
+        return .valid(MoneyAmount(dollars: dollars))
+    }
+
+    static func parse(_ text: String) -> MoneyAmount? {
+        if case .valid(let amount) = evaluate(text) { return amount }
+        return nil
+    }
+
+    /// Seed text for an editable amount field, always with two decimal places and
+    /// no grouping, using the locale's own decimal separator so `evaluate` reads
+    /// it back to the identical cents value.
+    static func editable(_ money: MoneyAmount) -> String {
+        let separator = Locale.current.decimalSeparator ?? "."
+        let cents = abs(money.cents)
+        return "\(cents / 100)\(separator)\(String(format: "%02d", cents % 100))"
+    }
+
+    /// Same as `editable(_:)` but drops a `.00` tail, for fields where a whole
+    /// budget figure reads better than a padded one.
+    static func editableWhole(_ money: MoneyAmount) -> String {
+        money.cents % 100 == 0 ? String(abs(money.cents) / 100) : editable(money)
+    }
+}
+
+enum SproutFormatters {
+    /// Formatters are rebuilt when the device locale changes, so a region switch
+    /// mid-session does not leave the app formatting in the previous currency.
+    private final class Cache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var localeIdentifier = ""
+        private var currency = NumberFormatter()
+        private var compact = NumberFormatter()
+
+        func withFormatters<T>(_ body: (NumberFormatter, NumberFormatter) -> T) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+
+            let locale = Locale.current
+            if locale.identifier != localeIdentifier {
+                localeIdentifier = locale.identifier
+
+                let currencyFormatter = NumberFormatter()
+                currencyFormatter.numberStyle = .currency
+                currencyFormatter.locale = locale
+                currency = currencyFormatter
+
+                let compactFormatter = NumberFormatter()
+                compactFormatter.numberStyle = .currency
+                compactFormatter.locale = locale
+                compactFormatter.maximumFractionDigits = 0
+                compactFormatter.minimumFractionDigits = 0
+                compact = compactFormatter
+            }
+
+            return body(currency, compact)
+        }
+    }
+
+    private static let cache = Cache()
+
+    static var currencySymbol: String {
+        cache.withFormatters { currency, _ in currency.currencySymbol ?? "$" }
+    }
+
+    static func currency(_ money: MoneyAmount) -> String {
+        cache.withFormatters { currency, _ in
+            currency.string(from: NSNumber(value: money.dollars)) ?? "$0.00"
+        }
+    }
+
+    /// Whole-dollar rendering for dense surfaces like calendar cells. Anything
+    /// with a cents tail, and anything under a whole unit, keeps its full format
+    /// so a $0.40 day never reads as "$0" and $12.50 never rounds to "$13".
+    static func compactCurrency(_ money: MoneyAmount) -> String {
+        guard money == .zero || (money.magnitude.cents >= 100 && money.cents % 100 == 0) else {
+            return currency(money)
+        }
+
+        return cache.withFormatters { currency, compact in
+            compact.string(from: NSNumber(value: money.dollars))
+                ?? currency.string(from: NSNumber(value: money.dollars))
+                ?? "$0"
+        }
     }
 }

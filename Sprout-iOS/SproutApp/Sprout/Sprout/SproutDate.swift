@@ -94,6 +94,47 @@ enum SproutDate {
         return min(max(Double(today) / Double(range.count), 0), 1)
     }
 
+    /// The point inside `monthKey` that "now" corresponds to.
+    ///
+    /// Days-left and pace used to be read straight off the wall clock, so a stored
+    /// month the user had not closed out yet (the reset prompt deferred, dismissed,
+    /// or hidden behind a persistence alert) was measured against the *new* month:
+    /// a September ledger showing October's day count and October's pace marker.
+    /// Anchoring to the stored month keeps every derived figure describing the
+    /// period the transactions actually belong to.
+    ///
+    /// - A stored month that is the live month anchors to `now`.
+    /// - A past stored month anchors to its final day: the period is over.
+    /// - A future stored month (device clock moved backwards) anchors to its first
+    ///   day rather than pretending the month is spent.
+    static func referenceDate(inMonthKey monthKey: String, now: Date = .now, calendar: Calendar = .current) -> Date {
+        let liveKey = currentMonthKey(now: now, calendar: calendar)
+        if monthKey == liveKey { return now }
+        if monthKey < liveKey { return lastDate(forMonthKey: monthKey, calendar: calendar) ?? now }
+        return firstDate(forMonthKey: monthKey, calendar: calendar) ?? now
+    }
+
+    static func daysLeft(inMonthKey monthKey: String, now: Date = .now, calendar: Calendar = .current) -> Int {
+        daysLeftInMonth(
+            now: referenceDate(inMonthKey: monthKey, now: now, calendar: calendar),
+            calendar: calendar
+        )
+    }
+
+    static func paceProgress(inMonthKey monthKey: String, now: Date = .now, calendar: Calendar = .current) -> Double {
+        monthPaceProgress(
+            now: referenceDate(inMonthKey: monthKey, now: now, calendar: calendar),
+            calendar: calendar
+        )
+    }
+
+    static func monthGridDates(forMonthKey monthKey: String, now: Date = .now, calendar: Calendar = .current) -> [Date?] {
+        monthGridDates(
+            for: firstDate(forMonthKey: monthKey, calendar: calendar) ?? now,
+            calendar: calendar
+        )
+    }
+
     static func monthGridDates(for date: Date = .now, calendar: Calendar = .current) -> [Date?] {
         let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
         let weekday = calendar.component(.weekday, from: monthStart)

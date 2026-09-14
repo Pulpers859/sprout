@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Base Info.plist. GENERATE_INFOPLIST_FILE stays on, so every key driven by an
+	  INFOPLIST_KEY_* build setting is merged in on top of this file; only keys
+	  that have no build-setting equivalent belong here.
+
+	  CFBundleURLTypes is one of them. Without it iOS has no record that this app
+	  owns the "sprout" scheme, so `sprout://quick-add` was never delivered and
+	  ContentView's onOpenURL handler could not fire — the deep-link half of the
+	  quick-entry path was dead on arrival.
+
+	  Kept outside the Sprout/ synchronized group so Xcode cannot also copy it in
+	  as a bundle resource.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Patrick-App.Sprout.quick-entry</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sprout</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

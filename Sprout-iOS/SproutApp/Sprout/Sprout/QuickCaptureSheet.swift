@@ -6,13 +6,14 @@ struct QuickCaptureSheet: View {
 
     let tab: BudgetTab
     let mode: TransactionMode
-    let onSubmit: (TransactionDraft) -> Void
+    let onSubmit: (TransactionDraft) -> Bool
 
     @FocusState private var focusedField: Field?
     @State private var draft: TransactionDraft
     @State private var validationMessage: String?
+    @State private var isSubmitting = false
 
-    init(tab: BudgetTab, mode: TransactionMode, initialDraft: TransactionDraft, onSubmit: @escaping (TransactionDraft) -> Void) {
+    init(tab: BudgetTab, mode: TransactionMode, initialDraft: TransactionDraft, onSubmit: @escaping (TransactionDraft) -> Bool) {
         self.tab = tab
         self.mode = mode
         self.onSubmit = onSubmit
@@ -67,11 +68,11 @@ struct QuickCaptureSheet: View {
 
     private var amountField: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("$")
+            Text(SproutFormatters.currencySymbol)
                 .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.sproutTextSecondary)
 
-            TextField("0.00", text: $draft.amountText)
+            TextField(SproutMoneyText.editable(.zero), text: $draft.amountText)
                 .keyboardType(.decimalPad)
                 .font(.system(size: 50, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.sproutText)
@@ -174,6 +175,7 @@ struct QuickCaptureSheet: View {
         }
         .buttonStyle(.glassProminent)
         .tint(tab.accentDarkColor)
+        .disabled(isSubmitting)
         .padding(.horizontal, 20)
         .padding(.top, 10)
         .padding(.bottom, 12)
@@ -181,6 +183,8 @@ struct QuickCaptureSheet: View {
     }
 
     private func submit() {
+        guard !isSubmitting else { return }
+
         let trimmedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             validationMessage = "Add a short description first."
@@ -188,21 +192,30 @@ struct QuickCaptureSheet: View {
             return
         }
 
-        guard let amount = draft.parsedAmount, amount > .zero else {
-            let raw = draft.amountText.replacingOccurrences(of: ",", with: "")
-            if let v = Double(raw), v > TransactionDraft.maximumAmount.dollars {
-                validationMessage = "Amount cannot exceed \(SproutFormatters.currency(TransactionDraft.maximumAmount))."
-            } else {
-                validationMessage = "Enter an amount greater than zero."
-            }
+        let amount: MoneyAmount
+        switch draft.amountParseResult {
+        case .valid(let parsed):
+            amount = parsed
+        case .exceedsMaximum:
+            validationMessage = "Amount cannot exceed \(SproutFormatters.currency(SproutMoneyText.maximum))."
+            focusedField = .amount
+            return
+        case .invalid:
+            validationMessage = "Enter an amount greater than zero."
             focusedField = .amount
             return
         }
 
         validationMessage = nil
+        isSubmitting = true
         draft.name = trimmedName
-        draft.amountText = String(format: "%.2f", amount.dollars)
-        onSubmit(draft)
+        draft.amountText = SproutMoneyText.editable(amount)
+
+        guard onSubmit(draft) else {
+            isSubmitting = false
+            validationMessage = "Sprout couldn't save this entry. Check the amount and try again."
+            return
+        }
     }
 
     private enum Field {

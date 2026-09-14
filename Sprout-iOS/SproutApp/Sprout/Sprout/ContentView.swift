@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var editingTransaction: TransactionEntry?
     @State private var shouldRestoreMonthResetPrompt = false
     @State private var successToastMessage: String?
+    @State private var successToastToken = UUID()
 
     var body: some View {
         NavigationStack {
@@ -42,11 +43,7 @@ struct ContentView: View {
                         mode: request.mode,
                         initialDraft: request.draft
                     ) { draft in
-                        if store.addTransaction(mode: request.mode, draft: draft, tab: request.tab) {
-                            HapticFeedback.success()
-                            transactionSheet = nil
-                            showSuccessToast(request.mode == .payment ? "Payment saved" : "Expense saved")
-                        }
+                        saveNewTransaction(request: request, draft: draft)
                     }
                 case .quickCapture:
                     QuickCaptureSheet(
@@ -54,11 +51,7 @@ struct ContentView: View {
                         mode: request.mode,
                         initialDraft: request.draft
                     ) { draft in
-                        if store.addTransaction(mode: request.mode, draft: draft, tab: request.tab) {
-                            HapticFeedback.success()
-                            transactionSheet = nil
-                            showSuccessToast(request.mode == .payment ? "Payment saved" : "Expense saved")
-                        }
+                        saveNewTransaction(request: request, draft: draft)
                     }
                 }
             }
@@ -83,20 +76,17 @@ struct ContentView: View {
             TransactionEntrySheet(
                 tab: entry.tab,
                 mode: entry.isRefund ? .payment : .expense,
-                initialDraft: TransactionDraft(
-                    name: entry.name,
-                    amountText: String(format: "%.2f", entry.amount.dollars),
-                    note: entry.note,
-                    selectedEmoji: entry.emoji,
-                    date: entry.date
-                )
+                // Editing does not create recurring rules, so offering the toggle
+                // here only ever silently discarded the user's choice.
+                allowsRecurring: false,
+                initialDraft: store.makeEditDraft(for: entry)
             ) { draft in
                 let mode: TransactionMode = entry.isRefund ? .payment : .expense
-                if store.updateTransaction(entry, with: draft, mode: mode) {
-                    HapticFeedback.success()
-                    editingTransaction = nil
-                    showSuccessToast("Transaction updated")
-                }
+                guard store.updateTransaction(entry, with: draft, mode: mode) else { return false }
+                HapticFeedback.success()
+                editingTransaction = nil
+                showSuccessToast("Transaction updated")
+                return true
             }
             .environmentObject(store)
         }
@@ -118,7 +108,7 @@ struct ContentView: View {
                 store.resetMonth(carryOverRemainders: true)
             }
         } message: {
-            Text("This will clear all transactions for the current period. Carry Over keeps any positive leftover balance in each budget for the new month.")
+            Text("\(store.currentMonthLabel) is over. Reset Fresh clears this period's transactions and starts at your full budget. Carry Over clears them too but adds any positive leftover to next month. Keep leaves everything exactly as it is.")
         }
         .alert("Remove transaction?", isPresented: Binding(
             get: { pendingDeleteTransaction != nil },
@@ -186,6 +176,14 @@ struct ContentView: View {
         .animation(.snappy(duration: 0.35), value: successToastMessage != nil)
     }
 
+    private func saveNewTransaction(request: TransactionSheetRequest, draft: TransactionDraft) -> Bool {
+        guard store.addTransaction(mode: request.mode, draft: draft, tab: request.tab) else { return false }
+        HapticFeedback.success()
+        transactionSheet = nil
+        showSuccessToast(request.mode == .payment ? "Payment saved" : "Expense saved")
+        return true
+    }
+
     private func presentQuickEntryIfPossible() {
         guard let request = quickEntryCoordinator.activeRequest else { return }
         guard transactionSheet == nil else { return }
@@ -207,7 +205,11 @@ struct ContentView: View {
 
     private func showSuccessToast(_ message: String) {
         successToastMessage = message
+        let token = UUID()
+        successToastToken = token
+        // Token-guarded so a second toast is not cut short by the first's timer.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            guard successToastToken == token else { return }
             successToastMessage = nil
         }
     }

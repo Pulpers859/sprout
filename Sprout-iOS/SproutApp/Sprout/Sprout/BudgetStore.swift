@@ -34,7 +34,9 @@ struct PersistenceAlert: Identifiable, Equatable {
 
 @MainActor
 final class BudgetStore: ObservableObject {
-    @Published private(set) var snapshot: BudgetSnapshot
+    @Published private(set) var snapshot: BudgetSnapshot {
+        didSet { sortedTransactionsCache.removeAll(keepingCapacity: true) }
+    }
     @Published var activeTab: BudgetTab = .personal
     @Published var selectedCalendarDate: Date?
     @Published var needsMonthResetPrompt = false
@@ -48,6 +50,12 @@ final class BudgetStore: ObservableObject {
     private let calendar: Calendar
     private let now: () -> Date
     private var corruptFileLeftInPlace = false
+
+    /// `transactions(for:)` is read many times per view pass — the summary card
+    /// alone asks for spent, remaining, progress, pace, and daily allowance — and
+    /// each call used to re-filter and re-sort the whole ledger. The cache is
+    /// dropped wholesale by `snapshot`'s `didSet`, so it cannot outlive an edit.
+    private var sortedTransactionsCache: [BudgetTab: [TransactionEntry]] = [:]
 
     init(
         fileManager: FileManager = .default,
@@ -77,8 +85,28 @@ final class BudgetStore: ObservableObject {
         load()
     }
 
+    /// The month the stored ledger belongs to — not necessarily today's month.
+    /// Every date-derived figure on the dashboard keys off this so a deferred or
+    /// dismissed rollover prompt cannot leave September's transactions described
+    /// by October's calendar, day count, and pace marker.
+    var displayedMonthKey: String {
+        snapshot.currentMonth
+    }
+
     var currentMonthLabel: String {
-        SproutDate.monthYearTitle()
+        SproutDate.monthYearTitle(forMonthKey: snapshot.currentMonth, calendar: calendar)
+    }
+
+    var isViewingClosedMonth: Bool {
+        snapshot.currentMonth != SproutDate.currentMonthKey(now: now(), calendar: calendar)
+    }
+
+    var daysLeftInDisplayedMonth: Int {
+        SproutDate.daysLeft(inMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
+    }
+
+    func monthGridDates() -> [Date?] {
+        SproutDate.monthGridDates(forMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
     }
 
     var archivedMonths: [ArchivedBudgetMonth] {
@@ -86,18 +114,23 @@ final class BudgetStore: ObservableObject {
     }
 
     func transactions(for tab: BudgetTab) -> [TransactionEntry] {
-        snapshot.transactions
+        if let cached = sortedTransactionsCache[tab] { return cached }
+
+        let sorted = snapshot.transactions
             .enumerated()
             .filter { $0.element.tab == tab }
             .sorted { lhs, rhs in
-                let lhsKey = SproutDate.dayKey(for: lhs.element.date)
-                let rhsKey = SproutDate.dayKey(for: rhs.element.date)
+                let lhsKey = SproutDate.dayKey(for: lhs.element.date, calendar: calendar)
+                let rhsKey = SproutDate.dayKey(for: rhs.element.date, calendar: calendar)
                 if lhsKey == rhsKey {
                     return lhs.offset < rhs.offset
                 }
                 return lhsKey > rhsKey
             }
             .map(\.element)
+
+        sortedTransactionsCache[tab] = sorted
+        return sorted
     }
 
     func budget(for tab: BudgetTab) -> MoneyAmount {
@@ -147,9 +180,12 @@ final class BudgetStore: ObservableObject {
         persist()
     }
 
+    /// Order is irrelevant to a sum, so this reads the raw ledger rather than the
+    /// sorted view — it is on the hot path for every summary figure.
     func netSpent(for tab: BudgetTab) -> MoneyAmount {
-        transactions(for: tab).reduce(.zero) { partialResult, item in
-            partialResult + (item.isRefund ? -item.amount : item.amount)
+        snapshot.transactions.reduce(.zero) { partialResult, item in
+            guard item.tab == tab else { return partialResult }
+            return partialResult + (item.isRefund ? -item.amount : item.amount)
         }
     }
 
@@ -159,13 +195,16 @@ final class BudgetStore: ObservableObject {
 
     func progress(for tab: BudgetTab) -> Double {
         let budget = budget(for: tab)
-        guard budget > .zero else { return 0 }
         let spent = max(netSpent(for: tab), .zero)
+        // A zero budget with spending against it is fully consumed, not untouched.
+        // Returning 0 left the bar empty and mint-green while the card above it
+        // read "OVER BUDGET".
+        guard budget > .zero else { return spent > .zero ? 1 : 0 }
         return min(Double(spent.cents) / Double(budget.cents), 1)
     }
 
     func paceProgress() -> Double {
-        SproutDate.monthPaceProgress()
+        SproutDate.paceProgress(inMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
     }
 
     func spendingPaceStatus(for tab: BudgetTab, tolerance: Double = 0.02) -> SpendingPaceStatus {
@@ -182,7 +221,7 @@ final class BudgetStore: ObservableObject {
     }
 
     func dailyAllowance(for tab: BudgetTab) -> MoneyAmount {
-        remaining(for: tab).dividedTruncating(by: SproutDate.daysLeftInMonth())
+        remaining(for: tab).dividedTruncating(by: daysLeftInDisplayedMonth)
     }
 
     func recentTransactions(for tab: BudgetTab) -> [TransactionEntry] {
@@ -253,6 +292,24 @@ final class BudgetStore: ObservableObject {
                 calendar: calendar
             )
         )
+    }
+
+    /// Seeds an edit sheet from an existing entry.
+    ///
+    /// The amount text goes through `SproutMoneyText` rather than `String(format:)`
+    /// so it is written in the same notation the parser reads back — the old path
+    /// emitted a `.` decimal separator that locales using `.` for grouping then
+    /// re-read as a hundredfold larger amount.
+    func makeEditDraft(for entry: TransactionEntry) -> TransactionDraft {
+        var draft = TransactionDraft(
+            name: entry.name,
+            amountText: SproutMoneyText.editable(entry.amount),
+            note: entry.note,
+            selectedEmoji: entry.emoji,
+            date: entry.date
+        )
+        draft.selectedCategoryID = snapshot.personalCategories.first { $0.emoji == entry.emoji }?.id
+        return draft
     }
 
     func addTransaction(mode: TransactionMode, draft: TransactionDraft, tab: BudgetTab) -> Bool {
@@ -513,7 +570,48 @@ final class BudgetStore: ObservableObject {
         try encoder.encode(snapshot)
     }
 
+    /// Replacing every budget, transaction, and archived month is the most
+    /// destructive thing this app can do, so the file has to look like a Sprout
+    /// backup first. Without this, `{}` or any unrelated JSON object decoded
+    /// cleanly — every field has a default — and silently wiped the user's data
+    /// while reporting a successful restore.
+    struct BackupNotRecognizedError: LocalizedError {
+        var errorDescription: String? {
+            "This file isn't a Sprout backup. Choose a file exported from Sprout's Settings screen."
+        }
+    }
+
+    /// Fields that only a Sprout export writes. One of them has to be present.
+    private static let backupSignatureKeys: Set<String> = [
+        "schemaVersion", "groceryBudget", "personalBudget",
+        "groceryCarryover", "personalCarryover", "transactions",
+        "recurringRules", "monthHistory", "currentMonth", "personalCategories"
+    ]
+
+    static func looksLikeBackup(_ data: Data) -> Bool {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any]
+        else {
+            return false
+        }
+        return !backupSignatureKeys.isDisjoint(with: dictionary.keys)
+    }
+
+    /// A one-line description of what importing this file would replace, for the
+    /// confirmation prompt. `nil` when the file is not a Sprout backup.
+    func backupSummary(for data: Data) -> String? {
+        guard Self.looksLikeBackup(data), let result = try? decodeSnapshot(from: data) else { return nil }
+        let incoming = result.snapshot
+        let transactionCount = incoming.transactions.count
+        let monthCount = incoming.monthHistory.count
+        return "\(SproutDate.monthYearTitle(forMonthKey: incoming.currentMonth, calendar: calendar)) · "
+            + "\(transactionCount) transaction\(transactionCount == 1 ? "" : "s") · "
+            + "\(monthCount) archived month\(monthCount == 1 ? "" : "s")"
+    }
+
     func importBackupData(_ data: Data) throws {
+        guard Self.looksLikeBackup(data) else { throw BackupNotRecognizedError() }
         let result = try decodeSnapshot(from: data)
         snapshot = result.snapshot
         // Never clear a pending save failure just because the import itself was clean.
@@ -681,7 +779,10 @@ final class BudgetStore: ObservableObject {
                 rotatePreviousGeneration()
             }
 
-            try data.write(to: saveURL, options: [.atomic])
+            // Financial history stays encrypted at rest whenever the device is
+            // locked. `unlessOpen` rather than `complete` so an in-flight write can
+            // still finish if the screen locks mid-save.
+            try data.write(to: saveURL, options: [.atomic, .completeFileProtectionUnlessOpen])
 
             // Only now are the corrupt bytes actually gone from saveURL. Clearing the
             // flag before the write would let a failed write leave them in place with

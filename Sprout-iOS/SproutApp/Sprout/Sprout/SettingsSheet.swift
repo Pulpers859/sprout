@@ -12,6 +12,7 @@ struct SettingsSheet: View {
     @State private var isImportingBackup = false
     @State private var exportDocument: SproutBackupDocument?
     @State private var statusMessage: SettingsStatusMessage?
+    @State private var pendingImport: PendingBackupImport?
 
     var body: some View {
         NavigationStack {
@@ -91,7 +92,7 @@ struct SettingsSheet: View {
                 } header: {
                     Text("Backup")
                 } footer: {
-                    Text("Backups include budgets, transactions, recurring entries, categories, and recent month history.")
+                    Text("Backups include budgets, transactions, recurring entries, categories, and recent month history. Importing replaces everything currently in Sprout.")
                 }
             }
             .formStyle(.grouped)
@@ -158,6 +159,20 @@ struct SettingsSheet: View {
                 )
             }
         }
+        .alert("Replace all Sprout data?", isPresented: Binding(
+            get: { pendingImport != nil },
+            set: { if !$0 { pendingImport = nil } }
+        ), presenting: pendingImport) { pending in
+            Button("Cancel", role: .cancel) { pendingImport = nil }
+            Button("Replace", role: .destructive) {
+                applyImport(pending)
+                pendingImport = nil
+            }
+        } message: { pending in
+            // Importing is the only irreversible action in the app. It used to run
+            // the instant a file was chosen, with no idea what was in it.
+            Text("This replaces your current budgets, transactions, recurring items, categories, and month history with the backup's.\n\nBackup contains: \(pending.summary)")
+        }
         .alert(item: $statusMessage) { status in
             Alert(
                 title: Text(status.title),
@@ -189,6 +204,8 @@ struct SettingsSheet: View {
         }
     }
 
+    /// Reads and vets the file, then hands off to a confirmation prompt. Nothing
+    /// is replaced until the user says so.
     private func importBackup(from url: URL) {
         let didStartSecurityScope = url.startAccessingSecurityScopedResource()
         defer {
@@ -199,7 +216,21 @@ struct SettingsSheet: View {
 
         do {
             let data = try Data(contentsOf: url)
-            try store.importBackupData(data)
+            guard let summary = store.backupSummary(for: data) else {
+                throw BudgetStore.BackupNotRecognizedError()
+            }
+            pendingImport = PendingBackupImport(data: data, summary: summary)
+        } catch {
+            statusMessage = SettingsStatusMessage(
+                title: "Import Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func applyImport(_ pending: PendingBackupImport) {
+        do {
+            try store.importBackupData(pending.data)
             statusMessage = SettingsStatusMessage(
                 title: "Backup Imported",
                 message: "Your Sprout data has been restored from the selected backup."
@@ -362,6 +393,12 @@ private struct SettingsRow: View {
         }
         .contentShape(Rectangle())
     }
+}
+
+private struct PendingBackupImport: Identifiable {
+    let id = UUID()
+    let data: Data
+    let summary: String
 }
 
 private struct SettingsStatusMessage: Identifiable {

@@ -744,9 +744,11 @@
   async function loadData() {
     if (!state.user) return;
     const local = loadLocalCache(state.user.uid);
-    if (local) {
-      applyPersistedData(local);
-    }
+    // Always reseed from *this* account's data, even when there is none. Skipping
+    // the call for a brand-new user left the previous signed-in user's budgets,
+    // categories and month history in memory, and the next edit persisted them
+    // into the new user's document.
+    applyPersistedData(local || {});
 
     try {
       const ref = doc(db, "budgets", state.user.uid);
@@ -833,8 +835,17 @@
 
   function handleSignOut() {
     signOut(auth);
-    state.transactions = [];
+    // Clearing only `transactions` left budgets, carryover, categories and month
+    // history from the previous account on screen and in memory.
+    applyPersistedData({});
     state.activeTab = "personal";
+    state.showSettings = false;
+    state.showCalendar = false;
+    state.showForm = null;
+    state.selectedCalDay = null;
+    state.selectedHistoryMonthKey = null;
+    state.pendingDeleteId = null;
+    state.showReset = false;
   }
 
   // ── Actions ──
@@ -852,12 +863,22 @@
     }).slice(0,5);
   }
 
+  // `Date.now().toString()` collides for two entries filed in the same
+  // millisecond, and `deleteTransaction` filters by id — so removing one of a
+  // colliding pair removed both.
+  function newTransactionId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
   const MAX_AMOUNT = 999999.99;
   function addTransaction(isRefund) {
     const amt = parseFloat(state.formAmount);
     if (!state.formName || isNaN(amt) || amt <= 0 || amt > MAX_AMOUNT) return;
     state.transactions.push({
-      id: Date.now().toString(),
+      id: newTransactionId(),
       name: state.formName,
       amount: amt,
       note: state.formNote,
@@ -906,7 +927,7 @@
           <div class="login-sprout">🌱</div>
           <div class="login-title">Sprout</div>
           <div class="login-sub">Budget beautifully.</div>
-          ${state.authError ? `<div class="inline-error" style="max-width: 420px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 14px; background: #fff1ef; border: 1px solid #f2c7c1; color: #8a3d32; font: 14px/1.45 system-ui, sans-serif;">${state.authError}</div>` : ""}
+          ${state.authError ? `<div class="inline-error" style="max-width: 420px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 14px; background: #fff1ef; border: 1px solid #f2c7c1; color: #8a3d32; font: 14px/1.45 system-ui, sans-serif;">${escapeHtml(state.authError)}</div>` : ""}
           <button class="btn-google" id="signInBtn">
             <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
             Sign in with Google
@@ -981,7 +1002,7 @@
     html += `<div class="header">
       <div class="user-bar">
         <div class="user-info">
-          <img class="user-avatar" src="${state.user.photoURL || ''}" alt="" onerror="this.style.display='none'">
+          <img class="user-avatar" src="${escapeHtml(state.user.photoURL || '')}" alt="" onerror="this.style.display='none'">
           <span class="user-name">${escapeHtml(state.user.displayName || 'You')}</span>
         </div>
         <button class="btn-signout" id="signOutBtn">Sign out</button>

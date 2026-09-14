@@ -7,11 +7,17 @@ struct QuickEntryRoute {
     init?(url: URL) {
         guard
             url.scheme?.lowercased() == "sprout",
-            url.host?.lowercased() == "quick-add",
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else {
             return nil
         }
+
+        // Accepts both `sprout://quick-add?…` (host form) and `sprout:quick-add?…`
+        // (opaque form), which is what a hand-typed link or some launchers produce.
+        let target = (components.host ?? components.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+        guard target == "quick-add" else { return nil }
 
         let queryItems = components.queryItems ?? []
         let tabValue = queryItems.first(where: { $0.name == "tab" })?.value ?? ""

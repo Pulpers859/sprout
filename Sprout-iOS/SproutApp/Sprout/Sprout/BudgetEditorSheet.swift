@@ -14,11 +14,7 @@ struct BudgetEditorSheet: View {
         self.tab = tab
         self.carryover = carryover
         self.onSave = onSave
-        let dollars = startingAmount.dollars
-        let text = dollars.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(dollars))
-            : String(format: "%.2f", dollars)
-        _amountText = State(initialValue: text)
+        _amountText = State(initialValue: SproutMoneyText.editableWhole(startingAmount))
     }
 
     var body: some View {
@@ -29,11 +25,12 @@ struct BudgetEditorSheet: View {
                     .foregroundStyle(tab.accentDarkColor)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(Locale.current.currencySymbol ?? "$")
+                    Text(SproutFormatters.currencySymbol)
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color.sproutTextSecondary)
 
                     TextField("0", text: $amountText)
+                        .accessibilityLabel("Monthly budget amount")
                         .keyboardType(.decimalPad)
                         .font(.system(size: 54, weight: .bold, design: .rounded))
                         .multilineTextAlignment(.center)
@@ -46,6 +43,15 @@ struct BudgetEditorSheet: View {
                         .font(.footnote)
                         .foregroundStyle(Color.sproutTextMuted)
                         .multilineTextAlignment(.center)
+
+                    // Save is disabled for an unparseable amount; saying why beats
+                    // an inert button with no explanation.
+                    if let validationMessage {
+                        Label(validationMessage, systemImage: "exclamationmark.circle.fill")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.sproutRed)
+                            .multilineTextAlignment(.center)
+                    }
 
                     if carryover > .zero {
                         Label(
@@ -84,20 +90,33 @@ struct BudgetEditorSheet: View {
         }
     }
 
+    /// A budget of zero is a legitimate choice (pause a category for a month), so
+    /// it is accepted here even though the shared parser rejects zero amounts for
+    /// transactions.
     private var parsedAmount: MoneyAmount? {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = .current
-        let dollars: Double
-        if let value = formatter.number(from: amountText)?.doubleValue {
-            dollars = value
-        } else {
-            let sanitized = amountText.replacingOccurrences(of: ",", with: "")
-            guard let value = Double(sanitized) else { return nil }
-            dollars = value
+        if amountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+        if case .valid(let amount) = SproutMoneyText.evaluate(amountText) { return amount }
+        if isExplicitZero { return .zero }
+        return nil
+    }
+
+    private var isExplicitZero: Bool {
+        let separator = Locale.current.decimalSeparator ?? "."
+        let digits = amountText
+            .replacingOccurrences(of: separator, with: "")
+            .replacingOccurrences(of: Locale.current.groupingSeparator ?? ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !digits.isEmpty && digits.allSatisfy { $0 == "0" }
+    }
+
+    private var validationMessage: String? {
+        let trimmed = amountText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard parsedAmount == nil else { return nil }
+        if case .exceedsMaximum = SproutMoneyText.evaluate(amountText) {
+            return "Budget cannot exceed \(SproutFormatters.currency(SproutMoneyText.maximum))."
         }
-        guard dollars > 0, dollars <= TransactionDraft.maximumAmount.dollars else { return nil }
-        return MoneyAmount(dollars: dollars)
+        return "Enter a whole or decimal amount, like \(SproutMoneyText.editableWhole(MoneyAmount(dollars: 400)))."
     }
 
     private func save() {

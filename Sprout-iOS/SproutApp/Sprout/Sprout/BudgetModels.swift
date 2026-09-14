@@ -517,23 +517,14 @@ struct TransactionDraft: Equatable {
     var recurringFrequency: RecurrenceFrequency = .monthly
     var recurringNextDate = RecurrenceFrequency.monthly.advanced(from: Date())
 
-    static let maximumAmount = MoneyAmount(dollars: 999_999.99)
+    static let maximumAmount = SproutMoneyText.maximum
 
-    var parsedAmount: MoneyAmount? {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = .current
-        let dollars: Double
-        if let value = formatter.number(from: amountText)?.doubleValue {
-            dollars = value
-        } else {
-            let sanitized = amountText.replacingOccurrences(of: ",", with: "")
-            guard let value = Double(sanitized) else { return nil }
-            dollars = value
-        }
-        guard dollars <= Self.maximumAmount.dollars else { return nil }
-        return MoneyAmount(dollars: dollars)
-    }
+    /// Parsing lives in `SproutMoneyText` so the entry sheets, the budget editor,
+    /// and the store all read typed text identically. A second, subtly different
+    /// parser is how the same string ended up meaning two different amounts.
+    var parsedAmount: MoneyAmount? { SproutMoneyText.parse(amountText) }
+
+    var amountParseResult: SproutMoneyText.ParseResult { SproutMoneyText.evaluate(amountText) }
 
     var minimumRecurringDate: Date {
         let startOfDay = Calendar.current.startOfDay(for: date)

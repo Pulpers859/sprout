@@ -49,6 +49,7 @@ private struct CategoryRow: View {
     @EnvironmentObject private var store: BudgetStore
     @State var category: PersonalCategory
     @State private var isShowingEmojiPicker = false
+    @State private var isRemoved = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -61,6 +62,7 @@ private struct CategoryRow: View {
                     .background(Color.sproutCardSoft, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Icon for \(category.label)")
             .sheet(isPresented: $isShowingEmojiPicker) {
                 EmojiPickerSheet(selectedEmoji: $category.emoji)
                     .presentationDetents([.medium, .large])
@@ -70,29 +72,47 @@ private struct CategoryRow: View {
                 if category.emoji.isEmpty {
                     category.emoji = "🪴"
                 }
-                store.updateCategory(category)
+                commit()
             }
 
             TextField("Category name", text: $category.label)
                 .font(.body)
                 .foregroundStyle(Color.sproutText)
-                .onChange(of: category.label) { _, _ in
-                    store.updateCategory(category)
-                }
+                .submitLabel(.done)
+                .onSubmit { commit() }
 
             if store.categories(for: .personal).count > 1 {
                 Button(role: .destructive) {
+                    isRemoved = true
                     store.removeCategory(category)
                 } label: {
                     Image(systemName: "minus.circle")
                         .font(.body)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(category.label)")
             }
         }
-        .onDisappear {
-            store.updateCategory(category)
+        // Renaming used to write the whole budget file to disk on every keystroke
+        // — a full JSON encode plus a backup rotation per character. The label is
+        // now committed once the typing pauses.
+        .task(id: category.label) {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            commit()
         }
+        .onDisappear { commit() }
+    }
+
+    private func commit() {
+        guard !isRemoved else { return }
+        // `.task(id:)` also fires on first appearance, so an unchanged row must not
+        // trigger a save just because the sheet opened.
+        guard store.categories(for: .personal).first(where: { $0.id == category.id }) != category else { return }
+        // A blank name is filtered out by the store's normalization, which would
+        // delete the category mid-edit. Mid-typing empties are simply not written.
+        guard !category.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        store.updateCategory(category)
     }
 }
 

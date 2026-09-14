@@ -822,4 +822,188 @@ struct BudgetStoreTests {
         #expect(reloaded.netSpent(for: .personal).cents == 999)
         #expect(reloaded.remaining(for: .personal).cents == 12345 - 999)
     }
+
+    // MARK: - Amount text round trip
+
+    @Test func editableAmountTextRoundTripsExactly() {
+        // The bug this covers: the sheets used to normalize the typed amount with
+        // `String(format: "%.2f", …)`, which always writes a "." separator. Any
+        // locale that groups with "." then re-read it as a hundredfold larger
+        // amount. Whatever the device locale, the seed text the app writes must
+        // parse back to the identical cents.
+        for cents in [1, 99, 100, 1250, 99_999, 99_999_999] {
+            let amount = MoneyAmount(cents: cents)
+            let text = SproutMoneyText.editable(amount)
+            #expect(SproutMoneyText.parse(text)?.cents == cents, "round trip failed for \(text)")
+        }
+    }
+
+    @Test func editableWholeDropsEmptyCents() {
+        #expect(SproutMoneyText.editableWhole(MoneyAmount(cents: 40_000)) == "400")
+        #expect(SproutMoneyText.parse(SproutMoneyText.editableWhole(MoneyAmount(cents: 40_050)))?.cents == 40_050)
+    }
+
+    @Test func parserRejectsNonFiniteAndNegativeText() {
+        // `Double("Infinity")` succeeds and `Int(Double.infinity)` is a runtime
+        // trap, so this string used to crash the app from the amount field.
+        for text in ["Infinity", "-Infinity", "inf", "nan", "-5", "1e9", "12.3.4", "", "   ", "abc"] {
+            #expect(SproutMoneyText.parse(text) == nil, "expected \(text) to be rejected")
+        }
+    }
+
+    @Test func parserFlagsOverMaximumSeparately() {
+        #expect(SproutMoneyText.evaluate("1000000") == .exceedsMaximum)
+        #expect(SproutMoneyText.evaluate("999999.99") == .valid(SproutMoneyText.maximum))
+    }
+
+    @Test func moneyFromNonFiniteDollarsIsZeroNotATrap() {
+        #expect(MoneyAmount(dollars: .infinity).cents == MoneyAmount.maximumStorableCents)
+        #expect(MoneyAmount(dollars: -.infinity).cents == -MoneyAmount.maximumStorableCents)
+        #expect(MoneyAmount(dollars: .nan).cents == 0)
+    }
+
+    @Test func moneyArithmeticSaturatesInsteadOfTrapping() {
+        let huge = MoneyAmount(cents: Int.max)
+        #expect(huge.cents == MoneyAmount.maximumStorableCents)
+        #expect((huge + huge).cents == MoneyAmount.maximumStorableCents)
+        #expect((-huge - huge).cents == -MoneyAmount.maximumStorableCents)
+    }
+
+    @Test func editedTransactionKeepsItsAmount() {
+        // End-to-end version of the round-trip bug: seed an edit draft from a saved
+        // entry, save it untouched, and the amount must not move.
+        let store = makeStore()
+        let draft = TransactionDraft(name: "Coffee", amountText: "12.50", selectedEmoji: "☕️")
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        let entry = try! #require(store.transactions(for: .personal).first)
+        #expect(entry.amount.cents == 1250)
+
+        let editDraft = store.makeEditDraft(for: entry)
+        #expect(store.updateTransaction(entry, with: editDraft, mode: .expense))
+        #expect(store.transactions(for: .personal).first?.amount.cents == 1250)
+    }
+
+    @Test func editDraftRestoresTheCategorySelection() {
+        let store = makeStore()
+        let category = try! #require(store.categories(for: .personal).first)
+        var draft = TransactionDraft(name: "Socks", amountText: "9.00", selectedEmoji: category.emoji)
+        draft.selectedCategoryID = category.id
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+
+        let entry = try! #require(store.transactions(for: .personal).first)
+        #expect(store.makeEditDraft(for: entry).selectedCategoryID == category.id)
+    }
+
+    // MARK: - Stored month drives the dashboard
+
+    @Test func dashboardFiguresFollowTheStoredMonthNotTheWallClock() {
+        // The user crossed into a new month but has not answered the rollover
+        // prompt. Day count, pace, calendar grid, and the header label must all
+        // still describe the month the transactions belong to.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2025, 3, 10))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        let draft = TransactionDraft(name: "Books", amountText: "20.00", selectedEmoji: "📚", date: Self.makeDate(2025, 3, 5))
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.displayedMonthKey == "2025-03")
+
+        clock.date = Self.makeDate(2025, 4, 2)
+        store.refreshForCurrentDate()
+        #expect(store.needsMonthResetPrompt)
+
+        // Still on March's ledger.
+        #expect(store.displayedMonthKey == "2025-03")
+        #expect(store.isViewingClosedMonth)
+        #expect(store.currentMonthLabel == SproutDate.monthYearTitle(forMonthKey: "2025-03", calendar: calendar))
+        #expect(store.daysLeftInDisplayedMonth == 1)
+        #expect(store.paceProgress() == 1)
+        // 31 March days plus the leading blanks for a Saturday start.
+        #expect(store.monthGridDates().compactMap { $0 }.count == 31)
+
+        store.keepCurrentTransactions()
+        #expect(store.displayedMonthKey == "2025-04")
+        #expect(!store.isViewingClosedMonth)
+        #expect(store.monthGridDates().compactMap { $0 }.count == 30)
+    }
+
+    @Test func progressIsFullWhenAZeroBudgetHasSpending() {
+        let store = makeStore()
+        store.setBudget(.zero, for: .personal)
+        #expect(store.progress(for: .personal) == 0)
+
+        let draft = TransactionDraft(name: "Snack", amountText: "3.00", selectedEmoji: "🍫")
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        #expect(store.progress(for: .personal) == 1)
+    }
+
+    // MARK: - Backup import safety
+
+    @Test func importRejectsJSONThatIsNotASproutBackup() throws {
+        let store = makeStore()
+        let draft = TransactionDraft(name: "Keep me", amountText: "5.00", selectedEmoji: "🧾")
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+
+        // Every snapshot field has a decode default, so an unrelated JSON object
+        // used to decode cleanly and wipe the ledger while reporting success.
+        for payload in ["{}", "{\"hello\":1}", "{\"note\":\"not sprout\"}"] {
+            #expect(throws: BudgetStore.BackupNotRecognizedError.self) {
+                try store.importBackupData(Data(payload.utf8))
+            }
+        }
+        #expect(store.transactions(for: .personal).count == 1)
+        #expect(store.backupSummary(for: Data("{}".utf8)) == nil)
+    }
+
+    @Test func importAcceptsARealBackupAndDescribesIt() throws {
+        let source = makeStore()
+        let draft = TransactionDraft(name: "Lunch", amountText: "18.25", selectedEmoji: "🥪")
+        #expect(source.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        let data = try source.exportBackupData()
+
+        let destination = makeStore()
+        let summary = try #require(destination.backupSummary(for: data))
+        #expect(summary.contains("1 transaction"))
+        try destination.importBackupData(data)
+        #expect(destination.netSpent(for: .personal).cents == 1825)
+    }
+
+    // MARK: - Quick entry routing
+
+    @Test func quickEntryRouteParsesBothURLForms() {
+        let host = try! #require(QuickEntryRoute(url: URL(string: "sprout://quick-add?tab=grocery&mode=payment")!))
+        #expect(host.tab == .grocery)
+        #expect(host.mode == .payment)
+
+        let opaque = try! #require(QuickEntryRoute(url: URL(string: "sprout:quick-add?tab=personal")!))
+        #expect(opaque.tab == .personal)
+        #expect(opaque.mode == .expense)
+
+        #expect(QuickEntryRoute(url: URL(string: "sprout://settings")!) == nil)
+        #expect(QuickEntryRoute(url: URL(string: "https://quick-add")!) == nil)
+    }
+
+    @Test func staleQuickEntryRequestsAreNotReplayed() {
+        let fresh = QuickEntryRequest(tab: .grocery, mode: .expense, createdAt: .now)
+        QuickEntryRequestStore.save(fresh)
+        #expect(QuickEntryRequestStore.consume()?.tab == .grocery)
+
+        // A Shortcut run that never reached the app must not ambush the user with a
+        // quick-add sheet on some later cold launch.
+        let stale = QuickEntryRequest(tab: .grocery, mode: .expense, createdAt: Date(timeIntervalSinceNow: -3600))
+        QuickEntryRequestStore.save(stale)
+        #expect(QuickEntryRequestStore.consume() == nil)
+        // Consuming clears the slot either way.
+        #expect(QuickEntryRequestStore.consume() == nil)
+    }
+
+    // MARK: - URL scheme registration
+
+    @Test func theQuickAddSchemeIsDeclaredInTheBundle() throws {
+        // The handler in ContentView is inert unless iOS knows the app owns the
+        // scheme; this asserts the Info.plist entry that makes the deep link work.
+        let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]]
+        let schemes = (types ?? []).flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+        #expect(schemes.contains("sprout"))
+    }
 }

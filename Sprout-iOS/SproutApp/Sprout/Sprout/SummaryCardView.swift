@@ -80,11 +80,7 @@ struct SummaryCardView: View {
 
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(
-                        dailyAllowance < .zero
-                        ? "Daily overage"
-                        : "Daily allowance · \(SproutDate.daysLeftInMonth()) days left"
-                    )
+                    Text(dailyAllowanceLabel(dailyAllowance))
                         .font(.caption)
                         .foregroundStyle(Color.white.opacity(0.62))
 
@@ -120,6 +116,14 @@ struct SummaryCardView: View {
         .padding(22)
         .background(tab.heroGradient, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(color: tab.accentDarkColor.opacity(0.2), radius: 18, x: 0, y: 10)
+    }
+
+    /// Day count comes from the store's displayed month, so a ledger the user has
+    /// not rolled over yet is described by its own month rather than today's.
+    private func dailyAllowanceLabel(_ dailyAllowance: MoneyAmount) -> String {
+        if dailyAllowance < .zero { return "Daily overage" }
+        let days = store.daysLeftInDisplayedMonth
+        return "Daily allowance · \(days) day\(days == 1 ? "" : "s") left"
     }
 
     private func spendingColor(progress: Double, remaining: MoneyAmount) -> Color {

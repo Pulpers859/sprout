@@ -23,7 +23,7 @@ struct BudgetDashboardView: View {
 
                 SummaryCardView(tab: tab, onEditBudget: onEditBudget)
 
-                if SproutDate.daysLeftInMonth() <= 3 {
+                if store.isViewingClosedMonth || store.daysLeftInDisplayedMonth <= 3 {
                     Button {
                         onStartNewMonth()
                     } label: {
@@ -31,9 +31,11 @@ struct BudgetDashboardView: View {
                             Image(systemName: "sparkles")
                                 .font(.subheadline.weight(.semibold))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Month ending soon")
+                                Text(store.isViewingClosedMonth ? "\(store.currentMonthLabel) is still open" : "Month ending soon")
                                     .font(.subheadline.weight(.semibold))
-                                Text("Tap to start a new month and carry over your balance.")
+                                Text(store.isViewingClosedMonth
+                                     ? "These transactions still belong to \(store.currentMonthLabel). Tap to close it out."
+                                     : "Tap to start a new month and carry over your balance.")
                                     .font(.caption)
                                     .foregroundStyle(Color.sproutTextSecondary)
                             }

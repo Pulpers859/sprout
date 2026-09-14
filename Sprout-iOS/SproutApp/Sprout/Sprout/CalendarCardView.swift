@@ -24,7 +24,7 @@ struct CalendarCardView: View {
                         .frame(maxWidth: .infinity)
                 }
 
-                ForEach(Array(SproutDate.monthGridDates().enumerated()), id: \.offset) { item in
+                ForEach(Array(store.monthGridDates().enumerated()), id: \.offset) { item in
                     if let date = item.element {
                         dayCell(date: date, grouped: grouped)
                     } else {
@@ -84,6 +84,7 @@ struct CalendarCardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(date.formatted(.dateTime.day(.defaultDigits).month(.wide)))\(entries.isEmpty ? "" : ", \(SproutFormatters.currency(net.magnitude)) \(net < .zero ? "refunded" : "spent")")")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     @ViewBuilder
