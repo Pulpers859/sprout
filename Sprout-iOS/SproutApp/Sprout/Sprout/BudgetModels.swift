@@ -33,9 +33,6 @@ enum BudgetTab: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var emptyStateMessage: String {
-        "No transactions yet — you're doing great! 🌿"
-    }
 }
 
 enum TransactionMode: String, Identifiable, CaseIterable, Codable {

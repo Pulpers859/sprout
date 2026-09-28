@@ -467,7 +467,10 @@ private struct RecentMonthsSheet: View {
                     .padding(.horizontal, 20)
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("These snapshots are read-only and capped at the last twelve closed months.")
+                        // Not "the last twelve": trimming now keeps months that
+                        // hold data over empty placeholder rows, so the set is not
+                        // strictly the most recent twelve.
+                        Text("These snapshots are read-only and limited to twelve closed months.")
                             .font(.subheadline)
                             .foregroundStyle(Color.sproutTextSecondary)
 
