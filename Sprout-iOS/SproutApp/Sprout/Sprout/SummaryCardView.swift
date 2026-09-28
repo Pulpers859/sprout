@@ -74,10 +74,14 @@ struct SummaryCardView: View {
                 HStack {
                     Text("\(SproutFormatters.currency(spent)) spent")
                     Spacer()
-                    // Not "budget": this is base + carryover, while the editor
-                    // edits the base. Labelling both "budget" invited the user to
-                    // add them together.
-                    Text("\(SproutFormatters.currency(store.budget(for: tab))) available")
+                    // Reads as "$49.17 spent ... of $756.00".
+                    //
+                    // Not "budget", because this is base plus carryover while the
+                    // editor edits the base alone — but not "available" either:
+                    // the headline figure directly above already says AVAILABLE
+                    // and is the *remaining* balance, so two different numbers on
+                    // one card were both labelled available.
+                    Text("of \(SproutFormatters.currency(store.budget(for: tab)))")
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Color.white.opacity(0.85))
