@@ -31,11 +31,9 @@ struct BudgetDashboardView: View {
                             Image(systemName: "sparkles")
                                 .font(.subheadline.weight(.semibold))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(store.isViewingClosedMonth ? "\(store.currentMonthLabel) is still open" : "Month ending soon")
+                                Text(monthBannerTitle)
                                     .font(.subheadline.weight(.semibold))
-                                Text(store.isViewingClosedMonth
-                                     ? "These transactions still belong to \(store.currentMonthLabel). Tap to close it out."
-                                     : "Tap to start a new month and carry over your balance.")
+                                Text(monthBannerDetail)
                                     .font(.caption)
                                     .foregroundStyle(Color.sproutTextSecondary)
                             }
@@ -72,6 +70,29 @@ struct BudgetDashboardView: View {
         .animation(.snappy(duration: 0.25), value: tab)
         // A query typed on one tab silently filtered the other one.
         .onChange(of: tab) { _, _ in searchText = "" }
+    }
+
+    private var monthBannerTitle: String {
+        let days = store.daysLeftInDisplayedMonth
+        switch store.monthResetContext {
+        case .monthEnded:
+            return "\(store.currentMonthLabel) is still open"
+        case .earlyClose:
+            return "\(store.currentMonthLabel) ends in \(days) day\(days == 1 ? "" : "s")"
+        }
+    }
+
+    /// Tapping this while the month is still running does not move you to the next
+    /// month — it closes the current one out early and leaves you in it. Saying
+    /// "tap to start a new month" set up the contradiction the prompt then made
+    /// worse by announcing the month was over.
+    private var monthBannerDetail: String {
+        switch store.monthResetContext {
+        case .monthEnded:
+            "These transactions still belong to \(store.currentMonthLabel). Tap to close it out."
+        case .earlyClose:
+            "Tap to close it out early and keep your leftover balance."
+        }
     }
 
     private var dashboardHeader: some View {

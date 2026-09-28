@@ -92,19 +92,21 @@ struct ContentView: View {
         }
         // Deferred while a persistence alert is up: SwiftUI can only present one
         // alert per view, and the dropped one never re-presents on its own.
-        .alert("New month, fresh start?", isPresented: Binding(
+        .alert(monthResetTitle, isPresented: Binding(
             get: { store.needsMonthResetPrompt && store.persistenceAlert == nil },
             set: { store.needsMonthResetPrompt = $0 }
         )) {
-            // Safest option first. Reordering this to put "Carry Over" on top was a
-            // mistake: it also clears the ledger, so anyone tapping the first
+            // An explicit no-op cancel, so the action iOS invokes on an implicit
+            // dismissal (VoiceOver escape, hardware Esc) does nothing at all.
+            // Relying on SwiftUI to synthesize one was luck, not design, and
+            // "Keep" must not take the role: it advances the stored month and
+            // posts recurring catch-up, so it is not a no-op.
+            Button("Cancel", role: .cancel) {}
+
+            // Safest real option first. Reordering this to put "Carry Over" on top
+            // was a mistake: it also clears the ledger, so anyone tapping the first
             // button out of habit lost their transactions, and it carries no
             // destructive role to warn them.
-            //
-            // "Keep" must NOT take the .cancel role either. It is not a no-op — it
-            // advances the stored month and posts recurring catch-up — and .cancel
-            // is what iOS invokes for an implicit dismissal, so a VoiceOver escape
-            // gesture would silently roll the month forward.
             Button("Keep") {
                 store.keepCurrentTransactions()
             }
@@ -185,13 +187,38 @@ struct ContentView: View {
         .animation(.snappy(duration: 0.35), value: successToastMessage != nil)
     }
 
-    /// Every option runs the recurring catch-up, so claiming Keep changes nothing
-    /// was inaccurate whenever a rule had come due.
+    private var monthResetTitle: String {
+        switch store.monthResetContext {
+        case .monthEnded:
+            "New month, fresh start?"
+        case .earlyClose:
+            "Close out \(store.currentMonthLabel) early?"
+        }
+    }
+
+    /// The prompt is raised two different ways and used to describe only one of
+    /// them. Tapping the "month ending soon" banner on the 28th produced
+    /// "September 2026 is over" while the card behind it read "3 days left".
+    ///
+    /// Every option also runs the recurring catch-up, so claiming Keep changes
+    /// nothing was inaccurate whenever a rule had come due.
     private var monthResetMessage: String {
-        let base = "\(store.currentMonthLabel) is over. "
-            + "Reset Fresh clears this period's transactions and starts at your full budget. "
-            + "Carry Over clears them too but adds any positive leftover to next month. "
+        let lead: String
+        switch store.monthResetContext {
+        case .monthEnded:
+            lead = "\(store.currentMonthLabel) is over."
+        case .earlyClose:
+            let days = store.daysLeftInDisplayedMonth
+            lead = "\(store.currentMonthLabel) isn't over yet — \(days) day\(days == 1 ? "" : "s") left. "
+                + "Closing out now starts a fresh period, and you'll still be in \(store.currentMonthLabel)."
+        }
+
+        // Worded to stay true whether this is a real rollover or an early close.
+        let choices = " Reset Fresh clears this period's transactions and starts at your full budget. "
+            + "Carry Over clears them too but keeps any positive leftover on top of it. "
             + "Keep leaves this period's transactions in place."
+
+        let base = lead + choices
         guard store.hasRecurringRules else { return base }
         return base + " Either way, any recurring items that came due are added."
     }

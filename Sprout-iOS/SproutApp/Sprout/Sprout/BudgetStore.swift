@@ -111,6 +111,22 @@ final class BudgetStore: ObservableObject {
         snapshot.currentMonth != SproutDate.currentMonthKey(now: now(), calendar: calendar)
     }
 
+    /// Why the reset prompt is on screen.
+    ///
+    /// The two cases read very differently to a user and the prompt used to
+    /// assert the first one unconditionally — telling someone on the 28th that
+    /// September was over while the card behind it said three days left.
+    enum MonthResetContext: Equatable {
+        /// The stored month has actually ended; this is a real rollover.
+        case monthEnded
+        /// The month is still running and the user asked to close it out early.
+        case earlyClose
+    }
+
+    var monthResetContext: MonthResetContext {
+        isViewingClosedMonth ? .monthEnded : .earlyClose
+    }
+
     var daysLeftInDisplayedMonth: Int {
         SproutDate.daysLeft(inMonthKey: snapshot.currentMonth, now: now(), calendar: calendar)
     }

@@ -1717,4 +1717,46 @@ struct BudgetStoreTests {
             }
         }
     }
+
+    // MARK: - Reset prompt context
+
+    @Test func theResetPromptKnowsTheMonthHasNotEndedYet() {
+        // Reported from a real build: opening Sprout on 28 September and tapping
+        // the "month ending soon" banner produced "September 2026 is over" while
+        // the card behind it read "3 days left". The prompt is raised two ways and
+        // the copy only ever described one of them.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 9, 28))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+
+        #expect(store.displayedMonthKey == "2026-09")
+        #expect(!store.isViewingClosedMonth)
+        #expect(store.daysLeftInDisplayedMonth == 3)
+        // The banner is showing, so this path is reachable exactly here.
+        #expect(store.monthResetContext == .earlyClose)
+
+        // The genuine rollover still reads as one.
+        clock.date = Self.makeDate(2026, 10, 1)
+        #expect(store.monthResetContext == .monthEnded)
+        #expect(store.isViewingClosedMonth)
+    }
+
+    @Test func anEarlyCloseLeavesYouInTheSameMonth() {
+        // What the banner now promises: closing out early starts a fresh period
+        // but does not move you to the next month.
+        let calendar = Self.gregorian
+        let clock = TestClock(Self.makeDate(2026, 9, 28))
+        let store = makeStore(calendar: calendar, now: { clock.date })
+        let draft = TransactionDraft(name: "HBO", amountText: "3.17", selectedEmoji: "💰", date: clock.date)
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+
+        store.resetMonth(carryOverRemainders: true)
+
+        #expect(store.displayedMonthKey == "2026-09")
+        #expect(store.monthResetContext == .earlyClose)
+        #expect(store.transactions(for: .personal).isEmpty)
+        // September is archived once, with the entry that was cleared.
+        let september = try! #require(store.archivedMonths.first { $0.monthKey == "2026-09" })
+        #expect(september.transactions.map(\.name) == ["HBO"])
+    }
 }
