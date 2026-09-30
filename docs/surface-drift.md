@@ -1,48 +1,62 @@
-# Web ↔ iOS surface drift
+# Web and iOS behavior alignment
 
-Recorded during the September 2026 audit. `Sprout-html/index.html` is the legacy
-behavior reference; `Sprout-iOS` is the product. These are the places where the
-two now genuinely disagree, so nobody re-derives "correct" behavior from the
-wrong surface.
+Updated 2026-09-30. iOS is the behavior reference for shared budget flows.
+The web app now follows these behaviors without replacing its Firebase account
+and local-cache infrastructure.
 
-Each item says which surface is authoritative. Where iOS is authoritative the
-web prototype is knowingly behind — it was left alone rather than rewritten,
-because there is no test harness for it and it is not the shipping product.
+## Ported to the web
 
-## iOS is authoritative
+- Integer-cent arithmetic for budgets, spending, refunds, carryover, archives,
+  calendar totals, and truncating daily allowance. Existing web/Firebase dollars
+  stay compatible; portable backups use iOS schema 2 integer cents.
+- Full-input amount validation, localized decimal/grouping input, trimmed entry
+  text, visible validation feedback, and editing expenses/payments in place.
+- Zero-budget spending fills the progress bar. Pace uses unclamped spending and
+  the iOS asymmetric early-month tolerance. Negative net spending remains visible.
+- Stored-month titles, calendar grids, day counts and pace; exact calendar cents
+  and a notice when dated entries contribute to totals outside the visible month.
+- Weekly, monthly and yearly recurring entries, creation and removal controls,
+  short-month day anchoring, bounded catch-up and duplicate-occurrence protection.
+  Processing runs on load, foreground return and entry save; no server scheduler.
+- Month-by-month rollover with recurring backfill, positive carryover, merged
+  same-month archives, future-entry preservation, and a 12-month archive policy
+  favoring meaningful months. Repeated closes do not grant the base budget twice.
+  Keep advances the ledger without clearing transactions; Cancel is a no-op.
+- Backup export/import with strict validation, summary, confirmation and a durable
+  device-local pre-import copy for undo. Portable date/UUID/money encoding follows
+  the actual iOS Codable schema. No Xcode import execution was performed here.
+- Recovery of valid rows/previous device saves, retained damaged source data,
+  visible storage/sync errors, and blocked writes when saved data is unreadable.
+- Recent-item quick add starts a fresh amount/note/date draft. Category edits save
+  immediately instead of relying on closing Settings.
 
-| Behavior | iOS | Web | Why it matters |
-| --- | --- | --- | --- |
-| Money representation | Integer cents (`MoneyAmount`, schema v2) | `Number` dollars | Repeated float addition drifts; the web can accumulate sub-cent error across a long ledger. |
-| Multi-month rollover | Walks month by month, giving each skipped month its own recurring backfill, archive entry, and carryover | Single collapsed reset | On the web, skipping two months loses those months from history and posts nothing for them. |
-| Recurring rules | Fully processed — catch-up posting, day anchoring across short months, loop bounds | Stored in state and persisted, never processed | A rule created on iOS and synced to the web would simply never fire there. |
-| Amount parsing | One parser (`SproutMoneyText`), locale separators, strict character set | `parseFloat` | `parseFloat("12abc")` is `12`; the web accepts trailing garbage. |
-| Corruption recovery | Quarantine, previous-generation fallback, per-row lossy decode, user-visible alerts | No equivalent | The web silently falls back to defaults. |
-| Backup import | Validated, summarized, confirmed | No import path | — |
-| Stored-month display | Day count, pace, calendar grid and header all key off the stored month | Wall clock | Web shows the new month's grid over the old month's ledger when a rollover is pending. |
-| Pace tolerance | Widens early in the month | Flat 2% | The web flags "too fast" for any purchase over ~5% of budget on day 1. |
+## Deliberate differences and limits
 
-## Web only
+- Web retains Google sign-in, Firebase sync and per-user localStorage. iOS remains
+  local-file-only; a shared Google account does not connect the two apps.
+- Web cloud conflict resolution is still last-write-wins by timestamp, not a
+  transaction-by-transaction merge. Concurrent devices can overwrite changes.
+- Web recovery uses browser storage, not filesystem quarantine. Storage eviction,
+  private browsing or quota limits can remove/prevent device copies. Exported
+  backups are the portable recovery path; failed imports preserve the live ledger.
+- Web strict import rejects malformed rows instead of partially replacing data;
+  cache recovery can salvage rows but pauses saves until a valid import resolves it.
+- Web parsing additionally checks grouping placement. Currency remains USD while
+  input separators follow the browser locale; this is not multi-currency support.
+- iOS timestamps are absolute. Moving a backup across time zones may change a
+  transaction's calendar date, consistent with the native date model.
+- Native App Intents, deep links, widgets/system integrations, haptics, Dynamic
+  Type and native presentation are not browser features. This is behavior alignment,
+  not a reproduction of SwiftUI styling.
+- Recurring catch-up is capped at 600 occurrences per rule per pass and rollover
+  at 240 months, matching native bounds. These are safety limits, not unlimited
+  historical reconstruction.
 
-- Firebase Google auth, cloud sync, and last-write-wins merge by `updatedAt`.
-  iOS is local-file only and has no account concept.
-- `localStorage` cache keyed per user.
+## Verification
 
-## iOS only
-
-- Recurring transactions, archived month detail, backup export/import,
-  App Intents and the `sprout://quick-add` deep link, haptics, Dynamic Type.
-
-## Shared and intentionally identical
-
-- Two budget scopes (personal, grocery) with independent budgets and carryover.
-- `remaining = base + carryover − netSpent`, refunds subtract.
-- Carryover on reset clamps negatives to zero.
-- Archive cap of twelve closed months, newest first, deduplicated by month key.
-- Default budgets: personal $200, grocery $400.
-
-## If you change shared behavior
-
-Change iOS first, add the test, then decide explicitly whether the web
-prototype follows. Record the decision here. Do not let the two drift silently:
-that is failure mode 5 in `AGENTS.md`.
+Run the Node regression command in `README.md`. It exercises the pure modules
+and the actual HTML controller with fake Firebase, timers, storage and DOM.
+Browser checks with synthetic data cover entry validation, recurring creation,
+editing expense to payment, correct totals, and the backup confirmation/import UI.
+Live Google sign-in/cloud behavior and actual iOS backup import still require
+integration/device validation. The generated Swift CI profile/workflow is unchanged.

@@ -438,6 +438,15 @@
     transition: all 0.15s ease; margin-left: 6px;
   }
   .btn-settings:hover { border-color: var(--sage); color: var(--sage); }
+  .notice { margin: 12px 0; padding: 12px; border-radius: 12px; background: #fff4dc; color: #62451f; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .notice button { margin: 4px; }
+  .modal-actions, .form-actions { flex-wrap: wrap; }
+  .modal { max-height: 85dvh; overflow-y: auto; }
+  .cal-amount { font-size: clamp(8px, 2.2vw, 11px); overflow-wrap: anywhere; }
+  .form-row label { min-width: 0; flex: 1; font-size: 13px; }
+  select { max-width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+  input[type=file] { display: block; max-width: 210px; font-size: 12px; margin-top: 8px; }
+  button:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -447,6 +456,9 @@
 <script src="./sprout-firebase-config.js"></script>
 <script src="./sprout-firebase-config.local.js"></script>
 <script type="module">
+  import { toCents, fromCents, parseAmount, netSpent as sumTransactions, sumMoney, paceStatus, progress } from "./money.mjs";
+  import { validDate, monthInfo, nextOccurrence, processRecurring, resetLedger, keepLedger } from "./ledger.mjs";
+  import { normalizeSnapshot, exportBackup } from "./backup.mjs";
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, signInWithPopup, signInWithRedirect, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -492,6 +504,20 @@
   // ── State ──
   let state = {
     user: null,
+    dataReady: false,
+    writeBlocked: false,
+    statusMessage: "",
+    updatedAt: null,
+    editingTransactionId: null,
+    formError: "",
+    budgetError: "",
+    budgetInput: "",
+    formRecurring: false,
+    formFrequency: "monthly",
+    formNextDate: "",
+    pendingImport: null,
+    pendingAction: null,
+    canUndoImport: false,
     authLoading: true,
     authError: "",
     activeTab: "personal",
@@ -539,6 +565,9 @@
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   }
+  function editableAmount(n) {
+    return new Intl.NumberFormat(navigator.language || "en-US", {useGrouping:false, maximumFractionDigits:2}).format(n);
+  }
   function fmtCurrency(n) {
     return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
   }
@@ -550,37 +579,19 @@
     const d = new Date(s+"T12:00:00");
     return d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
   }
-  function fmtMonthYear() {
-    return new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"});
-  }
+  function fmtMonthYear() { return fmtMonthKey(state.currentMonth); }
   function fmtMonthKey(monthKey) {
-    if (typeof monthKey !== "string") return "";
-    const [year, month] = monthKey.split("-").map(Number);
-    if (!year || !month) return monthKey;
-    return new Date(year, month - 1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+    return new Date(`${monthKey}-01T12:00:00`).toLocaleDateString("en-US", {month:"long",year:"numeric"});
   }
-  function getDaysLeftInMonth() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const today = now.getDate();
-    return daysInMonth - today + 1; // includes today
+  function displayedMonth() { return monthInfo(state.currentMonth, getToday()); }
+  function getDaysLeftInMonth() { return displayedMonth().daysLeft; }
+  function getMonthPaceProgress() { return displayedMonth().pace; }
+  function getProgressColor(spent, budget) {
+    const {day, days} = displayedMonth();
+    return {ahead:"var(--red)", behind:"var(--sage)", on:"var(--amber)"}[paceStatus(spent,budget,day,days)];
   }
-  function getMonthPaceProgress() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const today = now.getDate();
-    return daysInMonth > 0 ? Math.min(Math.max(today / daysInMonth, 0), 1) : 0;
-  }
-  function getProgressColor(actualPct, pacePct) {
-    const tolerance = 0.02;
-    if (actualPct > pacePct + tolerance) return "var(--red)";
-    if (actualPct < pacePct - tolerance) return "var(--sage)";
-    return "var(--amber)";
-  }
+
+
   function compareTxByDateOnly(a, b) {
     if (a.date < b.date) return -1;
     if (a.date > b.date) return 1;
@@ -598,31 +609,7 @@
       grocery: Math.max(0, getRemaining("grocery"))
     };
   }
-  function normalizeMonthHistory(history = []) {
-    const byKey = new Map();
-    history
-      .filter(month => month && typeof month.monthKey === "string")
-      .sort((a, b) => {
-        if (a.monthKey === b.monthKey) {
-          return new Date(b.archivedAt || 0).getTime() - new Date(a.archivedAt || 0).getTime();
-        }
-        return a.monthKey > b.monthKey ? -1 : 1;
-      })
-      .forEach(month => {
-        if (!byKey.has(month.monthKey)) {
-          byKey.set(month.monthKey, {
-            monthKey: month.monthKey,
-            personalBudget: month.personalBudget ?? 200,
-            groceryBudget: month.groceryBudget ?? 400,
-            personalCarryover: month.personalCarryover ?? 0,
-            groceryCarryover: month.groceryCarryover ?? 0,
-            transactions: Array.isArray(month.transactions) ? month.transactions : [],
-            archivedAt: month.archivedAt || new Date().toISOString(),
-          });
-        }
-      });
-    return [...byKey.values()].sort(compareMonthKeyDesc).slice(0, 12);
-  }
+
   function getArchivedMonth(monthKey) {
     return state.monthHistory.find(month => month.monthKey === monthKey) || null;
   }
@@ -635,38 +622,40 @@
   function getArchivedBudget(month, cat) {
     const base = cat === "grocery" ? month.groceryBudget : month.personalBudget;
     const carry = cat === "grocery" ? month.groceryCarryover : month.personalCarryover;
-    return base + carry;
+    return sumMoney(base, carry);
   }
   function getArchivedNetSpent(month, cat) {
-    return getArchivedTx(month, cat).reduce((sum, t) => sum + (t.isRefund ? -t.amount : t.amount), 0);
+    return sumTransactions(getArchivedTx(month, cat));
   }
   function getArchivedRemaining(month, cat) {
-    return getArchivedBudget(month, cat) - getArchivedNetSpent(month, cat);
+    return sumMoney(getArchivedBudget(month, cat), -getArchivedNetSpent(month, cat));
   }
-  function shouldArchiveCurrentMonth() {
-    return state.transactions.length > 0 || state.personalCarryover > 0 || state.groceryCarryover > 0;
-  }
-  function archiveCurrentMonthIfNeeded() {
-    if (!shouldArchiveCurrentMonth()) return;
-    state.monthHistory = normalizeMonthHistory([
-      {
-        monthKey: state.currentMonth,
-        personalBudget: state.personalBudget,
-        groceryBudget: state.groceryBudget,
-        personalCarryover: state.personalCarryover,
-        groceryCarryover: state.groceryCarryover,
-        transactions: state.transactions.map(tx => ({ ...tx })),
-        archivedAt: new Date().toISOString(),
-      },
-      ...state.monthHistory.filter(month => month.monthKey !== state.currentMonth),
-    ]);
-  }
+
 
   const LOCAL_CACHE_KEY = "sprout-cache-v1";
   let saveTimer = null;
+  let cloudWriteQueue = Promise.resolve();
+  let authGeneration = 0;
+  function queueCloudWrite(uid, snapshot, generation = authGeneration) {
+    cloudWriteQueue = cloudWriteQueue.then(() => saveData(uid, snapshot, generation)).catch(() => {});
+    return cloudWriteQueue;
+  }
+  function validateStoredSnapshot(data) {
+    if (!data || typeof data !== "object" || !["transactions","currentMonth","personalBudget","groceryBudget","monthHistory","recurringRules","personalCategories"].some(key => Object.hasOwn(data, key))) {
+      throw new Error("The saved document is not a recognized Sprout ledger.");
+    }
+    return normalizeSnapshot(data);
+  }
+  function processDisplayedRecurring() {
+    const today = getToday();
+    const cutoff = state.currentMonth < today.slice(0,7)
+      ? `${state.currentMonth}-${String(displayedMonth().days).padStart(2,"0")}` : today;
+    return processRecurring(state, cutoff);
+  }
 
   function stateSnapshot() {
     return {
+      schemaVersion: 1, // Legacy web/Firebase payloads remain in dollars.
       groceryBudget: state.groceryBudget,
       personalBudget: state.personalBudget,
       groceryCarryover: state.groceryCarryover,
@@ -676,116 +665,172 @@
       monthHistory: state.monthHistory,
       currentMonth: state.currentMonth,
       personalCategories: state.personalCategories,
-      updatedAt: new Date().toISOString()
+      updatedAt: state.updatedAt || new Date().toISOString()
     };
   }
 
   function applyPersistedData(d = {}) {
-    state.groceryBudget = d.groceryBudget ?? 400;
-    state.personalBudget = d.personalBudget ?? 200;
-    state.groceryCarryover = d.groceryCarryover ?? 0;
-    state.personalCarryover = d.personalCarryover ?? 0;
-    state.transactions = Array.isArray(d.transactions) ? d.transactions : [];
-    state.recurringRules = Array.isArray(d.recurringRules) ? d.recurringRules : [];
-    state.monthHistory = normalizeMonthHistory(Array.isArray(d.monthHistory) ? d.monthHistory : []);
-    state.currentMonth = d.currentMonth ?? getCurrentMonth();
-    if (Array.isArray(d.personalCategories) && d.personalCategories.length > 0) {
-      state.personalCategories = d.personalCategories;
-    } else {
-      state.personalCategories = [...DEFAULT_PERSONAL_CATEGORIES];
-    }
-    if (!getArchivedMonth(state.selectedHistoryMonthKey)) {
-      state.selectedHistoryMonthKey = null;
-    }
-    if (state.currentMonth !== getCurrentMonth()) {
-      state.showReset = true;
-    }
+    const {snapshot, warnings} = normalizeSnapshot(d);
+    Object.assign(state, snapshot);
+    state.selectedHistoryMonthKey = null;
+    state.selectedCalDay = null;
+    state.showForm = null;
+    state.editingTransactionId = null;
+    state.editingBudget = false;
+    state.showReset = state.currentMonth !== getCurrentMonth();
     state.formEmoji = state.personalCategories[0]?.emoji || "🛍️";
+    if (warnings.length) {
+      state.writeBlocked = true;
+      state.statusMessage = `Some saved data needs attention: ${warnings.join(" ")} Saving is paused. Export the recovered data or import a valid backup before continuing.`;
+    }
   }
 
-  function cacheKeyForUser(uid) {
-    return `${LOCAL_CACHE_KEY}:${uid}`;
+  function cacheKeyForUser(uid) { return `${LOCAL_CACHE_KEY}:${uid}`; }
+  function preserveRecovery(uid, raw) {
+    // Keep the original bytes; never replace an existing recovery copy on load.
+    const key = `${cacheKeyForUser(uid)}:recovery`;
+    if (!localStorage.getItem(key)) localStorage.setItem(key, raw);
   }
-
   function loadLocalCache(uid) {
     if (!uid) return null;
+    const key = cacheKeyForUser(uid);
     try {
-      const raw = localStorage.getItem(cacheKeyForUser(uid));
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      console.error("Local cache load error:", e);
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try {
+        const data = JSON.parse(raw);
+        const result = validateStoredSnapshot(data);
+        if (result.warnings.length) preserveRecovery(uid, raw);
+        return data;
+      } catch (error) {
+        preserveRecovery(uid, raw);
+        const previous = localStorage.getItem(`${key}:previous`);
+        state.statusMessage = "The local save could not be read. Its original contents were kept for recovery. Saving is paused until you import a valid backup.";
+        state.writeBlocked = true;
+        if (previous) {
+          const data = JSON.parse(previous);
+          validateStoredSnapshot(data);
+          state.statusMessage = "Recovered the previous local save. The damaged save was kept. Saving is paused; export and re-import the recovered data after reviewing it, or import another valid backup.";
+          return data;
+        }
+        return null;
+      }
+    } catch (error) {
+      state.writeBlocked = true;
+      state.statusMessage = "Local storage is unavailable or unreadable. Saving is paused; export a backup before closing this page.";
       return null;
     }
   }
-
-  function saveLocalCache() {
-    if (!state.user) return;
+  function saveLocalCache(snapshot = stateSnapshot()) {
+    if (!state.user || state.writeBlocked) return false;
     try {
-      localStorage.setItem(cacheKeyForUser(state.user.uid), JSON.stringify(stateSnapshot()));
-    } catch (e) {
-      console.error("Local cache save error:", e);
+      const key = cacheKeyForUser(state.user.uid);
+      const previous = localStorage.getItem(key);
+      if (previous && previous !== JSON.stringify(snapshot)) {
+        // Only rotate a valid save. Damaged originals remain in the recovery slot.
+        normalizeSnapshot(JSON.parse(previous), {strict:true});
+        localStorage.setItem(`${key}:previous`, previous);
+      }
+      localStorage.setItem(key, JSON.stringify(snapshot));
+      return true;
+    } catch (error) {
+      state.statusMessage = "Your latest change could not be saved on this device. Export a backup now. Cloud saving will still be attempted.";
+      return false;
     }
   }
-
   function persistedTimestamp(data) {
     const t = new Date(data?.updatedAt || 0).getTime();
     return Number.isFinite(t) ? t : 0;
   }
-
+  function nextUpdateTimestamp() {
+    return new Date(Math.max(Date.now(), persistedTimestamp(state) + 1)).toISOString();
+  }
   function scheduleSave() {
-    saveLocalCache();
+    if (!state.user || !state.dataReady || state.writeBlocked) return;
+    state.updatedAt = nextUpdateTimestamp();
+    const uid = state.user.uid;
+    const generation = authGeneration;
+    const snapshot = structuredClone(stateSnapshot());
+    saveLocalCache(snapshot);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      saveData();
+      queueCloudWrite(uid, snapshot, generation);
     }, 500);
   }
-
-  // ── Firebase Persistence ──
+  async function saveData(uid, snapshot, generation) {
+    if (state.user?.uid !== uid || generation !== authGeneration || state.writeBlocked) return;
+    try {
+      await setDoc(doc(db, "budgets", uid), snapshot, {merge:true});
+    } catch (error) {
+      if (state.user?.uid === uid && generation === authGeneration) {
+        state.statusMessage = "Cloud sync failed. Your device copy may be newer; export a backup before switching devices. Reopen Sprout to retry syncing.";
+        render();
+      }
+    }
+  }
   async function loadData() {
-    if (!state.user) return;
-    const local = loadLocalCache(state.user.uid);
-    // Always reseed from *this* account's data, even when there is none. Skipping
-    // the call for a brand-new user left the previous signed-in user's budgets,
-    // categories and month history in memory, and the next edit persisted them
-    // into the new user's document.
+    const uid = state.user?.uid;
+    if (!uid) return;
+    const generation = authGeneration;
+    state.dataReady = false;
+    state.writeBlocked = false;
+    state.statusMessage = "";
+    state.canUndoImport = false;
+    const local = loadLocalCache(uid);
     applyPersistedData(local || {});
-
+    try { state.canUndoImport = Boolean(localStorage.getItem(`${cacheKeyForUser(uid)}:before-import`)); } catch {}
     try {
-      const ref = doc(db, "budgets", state.user.uid);
+      const ref = doc(db, "budgets", uid);
       const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        if (local) {
-          await setDoc(ref, stateSnapshot(), { merge: true });
+      if (state.user?.uid !== uid || generation !== authGeneration) return;
+      if (snap.exists()) {
+        const cloud = snap.data();
+        // Validate even an older remote document before overwriting it.
+        try {
+          const result = validateStoredSnapshot(cloud);
+          if (result.warnings.length) {
+            preserveRecovery(uid, JSON.stringify(cloud));
+            state.writeBlocked = true;
+            state.statusMessage = "Some cloud data could not be read. Its original contents were saved for recovery. Import a valid backup before resuming saves.";
+          }
+        } catch (error) {
+          try { preserveRecovery(uid, JSON.stringify(cloud)); } catch {}
+          state.writeBlocked = true;
+          state.statusMessage = "The cloud save has an unsupported or damaged format. Saving is paused to protect it. Export this device's data and recover a valid backup.";
+          state.dataReady = true;
+          return;
         }
-        return;
+        if (!local || persistedTimestamp(cloud) > persistedTimestamp(local)) {
+          applyPersistedData(cloud);
+          saveLocalCache();
+        } else if (persistedTimestamp(local) > persistedTimestamp(cloud) && !state.writeBlocked) {
+          await queueCloudWrite(uid, structuredClone(stateSnapshot()), generation);
+        }
+      } else if (local && !state.writeBlocked) {
+        await queueCloudWrite(uid, structuredClone(stateSnapshot()), generation);
       }
-
-      const cloud = snap.data() || {};
-      const localTs = persistedTimestamp(local);
-      const cloudTs = persistedTimestamp(cloud);
-
-      if (!local || cloudTs > localTs) {
-        applyPersistedData(cloud);
-        saveLocalCache();
-      } else if (localTs > cloudTs) {
-        await setDoc(ref, stateSnapshot(), { merge: true });
-      }
-    } catch(e) { console.error("Load error:", e); }
+    } catch (error) {
+      if (state.user?.uid !== uid || generation !== authGeneration) return;
+      state.statusMessage = local
+        ? "Cloud data could not be loaded. Using this device's copy; export a backup before switching devices."
+        : "Cloud data could not be loaded and there is no readable device copy. Saving is paused to protect your existing data. Reopen Sprout to retry.";
+      if (!local) state.writeBlocked = true;
+    }
+    if (state.user?.uid !== uid || generation !== authGeneration) return;
+    state.dataReady = true;
+    if (!state.writeBlocked && processDisplayedRecurring()) scheduleSave();
   }
 
-  async function saveData() {
-    if (!state.user) return;
-    try {
-      saveLocalCache();
-      await setDoc(doc(db, "budgets", state.user.uid), stateSnapshot(), { merge: true });
-    } catch(e) { console.error("Save error:", e); }
-  }
 
   // ── Auth ──
   onAuthStateChanged(auth, async (user) => {
+    authGeneration++;
     state.user = user;
     state.authLoading = false;
     state.authError = "";
+    clearTimeout(saveTimer);
+    state.pendingImport = null;
+    state.pendingAction = null;
     if (user) {
       await loadData();
     }
@@ -834,6 +879,7 @@
   }
 
   function handleSignOut() {
+    authGeneration++;
     // Order matters. `signOut` is async and `onAuthStateChanged` has not fired
     // yet, so `state.user` is still set and any save scheduled in the last 500ms
     // is still pending. Resetting state first and letting that timer fire would
@@ -843,6 +889,12 @@
     clearTimeout(saveTimer);
     saveTimer = null;
     state.user = null;
+    state.dataReady = false;
+    state.writeBlocked = false;
+    state.statusMessage = "";
+    state.pendingImport = null;
+    state.pendingAction = null;
+    state.canUndoImport = false;
 
     // The last <=500ms of edits are dropped from Firestore by that clearTimeout,
     // but `scheduleSave` already wrote them to localStorage and `loadData` prefers
@@ -863,10 +915,10 @@
 
   // ── Actions ──
   function getTx(cat) { return state.transactions.filter(t => t.type === cat).sort(compareTxByDateOnly); }
-  function netSpent(cat) { return getTx(cat).reduce((s,t) => s + (t.isRefund ? -t.amount : t.amount), 0); }
+  function netSpent(cat) { return sumTransactions(getTx(cat)); }
   function getBaseBudget(cat) { return cat === "grocery" ? state.groceryBudget : state.personalBudget; }
-  function getBudget(cat) { return getBaseBudget(cat) + getCarryover(cat); }
-  function getRemaining(cat) { return getBudget(cat) - netSpent(cat); }
+  function getBudget(cat) { return sumMoney(getBaseBudget(cat), getCarryover(cat)); }
+  function getRemaining(cat) { return sumMoney(getBudget(cat), -netSpent(cat)); }
 
   function getRecent(cat) {
     const seen = new Set();
@@ -886,50 +938,146 @@
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  const MAX_AMOUNT = 999999.99;
+  function canEdit() { return state.dataReady && !state.writeBlocked; }
+  function startForm(mode, seed = null, edit = false) {
+    state.showForm = mode;
+    state.editingTransactionId = edit ? seed.id : null;
+    state.formName = seed?.name || "";
+    state.formAmount = edit ? editableAmount(seed.amount) : "";
+    state.formNote = edit ? seed.note : "";
+    state.formEmoji = seed?.emoji || state.personalCategories[0]?.emoji || "🛍️";
+    state.formDate = edit ? seed.date : getToday();
+    state.formRecurring = false;
+    state.formFrequency = "monthly";
+    state.formNextDate = nextOccurrence(state.formDate, "monthly", Number(state.formDate.slice(-2)));
+    state.formError = "";
+    render();
+  }
   function addTransaction(isRefund) {
-    const amt = parseFloat(state.formAmount);
-    if (!state.formName || isNaN(amt) || amt <= 0 || amt > MAX_AMOUNT) return;
-    state.transactions.push({
-      id: newTransactionId(),
-      name: state.formName,
-      amount: amt,
-      note: state.formNote,
+    if (!canEdit()) return;
+    const amount = parseAmount(state.formAmount, navigator.language || "en-US");
+    if (!state.formName.trim() || amount === null || amount <= 0 || !validDate(state.formDate)) {
+      state.formError = "Enter a name, a valid date, and an amount from $0.01 to $999,999.99. Use numbers and a decimal separator only.";
+      render(); return;
+    }
+    if (state.formRecurring && (!validDate(state.formNextDate) || state.formNextDate <= state.formDate)) {
+      state.formError = "The next recurring date must be after this transaction's date.";
+      render(); return;
+    }
+    const entry = {
+      id: state.editingTransactionId || newTransactionId(),
+      name: state.formName.trim(), amount, note: state.formNote.trim(),
       emoji: isRefund ? "💸" : (state.activeTab === "grocery" ? "🛒" : state.formEmoji),
-      date: state.formDate,
-      type: state.activeTab,
-      isRefund,
-    });
-    state.formName = ""; state.formAmount = ""; state.formNote = "";
-    state.formEmoji = state.personalCategories[0]?.emoji || "🛍️";
-    state.formDate = getToday(); state.showForm = null;
+      date: state.formDate, type: state.activeTab, isRefund,
+    };
+    if (state.editingTransactionId) {
+      const index = state.transactions.findIndex(t => t.id === state.editingTransactionId);
+      if (index < 0) return;
+      state.transactions[index] = entry;
+    } else {
+      state.transactions.push(entry);
+      if (state.formRecurring) {
+        const day = Number(entry.date.slice(-2));
+        const defaultNext = nextOccurrence(entry.date, state.formFrequency, day);
+        state.recurringRules.push({...entry, id:newTransactionId(), frequency:state.formFrequency,
+          nextOccurrenceDate:state.formNextDate,
+          anchorDay:state.formNextDate === defaultNext ? day : Number(state.formNextDate.slice(-2))});
+      }
+    }
+    state.showForm = null; state.editingTransactionId = null;
+    processDisplayedRecurring();
     scheduleSave(); render();
   }
-
   function deleteTransaction(id) {
+    if (!canEdit()) return;
     state.transactions = state.transactions.filter(t => t.id !== id);
     state.pendingDeleteId = null;
     scheduleSave(); render();
   }
-
   function resetMonth(carryOverRemainders = false) {
-    archiveCurrentMonthIfNeeded();
-    const carry = carryOverRemainders ? getCarryoverPreview() : { personal: 0, grocery: 0 };
-    state.personalCarryover = carry.personal;
-    state.groceryCarryover = carry.grocery;
-    state.transactions = [];
-    state.currentMonth = getCurrentMonth();
-    state.showReset = false;
-    state.selectedCalDay = null;
-    state.selectedHistoryMonthKey = null;
+    if (!canEdit()) return;
+    resetLedger(state, getToday(), carryOverRemainders);
+    state.showReset = false; state.selectedCalDay = null; state.selectedHistoryMonthKey = null;
+    state.showForm = null; state.editingTransactionId = null;
     scheduleSave(); render();
   }
+  function downloadJSON(data, name) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a"); link.href = url; link.download = name; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function exportCurrentBackup() {
+    try { downloadJSON(exportBackup(stateSnapshot()), `Sprout-Backup-${getToday()}.json`); }
+    catch (error) { state.statusMessage = `Backup export failed: ${error.message}`; render(); }
+  }
+  async function previewImport(file) {
+    if (!file || !state.user) return;
+    const uid = state.user.uid;
+    const generation = authGeneration;
+    try {
+      if (file.size > 10 * 1024 * 1024) throw new Error("Choose a JSON backup smaller than 10 MB.");
+      const {snapshot} = normalizeSnapshot(JSON.parse(await file.text()), {strict:true});
+      if (state.user?.uid !== uid || generation !== authGeneration) return;
+      state.pendingImport = {snapshot, uid, generation};
+    } catch (error) { state.statusMessage = `Backup was not imported: ${error.message}`; }
+    render();
+  }
+  function confirmImport() {
+    const pending = state.pendingImport;
+    if (!pending || pending.uid !== state.user?.uid || pending.generation !== authGeneration) return;
+    try {
+      const replacement = {...pending.snapshot, updatedAt:nextUpdateTimestamp()};
+      const key = cacheKeyForUser(pending.uid);
+      const raw = localStorage.getItem(key);
+      if (state.writeBlocked && raw) preserveRecovery(pending.uid, raw);
+      // Complete both durable writes before changing live state or scheduling cloud writes.
+      localStorage.setItem(`${key}:before-import`, JSON.stringify(stateSnapshot()));
+      localStorage.setItem(key, JSON.stringify(replacement));
+      clearTimeout(saveTimer);
+      authGeneration++;
+      state.writeBlocked = false;
+      applyPersistedData(replacement);
+      state.canUndoImport = true;
+      state.pendingImport = null;
+    state.pendingAction = null;
+      state.statusMessage = "Backup imported. This replaces the signed-in account's cloud data too. You can undo this import from Settings.";
+      scheduleSave();
+    } catch (error) { state.statusMessage = `Backup was not imported: ${error.message}`; }
+    render();
+  }
+  function undoImport() {
+    if (!state.user) return;
+    try {
+      const key = cacheKeyForUser(state.user.uid);
+      const raw = localStorage.getItem(`${key}:before-import`);
+      if (!raw) throw new Error("The safety copy is unavailable.");
+      const {snapshot} = normalizeSnapshot(JSON.parse(raw), {strict:true});
+      snapshot.updatedAt = nextUpdateTimestamp();
+      localStorage.setItem(key, JSON.stringify(snapshot));
+      clearTimeout(saveTimer); authGeneration++; state.writeBlocked = false;
+      applyPersistedData(snapshot);
+      try { localStorage.removeItem(`${key}:before-import`); } catch {}
+      state.canUndoImport = Boolean(localStorage.getItem(`${key}:before-import`));
+      state.statusMessage = "Restored the data from before the import.";
+      scheduleSave();
+    } catch (error) { state.statusMessage = `Could not undo import: ${error.message}`; }
+    render();
+  }
+
+  function refreshDate() {
+    if (!state.user || !state.dataReady || document.hidden) return;
+    if (state.currentMonth !== getCurrentMonth()) state.showReset = true;
+    if (!state.writeBlocked && processDisplayedRecurring()) scheduleSave();
+    render();
+  }
+
 
   // ── Render ──
   function render() {
     const app = document.getElementById("app");
 
-    if (state.authLoading) {
+    if (state.authLoading || (state.user && !state.dataReady)) {
       app.innerHTML = `<div class="login-screen"><div class="login-loading">Loading...</div></div>`;
       return;
     }
@@ -955,32 +1103,52 @@
     const spent = netSpent(cat);
     const budget = getBudget(cat);
     const remaining = getRemaining(cat);
-    const pct = budget > 0 ? Math.min(Math.max(spent,0) / budget, 1) : 0;
+    const pct = progress(spent, budget);
     const pacePct = getMonthPaceProgress();
-    const barColor = getProgressColor(pct, pacePct);
+    const barColor = getProgressColor(spent, budget);
 
     const title = cat === "grocery" ? "Groceries" : "Personal Expenses";
 
     // Daily allowance calculation
     const daysLeft = getDaysLeftInMonth();
-    const dailyAllowance = remaining / daysLeft;
+    const dailyAllowance = fromCents(Math.trunc(toCents(remaining) / daysLeft));
 
     // Build HTML
     let html = "";
 
+    if (state.pendingAction) {
+      const undo = state.pendingAction.kind === "undo";
+      html += `<div class="modal-overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="Confirm action">
+        <div class="modal-title">${undo ? "Undo the last import?" : "Stop this recurring entry?"}</div>
+        <div class="modal-text">${undo ? "Restore the saved data from before your last import. This replaces the current device and cloud ledger, including any edits made since importing." : "Future occurrences will stop. Existing transactions will stay in your ledger and history."}</div>
+        <div class="modal-actions"><button class="modal-btn keep" id="actionCancel">Cancel</button><button class="modal-btn reset" id="actionConfirm">${undo ? "Restore previous data" : "Stop repeating"}</button></div>
+      </div></div>`;
+    }
+    if (state.pendingImport) {
+      const preview = state.pendingImport.snapshot;
+      html += `<div class="modal-overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="Confirm backup import">
+        <div class="modal-title">Replace your account's data?</div>
+        <div class="modal-text">${escapeHtml(fmtMonthKey(preview.currentMonth))} · ${preview.transactions.length} transactions · ${preview.recurringRules.length} recurring entries · ${preview.monthHistory.length} archived months.</div>
+        <div class="modal-text">Personal budget ${fmtCurrency(preview.personalBudget)} · Grocery budget ${fmtCurrency(preview.groceryBudget)}.</div>
+        <div class="modal-text">This replaces budgets, transactions, categories and history on this device and in your signed-in cloud account. A device copy of the current data will be kept for undo.</div>
+        <div class="modal-actions"><button class="modal-btn keep" id="importCancel">Cancel</button><button class="modal-btn reset" id="importConfirm">Replace data</button></div>
+      </div></div>`;
+    }
     // Reset modal
-    if (state.showReset) {
+    if (state.showReset && !state.pendingImport && !state.pendingAction && !state.writeBlocked) {
+      const clockBack = state.currentMonth > getCurrentMonth();
       const carryPreview = getCarryoverPreview();
       html += `<div class="modal-overlay">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="Month reset">
           <div class="modal-icon">🌱</div>
-          <div class="modal-title">New month, fresh start?</div>
-          <div class="modal-text">This will clear all transactions for the current period. Your budget amounts stay the same.</div>
-          <div class="modal-text">Carry over available: Personal ${fmtCurrency(carryPreview.personal)} · Grocery ${fmtCurrency(carryPreview.grocery)}</div>
+          <div class="modal-title">${clockBack ? "Check your device date" : state.currentMonth === getCurrentMonth() ? "Close this month early?" : "Start the current month?"}</div>
+          <div class="modal-text">${clockBack ? "The saved month is in the future. Check your device clock. Continuing will only relabel the ledger to this month, preserving all entries and carryover." : "Keep moves the ledger into the current month without clearing entries. Reset Fresh archives closing entries and clears carryover. Carry Over archives them and keeps positive leftovers. Future-dated entries are retained. Skipped months are processed in order; up to 12 archives are kept."}</div>
+          <div class="modal-text">Current ledger remainder: Personal ${fmtCurrency(carryPreview.personal)} · Grocery ${fmtCurrency(carryPreview.grocery)}</div>
           <div class="modal-actions">
+            <button class="modal-btn keep" id="resetCancel">Cancel</button>
             <button class="modal-btn keep" id="resetKeep">Keep</button>
-            <button class="modal-btn keep" id="resetFresh">Reset Fresh</button>
-            <button class="modal-btn reset" id="resetCarry">Carry Over</button>
+            ${!clockBack ? `<button class="modal-btn reset" id="resetFresh">Reset Fresh</button>` : ""}
+            ${!clockBack ? `<button class="modal-btn reset" id="resetCarry">Carry Over</button>` : ""}
           </div>
         </div>
       </div>`;
@@ -989,7 +1157,7 @@
     if (state.pendingDeleteId) {
       const tx = state.transactions.find(t => t.id === state.pendingDeleteId);
       html += `<div class="modal-overlay">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="Remove transaction">
           <div class="modal-icon">🗑️</div>
           <div class="modal-title">Remove transaction?</div>
           <div class="modal-text">${tx ? `${escapeHtml(tx.name)} on ${fmtDate(tx.date)} will be removed.` : "This transaction will be removed."}</div>
@@ -1002,7 +1170,7 @@
     }
 
     // Settings modal
-    if (state.showSettings) {
+    if (state.showSettings && !state.pendingImport && !state.pendingAction && (!state.showReset || state.writeBlocked)) {
       html += renderSettingsModal();
     }
 
@@ -1024,7 +1192,7 @@
         <h1>${title}</h1>
         <div style="display:flex;align-items:center;">
           <button class="btn-reset" id="resetBtn">🌱 Reset</button>
-          <button class="btn-settings" id="settingsBtn">⚙️</button>
+          <button class="btn-settings" id="settingsBtn" aria-label="Settings">⚙️</button>
         </div>
       </div>
       <div class="header-date">${fmtMonthYear()}</div>
@@ -1032,6 +1200,9 @@
 
     // Content
     html += `<div class="content"><div>`;
+    if (state.statusMessage) html += `<div class="notice" role="status">${escapeHtml(state.statusMessage)}</div>`;
+    if (state.writeBlocked) html += `<div class="notice"><button class="btn-cancel" id="recoveryExport">Export recovered data</button><button class="btn-cancel" id="recoveryOriginal">Download original device save</button><div>Import a valid backup in Settings to resume saving.</div></div>`;
+    if (state.currentMonth !== getCurrentMonth()) html += `<div class="notice">Showing ${escapeHtml(fmtMonthYear())}. Use Reset to choose what to do with this ledger.</div>`;
 
     // Summary card
     const carryover = getCarryover(cat);
@@ -1041,7 +1212,7 @@
     if (state.editingBudget) {
       html += `<div class="budget-edit">
         <span style="font-size:16px;color:var(--text2);font-family:var(--font-mono)">$</span>
-        <input class="budget-edit-input" type="number" step="0.01" id="budgetInput" value="${getBaseBudget(cat)}">
+        <input class="budget-edit-input" type="text" inputmode="decimal" aria-label="Monthly budget" id="budgetInput" value="${escapeHtml(state.budgetInput)}">
         <button class="budget-edit-save" id="budgetSave">Set</button>
         <button class="budget-edit-cancel" id="budgetCancel">×</button>
       </div>`;
@@ -1050,12 +1221,13 @@
     }
 
     html += `</div>`;
+    if (state.editingBudget) html += `<div class="settings-help">Your recurring monthly budget. Carryover is added separately.${state.budgetError ? `<div class="notice" role="alert">${escapeHtml(state.budgetError)}</div>` : ""}</div>`;
     if (carryover > 0) {
-      html += `<div class="carryover-note">Includes ${fmtCurrency(carryover)} carried over from last month</div>`;
+      html += `<div class="carryover-note">Monthly budget ${fmtCurrency(getBaseBudget(cat))} + ${fmtCurrency(carryover)} carryover</div>`;
     }
     html += `
       <div class="bar-labels">
-        <span>${fmtCurrency(Math.max(spent,0))} spent</span>
+        <span>${spent < 0 ? `${fmtCurrency(-spent)} net payments` : `${fmtCurrency(spent)} spent`}</span>
         <span class="bar-remaining ${remaining < 0 ? 'negative' : 'positive'}">
           ${remaining < 0 ? "Over by " + fmtCurrency(Math.abs(remaining)) : fmtCurrency(remaining) + " left"}
         </span>
@@ -1123,6 +1295,7 @@
             </div>
             <div class="tx-bottom">
               <span class="tx-meta">${fmtDate(t.date)}${t.isRefund ? ' <span class="payment-tag">· payment</span>' : ''}${t.note ? " · " + escapeHtml(t.note) : ""}</span>
+              <button class="tx-remove" data-editid="${escapeHtml(t.id)}">edit</button>
               <button class="tx-remove" data-txid="${escapeHtml(t.id)}">remove</button>
             </div>
           </div>
@@ -1148,6 +1321,8 @@
     const scrollTop = document.querySelector('.content')?.scrollTop || 0;
 
     app.innerHTML = html;
+    const overlay = document.querySelector(".emoji-grid-overlay") || document.querySelector(".modal-overlay");
+    if (overlay) document.querySelectorAll(".header,.content,.tab-bar").forEach(el => { el.inert = true; });
     bindEvents();
 
     if (activeId) {
@@ -1159,13 +1334,14 @@
         }
       }
     }
+    if (overlay && !overlay.contains(document.activeElement)) overlay.querySelector("button,input,select")?.focus();
     const content = document.querySelector('.content');
     if (content) content.scrollTop = scrollTop;
   }
 
   function renderAddForm(isPayment, cat) {
     let h = `<div class="add-form ${isPayment ? 'payment' : ''}">
-      <div class="form-header">${isPayment ? "💸 Add payment" : "Add expense"}</div>`;
+      <div class="form-header">${state.editingTransactionId ? "Edit transaction" : isPayment ? "💸 Add payment" : "Add expense"}</div>`;
 
     // Emoji picker only for personal expenses (not payments, not grocery)
     if (!isPayment && cat === "personal") {
@@ -1179,15 +1355,19 @@
     }
 
     h += `<div class="form-row">
-      <input class="form-input" placeholder="${isPayment ? 'What was returned?' : 'What was it?'}" id="formName" value="${escapeHtml(state.formName)}">
-      <input class="form-input mono" placeholder="$0.00" type="number" step="0.01" id="formAmount" value="${escapeHtml(state.formAmount)}">
+      <input class="form-input" aria-label="Transaction name" maxlength="200" placeholder="${isPayment ? 'What was returned?' : 'What was it?'}" id="formName" value="${escapeHtml(state.formName)}">
+      <input class="form-input mono" placeholder="$0.00" type="text" inputmode="decimal" aria-label="Amount in US dollars" id="formAmount" value="${escapeHtml(state.formAmount)}">
     </div>
     <div class="form-row">
-      <input class="form-input small" placeholder="Note (optional)" id="formNote" value="${escapeHtml(state.formNote)}">
-      <input class="form-input date" type="date" id="formDate" value="${escapeHtml(state.formDate)}">
+      <input class="form-input small" aria-label="Note" maxlength="2000" placeholder="Note (optional)" id="formNote" value="${escapeHtml(state.formNote)}">
+      <input class="form-input date" type="date" aria-label="Transaction date" id="formDate" value="${escapeHtml(state.formDate)}">
     </div>
+    <div class="settings-help">Amounts are in US dollars.</div>
+    ${state.editingTransactionId ? `<label class="settings-help">Type <select id="formMode"><option value="expense" ${!isPayment ? "selected" : ""}>Expense</option><option value="payment" ${isPayment ? "selected" : ""}>Payment / refund</option></select></label><div class="settings-help">Editing an occurrence does not change its recurring rule.</div>` : `<label class="settings-help"><input type="checkbox" id="formRecurring" ${state.formRecurring ? "checked" : ""}> Repeat this transaction</label>
+    ${state.formRecurring ? `<div class="form-row"><label>Frequency <select id="formFrequency"><option value="weekly" ${state.formFrequency === "weekly" ? "selected" : ""}>Weekly</option><option value="monthly" ${state.formFrequency === "monthly" ? "selected" : ""}>Monthly</option><option value="yearly" ${state.formFrequency === "yearly" ? "selected" : ""}>Yearly</option></select></label><label>Next date <input class="form-input date" type="date" id="formNextDate" value="${escapeHtml(state.formNextDate || "")}"></label></div><div class="settings-help">Due entries are added when you open or return to Sprout.</div>` : ""}`}
+    ${state.formError ? `<div class="notice" role="alert">${escapeHtml(state.formError)}</div>` : ""}
     <div class="form-actions">
-      <button class="btn-submit" id="formSubmit">${isPayment ? "Add Payment" : "Add Expense"}</button>
+      <button class="btn-submit" id="formSubmit">${state.editingTransactionId ? "Save Changes" : isPayment ? "Add Payment" : "Add Expense"}</button>
       <button class="btn-cancel" id="formCancel">Cancel</button>
     </div></div>`;
     return h;
@@ -1195,11 +1375,19 @@
 
   function renderSettingsModal() {
     let h = `<div class="modal-overlay" id="settingsOverlay">
-      <div class="settings-modal">
+      <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="settings-header">
           <div class="settings-title">⚙️ Settings</div>
-          <button class="settings-close" id="settingsClose">×</button>
+          <button class="settings-close" id="settingsClose" aria-label="Close settings">×</button>
         </div>
+        ${state.statusMessage ? `<div class="notice" role="status">${escapeHtml(state.statusMessage)}</div>` : ""}
+        <div class="settings-section-label">Backup and recovery</div>
+        <div class="settings-help">Export a portable backup for web or iOS. Import replaces this account's data after confirmation. Native iOS data is transferred by backup; it is not linked to this Google account.</div>
+        <div class="form-actions"><button class="btn-cancel" id="exportBackup">Export backup</button><label class="btn-cancel">Import backup<input type="file" id="importBackup" accept=".json,application/json" aria-label="Import backup"></label></div>
+        ${state.canUndoImport ? `<button class="btn-cancel" id="undoImport">Undo last import</button>` : ""}
+        <div class="settings-section-label">Recurring transactions</div>
+        <div class="settings-help">Runs when Sprout is open. Removing a rule stops future entries; existing transactions stay.</div>
+        ${state.recurringRules.length ? state.recurringRules.map(rule => `<div class="history-detail"><strong>${escapeHtml(rule.emoji)} ${escapeHtml(rule.name)}</strong><div class="settings-help">${rule.type === "grocery" ? "Grocery" : "Personal"} · ${rule.isRefund ? "Payment" : "Expense"} ${fmtCurrency(rule.amount)} · ${escapeHtml(rule.frequency)} · Next ${fmtDate(rule.nextOccurrenceDate)}</div><button class="btn-cancel" data-removerule="${escapeHtml(rule.id)}">Stop repeating</button></div>`).join("") : `<div class="history-empty">No recurring entries. Add one from the transaction form.</div>`}
         <div class="settings-section-label">Recent months</div>
         <div class="settings-help">Reference your recent closed months without mixing them into your current budget.</div>`;
 
@@ -1210,7 +1398,7 @@
       state.monthHistory.forEach(month => {
         const personalRemaining = getArchivedRemaining(month, "personal");
         const groceryRemaining = getArchivedRemaining(month, "grocery");
-        h += `<button class="history-row ${state.selectedHistoryMonthKey === month.monthKey ? 'active' : ''}" data-historymonth="${month.monthKey}">
+        h += `<button class="history-row ${state.selectedHistoryMonthKey === month.monthKey ? 'active' : ''}" data-historymonth="${escapeHtml(month.monthKey)}">
           <div class="history-row-top">
             <div>
               <div class="history-month">${fmtMonthKey(month.monthKey)}</div>
@@ -1242,9 +1430,9 @@
 
     state.personalCategories.forEach((cat, i) => {
       h += `<div class="cat-row">
-        <button class="cat-emoji-btn" data-catidx="${i}">${escapeHtml(cat.emoji)}</button>
-        <input class="cat-name-input" data-catnameidx="${i}" value="${escapeHtml(cat.label)}" placeholder="Category name">
-        ${state.personalCategories.length > 1 ? `<button class="cat-remove-btn" data-catremoveidx="${i}">×</button>` : ''}
+        <button class="cat-emoji-btn" data-catidx="${i}" aria-label="Change icon for ${escapeHtml(cat.label)}">${escapeHtml(cat.emoji)}</button>
+        <input class="cat-name-input" data-catnameidx="${i}" aria-label="Category ${i + 1} name" value="${escapeHtml(cat.label)}" placeholder="Category name">
+        ${state.personalCategories.length > 1 ? `<button class="cat-remove-btn" data-catremoveidx="${i}" aria-label="Remove ${escapeHtml(cat.label)} category">×</button>` : ''}
       </div>`;
     });
 
@@ -1267,7 +1455,7 @@
       { key: "grocery", title: "Grocery" },
     ].forEach(section => {
       const remaining = getArchivedRemaining(month, section.key);
-      const spent = Math.max(getArchivedNetSpent(month, section.key), 0);
+      const spent = getArchivedNetSpent(month, section.key);
       const carryover = section.key === "grocery" ? month.groceryCarryover : month.personalCarryover;
       const transactions = getArchivedTx(month, section.key);
 
@@ -1339,15 +1527,14 @@
       labels.push(d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2));
     }
     const locale = new Intl.Locale(navigator.language || "en-US");
-    const firstDay = locale.weekInfo?.firstDay ?? 7;
+    const firstDay = (locale.getWeekInfo?.() || locale.weekInfo)?.firstDay ?? 7;
     const offset = firstDay === 7 ? 0 : firstDay;
     return { labels: [...labels.slice(offset), ...labels.slice(0, offset)], offset };
   }
 
   function renderCalendar(cat) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const mon = now.getMonth();
+    const [year, monthNumber] = state.currentMonth.split("-").map(Number);
+    const mon = monthNumber - 1;
     const daysInMonth = new Date(year, mon+1, 0).getDate();
     const today = getToday();
     const monthName = new Date(year, mon).toLocaleDateString(undefined,{month:"long",year:"numeric"});
@@ -1361,7 +1548,8 @@
       txByDay[t.date].push(t);
     });
 
-    let h = `<div class="calendar-card"><div class="cal-month">${monthName}</div><div class="cal-grid">`;
+    const outside = getTx(cat).filter(t => t.date.slice(0,7) !== state.currentMonth).length;
+    let h = `<div class="calendar-card"><div class="cal-month">${monthName}</div>${outside ? `<div class="settings-help">${outside} transaction${outside === 1 ? " is" : "s are"} dated outside this month. They count toward your totals but are not shown in this calendar.</div>` : ""}<div class="cal-grid">`;
     weekLabels.forEach(d => {
       h += `<div class="cal-day-label">${d}</div>`;
     });
@@ -1370,7 +1558,7 @@
       const ds = `${year}-${String(mon+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
       const items = txByDay[ds] || [];
       const hasItems = items.length > 0;
-      const net = items.reduce((s,e) => s + (e.isRefund ? -e.amount : e.amount), 0);
+      const net = sumTransactions(items);
       const isToday = ds === today;
       const isSel = ds === state.selectedCalDay;
       let cls = "cal-day";
@@ -1379,7 +1567,7 @@
       if (isSel) cls += " selected";
       h += `<button class="${cls}" data-calday="${ds}">
         <span class="cal-num">${d}</span>
-        ${hasItems ? `<span class="cal-amount ${net < 0 ? 'refund' : ''}">${net < 0 ? "+$" : "$"}${Math.abs(net).toFixed(0)}</span>` : ""}
+        ${hasItems ? `<span class="cal-amount ${net < 0 ? 'refund' : ''}">${net < 0 ? "+" : ""}${fmtCurrency(Math.abs(net))}</span>` : ""}
       </button>`;
     }
     h += `</div>`;
@@ -1398,7 +1586,7 @@
             <span style="font-family:var(--font-mono);font-weight:500;color:${t.isRefund ? 'var(--green)' : '#5a6e58'}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
           </div>`;
         });
-        const netTotal = items.reduce((s,e) => s + (e.isRefund ? -e.amount : e.amount), 0);
+        const netTotal = sumTransactions(items);
         h += `<div class="cal-detail-net">Net: ${fmtCurrency(netTotal)}</div>`;
       }
       h += `</div>`;
@@ -1412,12 +1600,46 @@
     // Sign out
     document.getElementById("signOutBtn")?.addEventListener("click", handleSignOut);
 
+    document.getElementById("importCancel")?.addEventListener("click", () => { state.pendingImport = null; render(); });
+    document.getElementById("importConfirm")?.addEventListener("click", confirmImport);
+    document.getElementById("exportBackup")?.addEventListener("click", exportCurrentBackup);
+    document.getElementById("recoveryExport")?.addEventListener("click", exportCurrentBackup);
+    document.getElementById("recoveryOriginal")?.addEventListener("click", () => {
+      try {
+        const key = cacheKeyForUser(state.user.uid);
+        const raw = localStorage.getItem(`${key}:recovery`) || localStorage.getItem(key);
+        if (!raw) throw new Error("No original device save is available.");
+        const url = URL.createObjectURL(new Blob([raw], {type:"text/plain"}));
+        const link = document.createElement("a"); link.href = url; link.download = "Sprout-Recovery.txt"; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) { state.statusMessage = error.message; render(); }
+    });
+    document.getElementById("importBackup")?.addEventListener("change", e => previewImport(e.target.files[0]));
+    document.getElementById("undoImport")?.addEventListener("click", () => { state.pendingAction = {kind:"undo"}; render(); });
+    document.querySelectorAll("[data-removerule]").forEach(btn => btn.addEventListener("click", () => {
+      if (!canEdit()) return;
+      state.pendingAction = {kind:"stop", id:btn.dataset.removerule}; render();
+    }));
+    document.getElementById("actionCancel")?.addEventListener("click", () => { state.pendingAction = null; render(); });
+    document.getElementById("actionConfirm")?.addEventListener("click", () => {
+      const action = state.pendingAction;
+      state.pendingAction = null;
+      if (action?.kind === "undo") { undoImport(); return; }
+      if (action?.kind === "stop" && canEdit()) {
+        state.recurringRules = state.recurringRules.filter(r => r.id !== action.id);
+        scheduleSave();
+      }
+      render();
+    });
+    document.getElementById("resetCancel")?.addEventListener("click", () => { state.showReset = false; render(); });
     // Reset
     document.getElementById("resetBtn")?.addEventListener("click", () => { state.showReset = true; render(); });
     document.getElementById("resetKeep")?.addEventListener("click", () => {
+      if (!canEdit()) return;
+      keepLedger(state, getToday());
       state.showReset = false;
-      state.currentMonth = getCurrentMonth();
       state.selectedCalDay = null;
+      state.showForm = null;
       scheduleSave();
       render();
     });
@@ -1433,14 +1655,12 @@
     document.getElementById("settingsClose")?.addEventListener("click", () => {
       state.showSettings = false;
       state.selectedHistoryMonthKey = null;
-      scheduleSave();
       render();
     });
     document.getElementById("settingsOverlay")?.addEventListener("click", (e) => {
       if (e.target.id === "settingsOverlay") {
         state.showSettings = false;
         state.selectedHistoryMonthKey = null;
-        scheduleSave();
         render();
       }
     });
@@ -1459,13 +1679,16 @@
       });
     });
 
+    // Save category changes immediately, rather than relying on closing Settings.
     // Category name change
     document.querySelectorAll("[data-catnameidx]").forEach(inp => {
       inp.addEventListener("change", () => {
         const idx = parseInt(inp.dataset.catnameidx);
         if (inp.value.trim()) {
-          state.personalCategories[idx].label = inp.value.trim();
-          // Don't re-render, just save on close
+          if (!canEdit()) return;
+          const label = inp.value.trim();
+          state.personalCategories[idx].label = label;
+          scheduleSave();
         }
       });
     });
@@ -1474,8 +1697,9 @@
     document.querySelectorAll("[data-catremoveidx]").forEach(btn => {
       btn.addEventListener("click", () => {
         const idx = parseInt(btn.dataset.catremoveidx);
+        if (!canEdit()) return;
         state.personalCategories.splice(idx, 1);
-        render();
+        scheduleSave(); render();
       });
     });
 
@@ -1485,15 +1709,20 @@
       const used = new Set(state.personalCategories.map(c => c.emoji));
       const available = EMOJI_OPTIONS.filter(e => !used.has(e));
       const emoji = available.length > 0 ? available[0] : "📌";
-      state.personalCategories.push({ emoji, label: "New" });
-      render();
+      if (!canEdit()) return;
+      let label = "New";
+      for (let n = 2; state.personalCategories.some(c => c.label === label); n++) label = `New ${n}`;
+      state.personalCategories.push({ id:newTransactionId(), emoji, label });
+      scheduleSave(); render();
     });
 
     // Emoji grid picker
     document.querySelectorAll("[data-pickemoji]").forEach(btn => {
       btn.addEventListener("click", () => {
         if (state.emojiPickerForIndex !== null && state.personalCategories[state.emojiPickerForIndex]) {
+          if (!canEdit()) return;
           state.personalCategories[state.emojiPickerForIndex].emoji = btn.dataset.pickemoji;
+          scheduleSave();
           state.emojiPickerForIndex = null;
           render();
         }
@@ -1507,7 +1736,7 @@
     document.querySelectorAll("[data-tab]").forEach(btn => {
       btn.addEventListener("click", () => {
         state.activeTab = btn.dataset.tab;
-        state.showCalendar = false; state.showForm = null;
+        state.showCalendar = false; state.showForm = null; state.editingTransactionId = null;
         state.selectedCalDay = null; state.editingBudget = false;
         state.formEmoji = state.activeTab === "personal" ? (state.personalCategories[0]?.emoji || "🛍️") : "🛒";
         render();
@@ -1515,10 +1744,13 @@
     });
 
     // Budget setter
-    document.getElementById("budgetEdit")?.addEventListener("click", () => { state.editingBudget = true; render(); });
+    document.getElementById("budgetEdit")?.addEventListener("click", () => { state.editingBudget = true; state.budgetInput = editableAmount(getBaseBudget(state.activeTab)); state.budgetError = ""; render(); });
     document.getElementById("budgetSave")?.addEventListener("click", () => {
-      const v = parseFloat(document.getElementById("budgetInput").value);
-      if (Number.isFinite(v) && v >= 0 && v <= MAX_AMOUNT) {
+      if (!canEdit()) return;
+      const v = parseAmount(document.getElementById("budgetInput").value, navigator.language || "en-US");
+      if (v === null) { state.budgetError = "Enter a valid amount from $0 to $999,999.99."; render(); return; }
+      state.budgetError = "";
+      if (v >= 0) {
         // Sets the recurring monthly budget; carryover is separate and untouched.
         // This used to take base + carryover and back a new base out of it, so a
         // one-month adjustment permanently moved the monthly budget, and anything
@@ -1534,6 +1766,7 @@
       }
     });
     document.getElementById("budgetCancel")?.addEventListener("click", () => { state.editingBudget = false; render(); });
+    document.getElementById("budgetInput")?.addEventListener("input", e => { state.budgetInput = e.target.value; });
     document.getElementById("budgetInput")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") document.getElementById("budgetSave")?.click();
     });
@@ -1552,17 +1785,14 @@
     // Quick add
     document.querySelectorAll("[data-quickname]").forEach(btn => {
       btn.addEventListener("click", () => {
-        state.formName = btn.dataset.quickname;
-        state.formEmoji = btn.dataset.quickemoji;
-        state.showForm = "expense";
-        render();
+        startForm("expense", {name:btn.dataset.quickname, emoji:btn.dataset.quickemoji});
         document.getElementById("formAmount")?.focus();
       });
     });
 
     // Add buttons
-    document.getElementById("addExpense")?.addEventListener("click", () => { state.showForm = "expense"; render(); });
-    document.getElementById("addPayment")?.addEventListener("click", () => { state.showForm = "payment"; render(); });
+    document.getElementById("addExpense")?.addEventListener("click", () => startForm("expense"));
+    document.getElementById("addPayment")?.addEventListener("click", () => startForm("payment"));
 
     // Emoji picker
     document.querySelectorAll("[data-emoji]").forEach(btn => {
@@ -1570,10 +1800,25 @@
     });
 
     // Form inputs (sync to state)
-    document.getElementById("formName")?.addEventListener("input", (e) => { state.formName = e.target.value; });
-    document.getElementById("formAmount")?.addEventListener("input", (e) => { state.formAmount = e.target.value; });
+    document.getElementById("formName")?.addEventListener("input", (e) => { state.formName = e.target.value; state.formError = ""; });
+    document.getElementById("formAmount")?.addEventListener("input", (e) => { state.formAmount = e.target.value; state.formError = ""; });
     document.getElementById("formNote")?.addEventListener("input", (e) => { state.formNote = e.target.value; });
-    document.getElementById("formDate")?.addEventListener("input", (e) => { state.formDate = e.target.value; });
+    document.getElementById("formDate")?.addEventListener("change", (e) => {
+      state.formDate = e.target.value;
+      state.formNextDate = nextOccurrence(state.formDate, state.formFrequency, Number(state.formDate.slice(-2)));
+      render();
+    });
+    document.getElementById("formRecurring")?.addEventListener("change", e => { state.formRecurring = e.target.checked; render(); });
+    document.getElementById("formFrequency")?.addEventListener("change", e => {
+      state.formFrequency = e.target.value;
+      state.formNextDate = nextOccurrence(state.formDate, state.formFrequency, Number(state.formDate.slice(-2))); render();
+    });
+    document.getElementById("formNextDate")?.addEventListener("input", e => { state.formNextDate = e.target.value; });
+    document.getElementById("formMode")?.addEventListener("change", e => { state.showForm = e.target.value; render(); });
+    document.querySelectorAll("[data-editid]").forEach(btn => btn.addEventListener("click", () => {
+      const entry = state.transactions.find(t => t.id === btn.dataset.editid);
+      if (entry) startForm(entry.isRefund ? "payment" : "expense", entry, true);
+    }));
 
     // Form submit / cancel
     document.getElementById("formSubmit")?.addEventListener("click", () => {
@@ -1584,6 +1829,8 @@
       state.formDate = getToday(); render();
     });
 
+    // Data recovery is read-only until a validated import resolves it.
+    if (!canEdit()) document.querySelectorAll("#budgetEdit,#addExpense,#addPayment,#resetBtn,#catAddBtn,[data-catnameidx],[data-catidx],[data-catremoveidx],[data-editid],[data-txid],[data-removerule],[data-quickname]").forEach(el => { el.disabled = true; });
     // Delete transaction
     document.querySelectorAll("[data-txid]").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1593,6 +1840,14 @@
     });
   }
 
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const cancel = document.getElementById("actionCancel") || document.getElementById("importCancel") || document.getElementById("resetCancel") || document.getElementById("deleteCancel") || document.getElementById("settingsClose");
+    if (state.emojiPickerForIndex !== null) { state.emojiPickerForIndex = null; render(); }
+    else cancel?.click();
+  });
+  window.addEventListener("focus", refreshDate);
+  document.addEventListener("visibilitychange", refreshDate);
   // Initial render
   render();
 </script>

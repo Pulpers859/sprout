@@ -7,9 +7,9 @@
 - `Sprout-iOS/`
   Native SwiftUI app. The buildable project lives at `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`.
 - `Sprout-html/`
-  Legacy single-file web prototype. Runtime entry point is `Sprout-html/index.html`.
+  Web app. Runtime entry point is `Sprout-html/index.html`, with small modules for money, ledger/recurrence, and portable backups.
 
-The iOS app is the higher-value surface. The web app still matters as a behavior reference during the migration.
+The iOS app is the higher-value surface. The web app follows the applicable iOS budget behavior; intentional differences are tracked in `docs/surface-drift.md`.
 
 ## Workspace layout
 
@@ -52,6 +52,29 @@ Until that runs, the hook file is inert. Live Firebase values belong in
 
 - Web behavior can be checked from this Windows workspace.
 - iOS source and project structure can be reviewed here, but SwiftUI/Xcode runtime validation still needs macOS/Xcode.
+
+## Web checks and hosting
+
+Run the dependency-free regression suite with Node.js 20 or newer:
+
+```powershell
+node --test Sprout-html/money.test.mjs Sprout-html/ledger.test.mjs Sprout-html/backup.test.mjs Sprout-html/app.test.mjs
+```
+
+These tests cover money, rollover, recurrence, backups, and app integration with
+fake Firebase/storage. They do not test live Google authentication or Firestore.
+The existing generated Xcode CI remains unchanged; the web suite is run locally.
+
+Serve the whole `Sprout-html/` directory over HTTP(S), including `money.mjs`,
+`ledger.mjs`, and `backup.mjs` with a JavaScript MIME type. Opening `index.html`
+directly as a file is not supported. Preserve your ignored Firebase configuration.
+No deployment is performed by the test command.
+
+Settings offers portable iOS-compatible backups. Web cache/cloud documents retain
+dollar amounts (schema 1); exported backups use integer cents (schema 2). Import
+previews and confirms replacement of the signed-in web account, saves an undo
+copy on that device, and refuses malformed backups. The iOS app does not share
+Firebase accounts: moving data between surfaces requires export/import.
 
 ## Git handoff expectation
 
