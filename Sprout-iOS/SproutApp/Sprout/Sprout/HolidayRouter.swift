@@ -26,24 +26,27 @@ final class HolidayRouter: ObservableObject {
             case .addGift(let recipient, let isReturn):
                 let kind = isReturn ? "return" : "gift"
                 switch recipient {
-                case .unspecified: "add-\(kind)-unspecified"
-                case .nobody: "add-\(kind)-nobody"
-                case .person(let id): "add-\(kind)-\(id.uuidString)"
+                case .unspecified:
+                    return "add-\(kind)-unspecified"
+                case .nobody:
+                    return "add-\(kind)-nobody"
+                case .person(let id):
+                    return "add-\(kind)-\(id.uuidString)"
                 }
             case .editGift(let purchase):
-                "editGift-\(purchase.id.uuidString)"
+                return "editGift-\(purchase.id.uuidString)"
             case .addPerson:
-                "addPerson"
+                return "addPerson"
             case .editPerson(let recipient):
-                "editPerson-\(recipient.id.uuidString)"
+                return "editPerson-\(recipient.id.uuidString)"
             case .editBudget:
-                "editBudget"
+                return "editBudget"
             case .renameSeason:
-                "renameSeason"
+                return "renameSeason"
             case .startNewSeason:
-                "startNewSeason"
+                return "startNewSeason"
             case .seasonHistory:
-                "seasonHistory"
+                return "seasonHistory"
             }
         }
     }
