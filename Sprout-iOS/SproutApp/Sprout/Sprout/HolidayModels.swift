@@ -60,6 +60,43 @@ enum AppSection: String, Codable, Hashable, Identifiable, CaseIterable {
     }
 }
 
+/// Who a gift sheet opens on.
+///
+/// `recipientID: UUID?` alone could not express this: `nil` meant both
+/// "deliberately not for one person" and "nobody has said yet", so the primary
+/// Add gift button opened pre-selected on the nobody chip — which was rendered
+/// last in a scrolling row and therefore usually off screen. A gift logged on
+/// that happy path landed under "Not for one person" with no prompt and no
+/// error, which defeats the point of tracking spending per person.
+enum GiftRecipientSelection: Equatable {
+    /// Nobody has chosen yet. The sheet asks before it will save.
+    case unspecified
+    /// Explicitly not for one person.
+    case nobody
+    case person(UUID)
+
+    var recipientID: UUID? {
+        switch self {
+        case .unspecified, .nobody:
+            nil
+        case .person(let id):
+            id
+        }
+    }
+
+    var isChosen: Bool { self != .unspecified }
+}
+
+/// Navigation value for a person's gift list, or for the unassigned bucket.
+///
+/// The holiday stack is driven by a path so that switching tabs can clear it;
+/// without that, a quick-add Shortcut that moves the app to Grocery left the
+/// user on a pushed Holiday screen with Grocery selected underneath it.
+struct HolidayRecipientRoute: Hashable {
+    /// `nil` is the "not for one person" bucket.
+    let recipientID: UUID?
+}
+
 /// Someone you are buying gifts for this season.
 struct GiftRecipient: Codable, Hashable, Identifiable {
     var id: UUID
@@ -68,10 +105,10 @@ struct GiftRecipient: Codable, Hashable, Identifiable {
     /// What you mean to spend on this person.
     ///
     /// `nil` means no target is set, which is **not** the same as a target of
-    /// zero: a nil target leaves the season's budget unallocated, while a zero
-    /// target says "nothing for this person". Collapsing the two would make the
-    /// unallocated figure count every untargeted person as planned-$0 and read
-    /// as if the whole budget were already divided up.
+    /// zero: a nil target reserves nothing, while a zero target says "nothing
+    /// for this person". Collapsing the two would make `unreserved` treat every
+    /// untargeted person as having asked for $0 and read as if the whole budget
+    /// were already divided up.
     var plannedAmount: MoneyAmount?
     var createdAt: Date
 
@@ -265,8 +302,34 @@ struct HolidaySeason: Codable, Hashable, Identifiable {
         recipients.reduce(.zero) { $0 + ($1.plannedAmount ?? .zero) }
     }
 
-    /// Budget not yet promised to anyone. Negative when the targets overcommit it.
-    var unallocated: MoneyAmount { budget - plannedTotal }
+    /// Whether anyone has a target at all.
+    ///
+    /// Deliberately not `plannedTotal > .zero`: a list where every target is
+    /// set to zero does have targets, and reading the total alone reported that
+    /// it had none.
+    var hasPerPersonTargets: Bool {
+        recipients.contains { $0.plannedAmount != nil }
+    }
+
+    /// The part of each person's target that has not been spent yet, summed.
+    /// Someone who has already overshot their target reserves nothing further.
+    var remainingTargets: MoneyAmount {
+        recipients.reduce(.zero) { partial, recipient in
+            guard let planned = recipient.plannedAmount else { return partial }
+            return partial + max(planned - totalSpent(for: recipient.id), .zero)
+        }
+    }
+
+    /// Budget that is neither already spent nor still reserved by someone's
+    /// remaining target.
+    ///
+    /// This replaced `budget - plannedTotal`, which ignored spending entirely:
+    /// a season $120 over budget could show "Left to plan $200" on the same
+    /// card as "OVER BUDGET $120" — two figures a reader takes as "money I can
+    /// still commit", which is the exact bug the monthly summary card had to be
+    /// fixed for. Subtracting spend makes this always `<= remaining`, so it can
+    /// describe a slice of the headline figure but never contradict it.
+    var unreserved: MoneyAmount { remaining - remainingTargets }
 
     func totalSpent(for recipientID: UUID?) -> MoneyAmount {
         purchases.reduce(.zero) { partial, purchase in

@@ -190,7 +190,14 @@ struct SettingsSheet: View {
         } message: { pending in
             // Importing is the only irreversible action in the app. It used to run
             // the instant a file was chosen, with no idea what was in it.
-            Text("This replaces your current budgets, transactions, recurring items, categories, and month history with the backup's.\n\nBackup contains: \(pending.summary)")
+            //
+            // The list has to name everything that goes, holiday data included.
+            // Leaving it off told the user they would lose budgets,
+            // transactions, recurring items, categories and months — and then
+            // also took their season, every person and every gift. The
+            // "Backup contains" line describes the *incoming* file, so on its
+            // own it reads as reassurance rather than as a warning.
+            Text(replaceWarning(for: pending))
         }
         .alert(
             statusMessage?.title ?? "",
@@ -219,6 +226,16 @@ struct SettingsSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+
+    /// Names what is about to be destroyed before it names what is arriving.
+    private func replaceWarning(for pending: PendingBackupImport) -> String {
+        var message = "This replaces your current budgets, transactions, recurring items, "
+            + "categories, month history, and holiday seasons with the backup's."
+        if let holiday = store.holidayReplacementWarning {
+            message += "\n\nYou will lose \(holiday)."
+        }
+        return message + "\n\nBackup contains: \(pending.summary)"
     }
 
     private var backupFileName: String {

@@ -19,11 +19,22 @@ struct GiftEntrySheet: View {
     @State private var draft: GiftPurchaseDraft
     @State private var validationMessage: String?
     @State private var isSubmitting = false
+    /// False until the user says who the gift is for. See
+    /// `GiftRecipientSelection`: without this, the primary Add gift button
+    /// opened pre-selected on "Not for one person" and a gift saved straight
+    /// away was filed against nobody, silently.
+    @State private var hasPickedRecipient: Bool
 
-    init(isEditing: Bool = false, initialDraft: GiftPurchaseDraft, onSubmit: @escaping (GiftPurchaseDraft) -> Bool) {
+    init(
+        isEditing: Bool = false,
+        initialDraft: GiftPurchaseDraft,
+        recipientIsChosen: Bool,
+        onSubmit: @escaping (GiftPurchaseDraft) -> Bool
+    ) {
         self.isEditing = isEditing
         self.onSubmit = onSubmit
         _draft = State(initialValue: initialDraft)
+        _hasPickedRecipient = State(initialValue: recipientIsChosen)
     }
 
     var body: some View {
@@ -102,25 +113,32 @@ struct GiftEntrySheet: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    // First, not last. It used to sit after every person in a
+                    // scrolling row, so with four people or one long name it
+                    // was off screen — while being the selected option.
+                    //
+                    // Still a first-class choice, not only what a removed
+                    // person leaves behind: wrapping paper and party gifts are
+                    // real holiday spending that belongs to nobody in
+                    // particular.
+                    chip(
+                        title: "Not for one person",
+                        emoji: "🎁",
+                        isSelected: hasPickedRecipient && draft.recipientID == nil
+                    ) {
+                        draft.recipientID = nil
+                        hasPickedRecipient = true
+                    }
+
                     ForEach(store.holidayRecipients) { recipient in
                         chip(
                             title: recipient.name,
                             emoji: recipient.emoji,
-                            isSelected: draft.recipientID == recipient.id
+                            isSelected: hasPickedRecipient && draft.recipientID == recipient.id
                         ) {
                             draft.recipientID = recipient.id
+                            hasPickedRecipient = true
                         }
-                    }
-
-                    // A first-class choice, not only what a removed person
-                    // leaves behind: wrapping paper and party gifts are real
-                    // holiday spending that belongs to nobody in particular.
-                    chip(
-                        title: "Not for one person",
-                        emoji: "🎁",
-                        isSelected: draft.recipientID == nil
-                    ) {
-                        draft.recipientID = nil
                     }
                 }
             }
@@ -128,6 +146,10 @@ struct GiftEntrySheet: View {
 
             if store.holidayRecipients.isEmpty {
                 Text("Add people on the Holiday tab to track who each gift is for.")
+                    .font(.caption)
+                    .foregroundStyle(Color.sproutTextMuted)
+            } else if !hasPickedRecipient {
+                Text("Pick a person, or \u{201C}Not for one person\u{201D}.")
                     .font(.caption)
                     .foregroundStyle(Color.sproutTextMuted)
             }
@@ -143,8 +165,10 @@ struct GiftEntrySheet: View {
             }
             .font(.subheadline.weight(.medium))
             .foregroundStyle(isSelected ? Color.white : Color.sproutText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 14)
+            // 44pt is the minimum comfortable touch target; the padding alone
+            // left these at about 38.
+            .frame(minHeight: 44)
             .background(isSelected ? Color.sproutBerryDark : Color.sproutCard, in: Capsule())
             .overlay(Capsule().stroke(Color.sproutBorder, lineWidth: 1))
         }
@@ -169,7 +193,7 @@ struct GiftEntrySheet: View {
         HStack(spacing: 10) {
             Label("Bought on", systemImage: "calendar")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.sproutBerryDark)
+                .foregroundStyle(Color.sproutBerryText)
 
             Spacer()
 
@@ -252,6 +276,12 @@ struct GiftEntrySheet: View {
         case .invalid:
             validationMessage = "Enter an amount greater than zero."
             focusedField = .amount
+            return
+        }
+
+        // Saving a gift against nobody has to be a decision, not a default.
+        guard hasPickedRecipient || store.holidayRecipients.isEmpty else {
+            validationMessage = "Choose who this gift is for, or tap \u{201C}Not for one person\u{201D}."
             return
         }
 

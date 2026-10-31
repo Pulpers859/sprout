@@ -21,12 +21,16 @@ struct HolidaySeasonSheet: View {
     let personCount: Int
     let budget: MoneyAmount
     let archivedCount: Int
+    /// The name a new season will actually be given when the field is left
+    /// empty. Passed in rather than recomputed here so the caption cannot
+    /// promise one name while the store assigns another.
+    let defaultNewLabel: String
     /// `label` and, for a new season, whether to keep the same people.
     let onSubmit: (String, Bool) -> Bool
 
     @FocusState private var isNameFocused: Bool
     @State private var label: String
-    @State private var carryRecipients = true
+    @State private var carryRecipients: Bool
     @State private var validationMessage: String?
     @State private var isSubmitting = false
 
@@ -37,6 +41,7 @@ struct HolidaySeasonSheet: View {
         personCount: Int,
         budget: MoneyAmount,
         archivedCount: Int,
+        defaultNewLabel: String,
         onSubmit: @escaping (String, Bool) -> Bool
     ) {
         self.mode = mode
@@ -45,8 +50,11 @@ struct HolidaySeasonSheet: View {
         self.personCount = personCount
         self.budget = budget
         self.archivedCount = archivedCount
+        self.defaultNewLabel = defaultNewLabel
         self.onSubmit = onSubmit
         _label = State(initialValue: mode == .rename ? currentLabel : "")
+        // L23: a switch that is on while saying there is nothing to carry.
+        _carryRecipients = State(initialValue: personCount > 0)
     }
 
     var body: some View {
@@ -105,7 +113,7 @@ struct HolidaySeasonSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.sproutBorder, lineWidth: 1))
 
             if mode == .startNew {
-                Text("Leave it empty to use \u{201C}\(HolidaySeason.defaultLabel())\u{201D}.")
+                Text("Leave it empty to use \u{201C}\(defaultNewLabel)\u{201D}.")
                     .font(.caption)
                     .foregroundStyle(Color.sproutTextMuted)
             }
@@ -113,7 +121,7 @@ struct HolidaySeasonSheet: View {
     }
 
     private var placeholder: String {
-        mode == .rename ? currentLabel : HolidaySeason.defaultLabel()
+        mode == .rename ? currentLabel : defaultNewLabel
     }
 
     private var carryToggle: some View {
@@ -137,6 +145,10 @@ struct HolidaySeasonSheet: View {
                 .labelsHidden()
                 .tint(Color.sproutBerryDark)
                 .disabled(personCount == 0)
+                // VoiceOver announced only "switch button, on" — anonymous, on
+                // the control that decides whether the whole people list
+                // survives the season change.
+                .accessibilityLabel("Keep the same people")
         }
         .padding(16)
         .background(Color.sproutBerryLight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -157,7 +169,7 @@ struct HolidaySeasonSheet: View {
             )
             consequence(
                 "clock.arrow.circlepath",
-                "Sprout keeps your \(BudgetStore.holidaySeasonHistoryLimit) most recent seasons"
+                "Find it later under Past seasons in the Holiday menu, or Settings \u{203A} History. Sprout keeps your \(BudgetStore.holidaySeasonHistoryLimit) most recent seasons"
                     + (archivedCount >= BudgetStore.holidaySeasonHistoryLimit
                        ? ", so the oldest one will be dropped."
                        : ".")

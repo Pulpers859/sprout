@@ -10,7 +10,6 @@ struct HolidaySeasonsSheet: View {
     @EnvironmentObject private var store: BudgetStore
 
     @State private var selectedSeason: HolidaySeason?
-    @State private var pendingDelete: HolidaySeason?
 
     var body: some View {
         NavigationStack {
@@ -25,7 +24,7 @@ struct HolidaySeasonsSheet: View {
                     .padding(.horizontal, 20)
                 } else {
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("These snapshots are read-only and limited to your \(BudgetStore.holidaySeasonHistoryLimit) most recent seasons.")
+                        Text("A past season can be opened or deleted, but not edited. Sprout keeps your \(BudgetStore.holidaySeasonHistoryLimit) most recent.")
                             .font(.subheadline)
                             .foregroundStyle(Color.sproutTextSecondary)
 
@@ -36,11 +35,6 @@ struct HolidaySeasonsSheet: View {
                                 ArchivedSeasonRow(season: season)
                             }
                             .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("Delete this season", systemImage: "trash", role: .destructive) {
-                                    pendingDelete = season
-                                }
-                            }
                         }
                     }
                     .padding(20)
@@ -59,20 +53,17 @@ struct HolidaySeasonsSheet: View {
             }
         }
         .sheet(item: $selectedSeason) { season in
-            ArchivedSeasonDetailView(season: season)
-        }
-        .alert("Delete this season?", isPresented: Binding(
-            get: { pendingDelete != nil },
-            set: { if !$0 { pendingDelete = nil } }
-        ), presenting: pendingDelete) { season in
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
+            // Delete lives in the detail view's toolbar rather than behind a
+            // long press on the row: a destructive action with no affordance on
+            // screen is one the user either never finds or finds by accident.
+            // The confirmation lives inside the detail view. Dismissing this
+            // sheet and raising an alert here in the same closure races the two
+            // presentations, and SwiftUI drops one of them.
+            ArchivedSeasonDetailView(season: season) {
                 HapticFeedback.warning()
                 store.removeArchivedHolidaySeason(season)
-                pendingDelete = nil
+                selectedSeason = nil
             }
-        } message: { season in
-            Text("\(season.label) and its \(season.purchaseCount) gift\(season.purchaseCount == 1 ? "" : "s") will be removed. This can't be undone.")
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -149,12 +140,21 @@ private struct ArchivedSeasonDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     let season: HolidaySeason
+    let onConfirmDelete: () -> Void
+
+    @State private var isConfirmingDelete = false
 
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 20) {
                     header
+
+                    Text("A read-only snapshot of the season you closed out.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.sproutTextSecondary)
+
+                    peopleBreakdown
 
                     if season.purchases.isEmpty {
                         Text("No gifts were logged in this season.")
@@ -208,6 +208,17 @@ private struct ArchivedSeasonDetailView: View {
             .navigationTitle(season.label)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button("Delete this season", systemImage: "trash", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Season options")
+                }
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         dismiss()
@@ -218,6 +229,74 @@ private struct ArchivedSeasonDetailView: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .alert("Delete this season?", isPresented: $isConfirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                onConfirmDelete()
+                dismiss()
+            }
+        } message: {
+            Text("\(season.label) and its \(season.purchaseCount) gift\(season.purchaseCount == 1 ? "" : "s") will be removed. This can't be undone.")
+        }
+    }
+
+    /// The row that opens this view promises "N gifts for M people", and the
+    /// whole stated point of keeping a season is being able to see what each
+    /// person cost. A flat gift list did not answer that.
+    @ViewBuilder
+    private var peopleBreakdown: some View {
+        let people = season.recipientsInDisplayOrder
+        let unassigned = season.totalSpent(for: nil)
+
+        if !people.isEmpty || unassigned > .zero {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Per person")
+                    .font(.headline)
+                    .foregroundStyle(Color.sproutText)
+                    .padding(.bottom, 8)
+
+                ForEach(people) { person in
+                    breakdownRow(
+                        emoji: person.emoji,
+                        name: person.name,
+                        amount: season.totalSpent(for: person.id),
+                        planned: person.plannedAmount
+                    )
+                    Divider()
+                }
+
+                if unassigned > .zero {
+                    breakdownRow(
+                        emoji: "🎁",
+                        name: "Not for one person",
+                        amount: unassigned,
+                        planned: nil
+                    )
+                }
+            }
+        }
+    }
+
+    private func breakdownRow(emoji: String, name: String, amount: MoneyAmount, planned: MoneyAmount?) -> some View {
+        HStack(spacing: 10) {
+            Text(emoji)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.sproutText)
+                if let planned {
+                    Text("of \(SproutFormatters.currency(planned)) planned")
+                        .font(.caption)
+                        .foregroundStyle(Color.sproutTextMuted)
+                }
+            }
+            Spacer(minLength: 8)
+            Text(SproutFormatters.currency(amount))
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(Color.sproutText)
+        }
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 
     private var header: some View {

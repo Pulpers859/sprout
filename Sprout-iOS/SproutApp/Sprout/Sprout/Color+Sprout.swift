@@ -115,6 +115,16 @@ extension Color {
         light: UIColor(red: 0.420, green: 0.086, blue: 0.208, alpha: 1),
         dark: UIColor(red: 0.733, green: 0.251, blue: 0.388, alpha: 1)
     )
+    /// Berry for *text* on the app background.
+    ///
+    /// `sproutBerryDark` is tuned for white-on-berry fills, and its dark-mode
+    /// variant only reaches about 3.4:1 against the dark background — under the
+    /// 4.5:1 WCAG AA floor for body text. This variant clears it in both
+    /// schemes (~10.9:1 light, ~6.9:1 dark).
+    static let sproutBerryText = adaptive(
+        light: UIColor(red: 0.420, green: 0.086, blue: 0.208, alpha: 1),
+        dark: UIColor(red: 0.902, green: 0.510, blue: 0.608, alpha: 1)
+    )
     static let sproutBerryLight = adaptive(
         light: UIColor(red: 0.976, green: 0.902, blue: 0.925, alpha: 1),
         dark: UIColor(red: 0.196, green: 0.078, blue: 0.114, alpha: 1)

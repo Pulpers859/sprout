@@ -23,7 +23,12 @@ struct GiftRecipientDetailView: View {
                 summary(recipient: recipient, spent: spent, giftCount: gifts.count)
 
                 Button {
-                    router.present(.addGift(recipientID: recipientID))
+                    // Pre-chosen, so this sheet does not ask again: the user
+                    // reached it from a list that is already scoped to one
+                    // person, or from the unassigned bucket.
+                    router.present(.addGift(
+                        recipient: recipientID.map { GiftRecipientSelection.person($0) } ?? .nobody
+                    ))
                 } label: {
                     Label(
                         recipient.map { "Add gift for \($0.name)" } ?? "Add gift",
@@ -94,8 +99,12 @@ struct GiftRecipientDetailView: View {
                 Spacer()
             }
 
-            if let planned = recipient?.plannedAmount {
+            if let recipient, let planned = recipient.plannedAmount {
                 let remaining = planned - spent
+                // Progress comes from the store, not a second local copy of the
+                // same formula — two implementations of one figure are a drift
+                // hazard by construction.
+                let fraction = store.holidayProgress(forRecipient: recipient) ?? 0
                 VStack(alignment: .leading, spacing: 6) {
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
@@ -103,10 +112,13 @@ struct GiftRecipientDetailView: View {
                                 .fill(Color.white.opacity(0.16))
                             Capsule()
                                 .fill(remaining < .zero ? Color.sproutRedBright : Color.sproutMint)
-                                .frame(width: geometry.size.width * progress(planned: planned, spent: spent))
+                                .frame(width: geometry.size.width * fraction)
                         }
                     }
                     .frame(height: 6)
+                    .accessibilityElement()
+                    .accessibilityLabel("\(recipient.name) progress")
+                    .accessibilityValue("\(Int(fraction * 100)) percent of the planned amount spent")
 
                     Text(remaining < .zero
                          ? "\(SproutFormatters.currency(remaining.magnitude)) over the \(SproutFormatters.currency(planned)) planned"
@@ -126,12 +138,6 @@ struct GiftRecipientDetailView: View {
         .padding(20)
         .background(AppSection.holiday.heroGradient, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .shadow(color: Color.sproutBerryDark.opacity(0.2), radius: 16, x: 0, y: 8)
-    }
-
-    private func progress(planned: MoneyAmount, spent: MoneyAmount) -> Double {
-        let spent = max(spent, .zero)
-        guard planned > .zero else { return spent > .zero ? 1 : 0 }
-        return min(Double(spent.cents) / Double(planned.cents), 1)
     }
 
     @ViewBuilder
@@ -159,7 +165,7 @@ struct GiftRecipientDetailView: View {
                         purchase: purchase,
                         // The heading already names who this list is for.
                         recipientName: nil,
-                        emoji: "🎁",
+                        emoji: store.holidayRecipient(with: purchase.recipientID)?.emoji ?? "🎁",
                         onEdit: { router.present(.editGift(purchase)) },
                         onRemove: { router.confirm(.removeGift(purchase)) }
                     )

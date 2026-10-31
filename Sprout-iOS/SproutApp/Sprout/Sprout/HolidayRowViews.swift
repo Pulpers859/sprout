@@ -27,7 +27,7 @@ struct GiftPurchaseRowView: View {
                 HStack(spacing: 5) {
                     if let recipientName {
                         Text(recipientName)
-                            .foregroundStyle(Color.sproutBerryDark)
+                            .foregroundStyle(Color.sproutBerryText)
                             .lineLimit(1)
                         Text("·")
                     }
@@ -102,10 +102,15 @@ struct GiftRecipientRowView: View {
                     .foregroundStyle(Color.sproutText)
                     .lineLimit(1)
 
+                // Never hard-clipped to one line: at accessibility sizes
+                // "$50.00 over $100.00 planned" truncated mid-number, and a
+                // truncated money figure is a wrong money figure.
                 Text(subtitle)
                     .font(.footnote)
                     .foregroundStyle(isOverTarget ? Color.sproutRed : Color.sproutTextMuted)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let progress {
                     GeometryReader { geometry in

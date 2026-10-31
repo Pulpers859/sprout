@@ -261,22 +261,75 @@ struct HolidayStoreTests {
         #expect(store.holidayPlannedTotal == .zero)
     }
 
-    @Test func unallocatedBudgetCountsOnlyRealTargets() {
+    @Test func unreservedBudgetCountsOnlyRealTargets() {
         let store = makeStore()
         store.setHolidayBudget(MoneyAmount(dollars: 600))
-        _ = addPerson(store, "Mom", planned: 200)
+        let mom = addPerson(store, "Mom", planned: 200)
         _ = addPerson(store, "Dad", planned: 150)
         _ = addPerson(store, "Sam")
 
         #expect(store.holidayPlannedTotal == MoneyAmount(dollars: 350))
-        #expect(store.holidayUnallocated == MoneyAmount(dollars: 250))
+        #expect(store.holidayUnreserved == MoneyAmount(dollars: 250))
+
+        // Spending into a target does not free up money: the target shrinks by
+        // what was spent, so the unreserved figure holds.
+        addGift(store, "Scarf", 100, for: mom.id)
+        #expect(store.holidayUnreserved == MoneyAmount(dollars: 250))
+
+        // Spending that nobody planned for does eat into it.
+        addGift(store, "Wrapping paper", 60)
+        #expect(store.holidayUnreserved == MoneyAmount(dollars: 190))
     }
 
-    @Test func overPlanningIsReportedAsNegativeUnallocated() {
+    @Test func overshootingATargetReservesNothingFurther() {
         let store = makeStore()
-        store.setHolidayBudget(MoneyAmount(dollars: 100))
-        _ = addPerson(store, "Mom", planned: 200)
-        #expect(store.holidayUnallocated == MoneyAmount(dollars: -100))
+        store.setHolidayBudget(MoneyAmount(dollars: 500))
+        let mom = addPerson(store, "Mom", planned: 100)
+        addGift(store, "Watch", 260, for: mom.id)
+
+        // Mom's target is spent past, so none of it is still held back.
+        #expect(store.holidaySeason.remainingTargets == .zero)
+        #expect(store.holidayUnreserved == MoneyAmount(dollars: 240))
+    }
+
+    /// The card showed "Left to plan $200" forty points below "OVER BUDGET
+    /// $120", because the old figure was `budget - targets` and never looked at
+    /// spending. Two numbers a reader takes as "money I can still commit" is
+    /// the same bug the monthly summary card had to be fixed for.
+    @Test func thePlanningFigureCanNeverOutClaimWhatIsAvailable() {
+        let store = makeStore()
+        store.setHolidayBudget(MoneyAmount(dollars: 500))
+        let mom = addPerson(store, "Mom", planned: 150)
+        _ = addPerson(store, "Dad", planned: 100)
+        _ = addPerson(store, "Sam", planned: 50)
+
+        // Walk from untouched, through partly spent, to well over budget.
+        for amount in [0.0, 80.0, 200.0, 240.0, 100.0] where amount > 0 {
+            addGift(store, "Gift", amount, for: mom.id)
+            #expect(store.holidayUnreserved <= store.holidayRemaining)
+        }
+
+        #expect(store.holidaySpent == MoneyAmount(dollars: 620))
+        #expect(store.holidayRemaining == MoneyAmount(dollars: -120))
+        #expect(store.holidayUnreserved <= store.holidayRemaining)
+    }
+
+    /// `plannedTotal > .zero` reported "no targets" for a list where every
+    /// target was deliberately set to zero.
+    @Test func aListOfZeroTargetsStillCountsAsHavingTargets() {
+        let store = makeStore()
+        store.setHolidayBudget(MoneyAmount(dollars: 500))
+        #expect(store.holidayHasPerPersonTargets == false)
+
+        _ = addPerson(store, "Mom")
+        #expect(store.holidayHasPerPersonTargets == false)
+
+        var draft = GiftRecipientDraft()
+        draft.name = "Neighbour"
+        draft.plannedAmountText = "0"
+        _ = store.addHolidayRecipient(draft: draft)
+        #expect(store.holidayPlannedTotal == .zero)
+        #expect(store.holidayHasPerPersonTargets)
     }
 
     @Test func removingAPersonRemovesExactlyTheMoneyTheWarningNamed() {
@@ -499,7 +552,14 @@ struct HolidayStoreTests {
         #expect(store.holidaySeasonHistory.isEmpty)
     }
 
-    @Test func twoSeasonsInOneYearGetDistinguishableNames() {
+    /// Disambiguation happens when a season is filed, not when one is opened.
+    ///
+    /// Deduping the new season's name meant the sheet promised "Holiday 2026"
+    /// and the store handed back "Holiday 2026 (2)" — and silently rewrote a
+    /// name the user had typed by hand. The season you are about to work in now
+    /// keeps exactly the name that was asked for; the history still never holds
+    /// two identical labels.
+    @Test func seasonsClosedInTheSameYearStayDistinguishableInHistory() {
         let clock = TestClock(Self.makeDate(2026, 12, 1))
         let store = makeStore(calendar: Self.gregorian, now: { clock.date })
         #expect(store.holidaySeasonLabel == "Holiday 2026")
@@ -507,12 +567,28 @@ struct HolidayStoreTests {
         addGift(store, "Scarf", 40)
         store.startNewHolidaySeason(carryRecipients: false)
         #expect(store.holidaySeasonHistory.map(\.label) == ["Holiday 2026"])
-        // Two "Holiday 2026" rows would make the history list unreadable.
-        #expect(store.holidaySeasonLabel == "Holiday 2026 (2)")
+        #expect(store.holidaySeasonLabel == store.defaultNewHolidaySeasonLabel)
+        #expect(store.holidaySeasonLabel == "Holiday 2026")
 
         addGift(store, "Mug", 15)
         store.startNewHolidaySeason(carryRecipients: false)
-        #expect(store.holidaySeasonLabel == "Holiday 2026 (3)")
+        #expect(store.holidaySeasonLabel == "Holiday 2026")
+        #expect(store.holidaySeasonHistory.map(\.label) == ["Holiday 2026 (2)", "Holiday 2026"])
+        #expect(Set(store.holidaySeasonHistory.map(\.label)).count == store.holidaySeasonHistory.count)
+    }
+
+    @Test func renamingTheSeasonOntoAnArchivedNameStillLeavesHistoryUnique() {
+        let clock = TestClock(Self.makeDate(2026, 12, 1))
+        let store = makeStore(calendar: Self.gregorian, now: { clock.date })
+        addGift(store, "Scarf", 40)
+        store.startNewHolidaySeason(label: "Gifts", carryRecipients: false)
+
+        addGift(store, "Mug", 15)
+        #expect(store.renameHolidaySeason("Holiday 2026"))
+        // Accepted as typed while it is the live season.
+        #expect(store.holidaySeasonLabel == "Holiday 2026")
+
+        store.startNewHolidaySeason(carryRecipients: false)
         #expect(Set(store.holidaySeasonHistory.map(\.label)).count == store.holidaySeasonHistory.count)
     }
 
@@ -605,15 +681,57 @@ struct HolidayStoreTests {
 
     /// The confirmation prompt has to describe what the import replaces. It
     /// quietly said nothing about holiday data while replacing all of it.
-    @Test func theImportSummaryMentionsHolidayGifts() throws {
+    @Test func theImportSummaryDescribesHolidayPeopleAndSeasonsToo() throws {
         let source = makeStore()
-        addGift(source, "Scarf", 40)
+        let mom = addPerson(source, "Mom")
+        addGift(source, "Scarf", 40, for: mom.id)
         addGift(source, "Mug", 15)
+        source.startNewHolidaySeason(carryRecipients: true)
+        addGift(source, "Next year", 20)
         let data = try source.exportBackupData()
 
         let destination = makeStore()
         let summary = try #require(destination.backupSummary(for: data))
-        #expect(summary.contains("2 holiday gifts"))
+        #expect(summary.contains("1 holiday gift"))
+        #expect(summary.contains("1 person"))
+        #expect(summary.contains("1 past season"))
+    }
+
+    /// "0 holiday gifts" could not tell a pre-Holiday backup apart from a
+    /// season that is set up but not yet shopped — on the one screen where the
+    /// user decides whether to overwrite everything they have.
+    @Test func theImportSummarySaysWhenAFileHasNoHolidayDataAtAll() throws {
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "currentMonth": SproutDate.currentMonthKey(),
+            "transactions": [],
+            "personalBudget": 20_000,
+            "groceryBudget": 40_000
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        #expect(BudgetStore.containsHolidayData(data) == false)
+        let summary = try #require(store.backupSummary(for: data))
+        #expect(summary.contains("no holiday data"))
+        #expect(summary.contains("0 holiday gift") == false)
+    }
+
+    /// The Replace prompt listed budgets, transactions, recurring items,
+    /// categories and months — and then also took the season, every person and
+    /// every gift without naming them.
+    @Test func theReplaceWarningNamesWhatTheImportWouldDestroy() {
+        let store = makeStore()
+        #expect(store.holidayReplacementWarning == nil)
+
+        let mom = addPerson(store, "Mom")
+        addGift(store, "Scarf", 40, for: mom.id)
+        store.startNewHolidaySeason(carryRecipients: true)
+        addGift(store, "Mug", 15)
+
+        let warning = store.holidayReplacementWarning ?? ""
+        #expect(warning.contains("1 gift"))
+        #expect(warning.contains("1 person"))
+        #expect(warning.contains("1 past season"))
     }
 
     @Test func aPreHolidayBackupImportsAsAnEmptySeasonNotAsDamage() throws {

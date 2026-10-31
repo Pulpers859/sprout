@@ -19,6 +19,7 @@ struct HolidaySummaryCardView: View {
         let spent = store.holidaySpent
         let remaining = store.holidayRemaining
         let progress = store.holidayProgress()
+        let planning = planningFigure(hasBudget: hasBudget, remaining: remaining)
 
         VStack(alignment: .leading, spacing: 20) {
             // The season name is its own line rather than a prefix on the
@@ -101,24 +102,38 @@ struct HolidaySummaryCardView: View {
                 .overlay(Color.white.opacity(0.16))
 
             HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(footerLabel(hasBudget: hasBudget))
-                        .font(.caption)
-                        .foregroundStyle(Color.white.opacity(0.80))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                // The planning slot is omitted entirely rather than filled with
+                // a figure that would repeat the tally beside it or contradict
+                // the headline above it. See `planningFigure`.
+                if let planning {
+                    VStack(alignment: .leading, spacing: 3) {
+                        // Allowed to wrap, like the monthly card's equivalent
+                        // slot. Forcing it onto one line turned "Targets exceed
+                        // what's left by" into an ellipsis at accessibility
+                        // sizes.
+                        Text(planning.label)
+                            .font(.caption)
+                            .foregroundStyle(Color.white.opacity(0.80))
+                            .fixedSize(horizontal: false, vertical: true)
 
-                    Text(footerValue(hasBudget: hasBudget))
-                        .font(.system(.headline, design: .rounded, weight: .bold))
-                        .foregroundStyle(Color.white)
+                        Text(planning.value)
+                            .font(.system(.headline, design: .rounded, weight: .bold))
+                            .foregroundStyle(Color.white)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Text(tallyText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        .multilineTextAlignment(.trailing)
+                } else {
+                    Text(tallyText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.white.opacity(0.92))
+
+                    Spacer(minLength: 0)
                 }
-
-                Spacer()
-
-                Text(tallyText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .multilineTextAlignment(.trailing)
             }
         }
         .padding(22)
@@ -134,19 +149,31 @@ struct HolidaySummaryCardView: View {
         return remaining < .zero ? "OVER BUDGET" : "AVAILABLE"
     }
 
-    /// Only meaningful once per-person targets exist; otherwise the slot shows
-    /// the gift count rather than an "unplanned" figure equal to the whole
-    /// budget, which would read as if nothing had been decided.
-    private func footerLabel(hasBudget: Bool) -> String {
-        guard hasBudget, store.holidayPlannedTotal > .zero else { return "Gifts logged" }
-        return store.holidayUnallocated < .zero ? "Planned over budget by" : "Left to plan"
-    }
+    /// The planning figure, or `nil` when there is nothing honest to put there.
+    ///
+    /// Three things had to be true at once, and none of them were:
+    ///
+    /// - It must never contradict the headline. The old figure was
+    ///   `budget - targets` and ignored spending, so a season $120 over budget
+    ///   showed "Left to plan $200" forty points below "OVER BUDGET $120".
+    ///   `holidayUnreserved` subtracts spend, so it is always a slice of the
+    ///   available balance rather than a rival claim about it.
+    /// - It must not restate the tally beside it. The fallback used to read
+    ///   "Gifts logged / 6" next to "6 gifts · 3 people".
+    /// - It is only meaningful when someone actually has a target, and a list
+    ///   of deliberate zero targets counts — which is why this asks
+    ///   `holidayHasPerPersonTargets` rather than whether the total is positive.
+    ///
+    /// Once the budget is gone there is nothing left to plan with, so the slot
+    /// disappears instead of reporting a second negative number.
+    private func planningFigure(hasBudget: Bool, remaining: MoneyAmount) -> (label: String, value: String)? {
+        guard hasBudget, store.holidayHasPerPersonTargets, remaining >= .zero else { return nil }
 
-    private func footerValue(hasBudget: Bool) -> String {
-        guard hasBudget, store.holidayPlannedTotal > .zero else {
-            return "\(store.holidayPurchaseCount)"
+        let unreserved = store.holidayUnreserved
+        if unreserved < .zero {
+            return ("Targets exceed what's left by", SproutFormatters.currency(unreserved.magnitude))
         }
-        return SproutFormatters.currency(store.holidayUnallocated.magnitude)
+        return ("Left to plan", SproutFormatters.currency(unreserved))
     }
 
     private var tallyText: String {

@@ -761,9 +761,12 @@ final class BudgetStore: ObservableObject {
 
     var holidayPlannedTotal: MoneyAmount { snapshot.holidaySeason.plannedTotal }
 
-    /// Budget not yet promised to anyone. Negative when the per-person targets
-    /// add up to more than the budget.
-    var holidayUnallocated: MoneyAmount { snapshot.holidaySeason.unallocated }
+    /// Whether anyone on the list has a per-person target.
+    var holidayHasPerPersonTargets: Bool { snapshot.holidaySeason.hasPerPersonTargets }
+
+    /// Budget that is neither spent nor still reserved by a per-person target.
+    /// Always `<= holidayRemaining`; see `HolidaySeason.unreserved`.
+    var holidayUnreserved: MoneyAmount { snapshot.holidaySeason.unreserved }
 
     var holidayRecipients: [GiftRecipient] { snapshot.holidaySeason.recipientsInDisplayOrder }
 
@@ -772,6 +775,15 @@ final class BudgetStore: ObservableObject {
     var holidayUnassignedPurchaseCount: Int { snapshot.holidaySeason.unassignedPurchaseCount }
 
     var holidaySeasonHistory: [HolidaySeason] { snapshot.holidaySeasonHistory }
+
+    /// The label a new season would be given right now.
+    ///
+    /// Passed into the new-season sheet so its caption states the name the
+    /// store will actually assign. The caption used to name the plain default
+    /// while the store appended "(2)" to it.
+    var defaultNewHolidaySeasonLabel: String {
+        HolidaySeason.defaultLabel(now: now(), calendar: calendar)
+    }
 
     var canAddHolidayRecipient: Bool {
         snapshot.holidaySeason.recipients.count < HolidaySeason.recipientLimit
@@ -1008,6 +1020,14 @@ final class BudgetStore: ObservableObject {
         // An untouched season is nothing to look back at, and archiving it would
         // only push a real one out of the capped history.
         if !closing.purchases.isEmpty || !closing.recipients.isEmpty || closing.hasBudget {
+            // Disambiguated here rather than when naming the new season.
+            // Deduping the *new* name meant archiving "Holiday 2026" and then
+            // handing the fresh season "Holiday 2026 (2)" — immediately after
+            // the sheet promised it would be called "Holiday 2026", and
+            // silently rewriting a name the user typed by hand. The season the
+            // user is about to work in now keeps exactly the name they asked
+            // for, and the history still never holds two identical labels.
+            closing.label = uniqueArchivedHolidayLabel(closing.label)
             snapshot.holidaySeasonHistory.insert(closing, at: 0)
         }
 
@@ -1017,7 +1037,7 @@ final class BudgetStore: ObservableObject {
             : HolidaySeason.defaultLabel(now: timestamp, calendar: calendar)
 
         snapshot.holidaySeason = HolidaySeason(
-            label: uniqueHolidayLabel(base),
+            label: base,
             budget: closing.budget,
             recipients: carryRecipients ? closing.recipients : [],
             purchases: [],
@@ -1031,9 +1051,9 @@ final class BudgetStore: ObservableObject {
         persist()
     }
 
-    /// Two seasons started in the same calendar year would both default to
-    /// "Holiday 2026", which makes the history list unreadable.
-    private func uniqueHolidayLabel(_ base: String) -> String {
+    /// Two archived seasons both called "Holiday 2026" make the history list
+    /// unreadable, so the one being filed is disambiguated on the way in.
+    private func uniqueArchivedHolidayLabel(_ base: String) -> String {
         let taken = Set(snapshot.holidaySeasonHistory.map(\.label))
         guard taken.contains(base) else { return base }
         for suffix in 2...99 {
@@ -1156,14 +1176,78 @@ final class BudgetStore: ObservableObject {
         let incoming = result.snapshot
         let transactionCount = incoming.transactions.count
         let monthCount = incoming.monthHistory.count
-        // The gift count is stated even when it is zero: importing a file with
-        // no holiday data replaces the holiday data you have, and a summary
-        // that stayed silent about that would understate what the import costs.
-        let giftCount = incoming.holidaySeason.purchaseCount
+        // Holiday is always described, because importing a file without it
+        // still replaces the holiday data you have. "0 holiday gifts" could not
+        // tell a pre-Holiday backup apart from a season that is set up but not
+        // yet shopped, and said nothing about the people or past seasons that
+        // would go with it — the least informative holiday figure available, on
+        // the one screen where the user decides whether to overwrite.
+        let holiday: String
+        if !Self.containsHolidayData(data) {
+            holiday = "no holiday data"
+        } else {
+            let gifts = incoming.holidaySeason.purchaseCount
+            let people = incoming.holidaySeason.recipients.count
+            var parts = ["\(gifts) holiday gift\(gifts == 1 ? "" : "s")"]
+            if people > 0 {
+                parts.append("\(people) \(people == 1 ? "person" : "people")")
+            }
+            let seasons = incoming.holidaySeasonHistory.count
+            if seasons > 0 {
+                parts.append("\(seasons) past season\(seasons == 1 ? "" : "s")")
+            }
+            holiday = parts.joined(separator: ", ")
+        }
+
         return "\(SproutDate.monthYearTitle(forMonthKey: incoming.currentMonth, calendar: calendar)) · "
             + "\(transactionCount) transaction\(transactionCount == 1 ? "" : "s") · "
             + "\(monthCount) archived month\(monthCount == 1 ? "" : "s") · "
-            + "\(giftCount) holiday gift\(giftCount == 1 ? "" : "s")"
+            + holiday
+    }
+
+    /// Whether the raw payload carries a holiday section at all.
+    ///
+    /// The decoded snapshot cannot answer this: an absent key is synthesised
+    /// into an empty season, which looks identical to a real season nobody has
+    /// shopped for yet.
+    static func containsHolidayData(_ data: Data) -> Bool {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any]
+        else {
+            return false
+        }
+        for key in ["holidaySeason", "holidaySeasonHistory"] {
+            if let value = dictionary[key], !(value is NSNull) { return true }
+        }
+        return false
+    }
+
+    /// What an import would destroy on the holiday side, for the confirmation
+    /// prompt. `nil` when there is nothing there to lose.
+    var holidayReplacementWarning: String? {
+        let gifts = snapshot.holidaySeason.purchaseCount
+        let people = snapshot.holidaySeason.recipients.count
+        let seasons = snapshot.holidaySeasonHistory.count
+        guard gifts > 0 || people > 0 || seasons > 0 || snapshot.holidaySeason.hasBudget else {
+            return nil
+        }
+
+        var parts: [String] = []
+        if gifts > 0 || people > 0 || snapshot.holidaySeason.hasBudget {
+            var season = "\(snapshot.holidaySeason.label)"
+            if gifts > 0 || people > 0 {
+                var inner: [String] = []
+                if gifts > 0 { inner.append("\(gifts) gift\(gifts == 1 ? "" : "s")") }
+                if people > 0 { inner.append("\(people) \(people == 1 ? "person" : "people")") }
+                season += " (\(inner.joined(separator: ", ")))"
+            }
+            parts.append(season)
+        }
+        if seasons > 0 {
+            parts.append("\(seasons) past season\(seasons == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: " and ")
     }
 
     struct NothingToUndoError: LocalizedError {

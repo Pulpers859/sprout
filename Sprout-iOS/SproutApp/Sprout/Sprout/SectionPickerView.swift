@@ -33,9 +33,14 @@ struct SectionPickerView: View {
     }
 
     /// Three segments where there used to be two leaves much less room per
-    /// label, and a large Dynamic Type setting takes the rest. Rather than let
-    /// the names truncate to "Perso…", the icon is dropped first and only then
-    /// does the text scale.
+    /// label, and a large Dynamic Type setting takes the rest.
+    ///
+    /// The fallback chain ends in icon-only rather than in scaled text, because
+    /// at AX4/AX5 even "Personal" at a 0.7 scale factor needs roughly twice the
+    /// width a third of the capsule provides — so the previous two-candidate
+    /// chain still truncated to exactly the "Perso…" it was meant to avoid. The
+    /// symbols are distinct and `accessibilityLabel` carries the name either
+    /// way, so an icon is a better last resort than a clipped word.
     private func label(for section: AppSection) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) {
@@ -50,7 +55,11 @@ struct SectionPickerView: View {
             Text(section.shortTitle)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .fixedSize()
+
+            Image(systemName: section.symbolName)
+                .font(.subheadline.weight(.semibold))
+                .fixedSize()
         }
     }
 }

@@ -18,6 +18,12 @@ struct HolidayDashboardView: View {
                         router.present(.startNewSeason)
                     }
                     .disabled(!store.canStartNewHolidaySeason)
+                    // Starting a season is the one action that creates archived
+                    // data, and the only route to it was Settings -> History,
+                    // which nothing on this screen mentioned.
+                    Button("Past seasons", systemImage: "clock.arrow.circlepath") {
+                        router.present(.seasonHistory)
+                    }
                 }
 
                 SectionPickerView(selection: $store.activeSection)
@@ -29,6 +35,8 @@ struct HolidayDashboardView: View {
                 primaryActions
 
                 peopleSection
+
+                unassignedSection
 
                 giftsSection
             }
@@ -46,7 +54,7 @@ struct HolidayDashboardView: View {
     private var primaryActions: some View {
         HStack(spacing: 12) {
             Button {
-                router.present(.addGift(recipientID: nil))
+                router.present(.addGift(recipient: .unspecified))
             } label: {
                 Label("Add gift", systemImage: "plus")
                     .font(.headline)
@@ -73,13 +81,16 @@ struct HolidayDashboardView: View {
     @ViewBuilder
     private var peopleSection: some View {
         let recipients = store.holidayRecipients
-        let unassignedCount = store.holidayUnassignedPurchaseCount
 
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader("People", detail: "\(recipients.count)")
                 .padding(.bottom, 8)
 
-            if recipients.isEmpty && unassignedCount == 0 {
+            // Gated on the people list alone. It used to also require zero
+            // unassigned gifts, so logging one gift with nobody added flipped
+            // the header to "People 0" above a single row and took away the
+            // only instruction for adding people at the moment it was needed.
+            if recipients.isEmpty {
                 ContentUnavailableView(
                     "No one on the list yet",
                     systemImage: "person.2",
@@ -89,9 +100,7 @@ struct HolidayDashboardView: View {
                 .padding(.vertical, 28)
             } else {
                 ForEach(Array(recipients.enumerated()), id: \.element.id) { index, recipient in
-                    NavigationLink {
-                        GiftRecipientDetailView(recipientID: recipient.id)
-                    } label: {
+                    NavigationLink(value: HolidayRecipientRoute(recipientID: recipient.id)) {
                         GiftRecipientRowView(
                             emoji: recipient.emoji,
                             name: recipient.name,
@@ -102,31 +111,52 @@ struct HolidayDashboardView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    // The row navigates, so an inline menu button inside it
+                    // would fight the tap. A context menu is the standard
+                    // secondary affordance; the primary path is still the
+                    // detail view's own menu.
+                    .contextMenu {
+                        Button("Edit person", systemImage: "pencil") {
+                            router.present(.editPerson(recipient))
+                        }
+                        Button("Remove person", systemImage: "trash", role: .destructive) {
+                            router.confirm(.removePerson(recipient))
+                        }
+                    }
 
-                    if index < recipients.count - 1 || unassignedCount > 0 {
+                    if index < recipients.count - 1 {
                         Divider()
                             .padding(.leading, 54)
                     }
                 }
+            }
+        }
+    }
 
-                // Gifts that belong to nobody in particular, plus any whose
-                // person was removed. Either way the money is already in the
-                // season total, so it has to be reachable from somewhere.
-                if unassignedCount > 0 {
-                    NavigationLink {
-                        GiftRecipientDetailView(recipientID: nil)
-                    } label: {
-                        GiftRecipientRowView(
-                            emoji: "🎁",
-                            name: "Not for one person",
-                            spent: store.holidaySpent(for: nil),
-                            plannedAmount: nil,
-                            giftCount: unassignedCount,
-                            progress: nil
-                        )
-                    }
-                    .buttonStyle(.plain)
+    /// Gifts that belong to nobody in particular, plus any whose person was
+    /// removed. Either way the money is already in the season total, so it has
+    /// to be reachable — and it is not a person, so it does not belong under a
+    /// "People" count.
+    @ViewBuilder
+    private var unassignedSection: some View {
+        let unassignedCount = store.holidayUnassignedPurchaseCount
+
+        if unassignedCount > 0 {
+            VStack(alignment: .leading, spacing: 0) {
+                sectionHeader("Not assigned to a person", detail: "\(unassignedCount)")
+                    .padding(.bottom, 8)
+
+                NavigationLink(value: HolidayRecipientRoute(recipientID: nil)) {
+                    GiftRecipientRowView(
+                        emoji: "🎁",
+                        name: "Not for one person",
+                        spent: store.holidaySpent(for: nil),
+                        plannedAmount: nil,
+                        giftCount: unassignedCount,
+                        progress: nil
+                    )
                 }
+                .buttonStyle(.plain)
             }
         }
     }

@@ -14,9 +14,14 @@ struct ContentView: View {
     @State private var shouldRestoreMonthResetPrompt = false
     @State private var successToastMessage: String?
     @State private var successToastToken = UUID()
+    /// Driven by a path so switching tabs can clear it. Without that, a
+    /// quick-add Shortcut that moves the app to Grocery left the user on a
+    /// pushed Holiday screen with Grocery selected underneath, and Back dropped
+    /// them into the Grocery dashboard from a Holiday one.
+    @State private var holidayPath = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $holidayPath) {
             Group {
                 if let tab = store.activeSection.budgetTab {
                     BudgetDashboardView(
@@ -38,6 +43,9 @@ struct ContentView: View {
                 } else {
                     HolidayDashboardView(onOpenSettings: { isShowingSettings = true })
                 }
+            }
+            .navigationDestination(for: HolidayRecipientRoute.self) { route in
+                GiftRecipientDetailView(recipientID: route.recipientID)
             }
             .toolbar(.hidden, for: .navigationBar)
         }
@@ -205,6 +213,14 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             quickEntryCoordinator.consumePendingRequestIfNeeded()
         }
+        .onChange(of: store.activeSection) { _, _ in
+            // A pushed holiday screen must not survive a tab change, and the
+            // store-level calendar selection must not survive it either — it
+            // outlived the dashboard's own state, so re-expanding the calendar
+            // showed a stale selected day.
+            holidayPath = NavigationPath()
+            store.selectedCalendarDate = nil
+        }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             store.refreshForCurrentDate()
@@ -303,7 +319,7 @@ struct ContentView: View {
         store.activeSection = request.section
 
         if request.section == .holiday {
-            holidayRouter.present(.addGift(recipientID: nil))
+            holidayRouter.present(.addGift(recipient: .unspecified))
         } else {
             transactionSheet = TransactionSheetRequest(
                 tab: request.tab,
@@ -318,8 +334,11 @@ struct ContentView: View {
     @ViewBuilder
     private func holidaySheet(_ sheet: HolidayRouter.Sheet) -> some View {
         switch sheet {
-        case .addGift(let recipientID):
-            GiftEntrySheet(initialDraft: store.makeHolidayPurchaseDraft(for: recipientID)) { draft in
+        case .addGift(let recipient):
+            GiftEntrySheet(
+                initialDraft: store.makeHolidayPurchaseDraft(for: recipient.recipientID),
+                recipientIsChosen: recipient.isChosen
+            ) { draft in
                 guard store.addHolidayPurchase(draft: draft) else { return false }
                 HapticFeedback.success()
                 holidayRouter.dismiss()
@@ -330,7 +349,8 @@ struct ContentView: View {
         case .editGift(let purchase):
             GiftEntrySheet(
                 isEditing: true,
-                initialDraft: store.makeHolidayEditDraft(for: purchase)
+                initialDraft: store.makeHolidayEditDraft(for: purchase),
+                recipientIsChosen: true
             ) { draft in
                 guard store.updateHolidayPurchase(purchase, with: draft) else { return false }
                 HapticFeedback.success()
@@ -375,6 +395,9 @@ struct ContentView: View {
 
         case .startNewSeason:
             holidaySeasonSheet(mode: .startNew)
+
+        case .seasonHistory:
+            HolidaySeasonsSheet()
         }
     }
 
@@ -385,7 +408,8 @@ struct ContentView: View {
             giftCount: store.holidayPurchaseCount,
             personCount: store.holidayRecipients.count,
             budget: store.holidayBudget,
-            archivedCount: store.holidaySeasonHistory.count
+            archivedCount: store.holidaySeasonHistory.count,
+            defaultNewLabel: store.defaultNewHolidaySeasonLabel
         ) { label, carryRecipients in
             switch mode {
             case .rename:

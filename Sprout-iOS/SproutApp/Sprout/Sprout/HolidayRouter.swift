@@ -12,18 +12,23 @@ import Foundation
 @MainActor
 final class HolidayRouter: ObservableObject {
     enum Sheet: Identifiable, Equatable {
-        case addGift(recipientID: UUID?)
+        case addGift(recipient: GiftRecipientSelection)
         case editGift(GiftPurchase)
         case addPerson
         case editPerson(GiftRecipient)
         case editBudget
         case renameSeason
         case startNewSeason
+        case seasonHistory
 
         var id: String {
             switch self {
-            case .addGift(let recipientID):
-                "addGift-\(recipientID?.uuidString ?? "none")"
+            case .addGift(let recipient):
+                switch recipient {
+                case .unspecified: "addGift-unspecified"
+                case .nobody: "addGift-nobody"
+                case .person(let id): "addGift-\(id.uuidString)"
+                }
             case .editGift(let purchase):
                 "editGift-\(purchase.id.uuidString)"
             case .addPerson:
@@ -36,6 +41,8 @@ final class HolidayRouter: ObservableObject {
                 "renameSeason"
             case .startNewSeason:
                 "startNewSeason"
+            case .seasonHistory:
+                "seasonHistory"
             }
         }
     }
