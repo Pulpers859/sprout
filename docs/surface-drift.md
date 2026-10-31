@@ -39,11 +39,15 @@ Added 2026-10-31. The Holiday tab exists on iOS and has no web counterpart yet.
   monthly figure reads it and `resetMonth` / `closeOutCurrentMonth` never touch
   it, so holiday spending is excluded from the monthly budgets structurally
   rather than by filtering.
-- Holiday data rides in portable backups, so a backup exported from iOS carries
-  fields the web importer currently ignores. A web import of such a file keeps
-  the monthly data and silently has nothing to do with the holiday fields;
-  re-exporting from web and re-importing on iOS would therefore drop them.
-  **Export from iOS, import on iOS** while this gap is open.
+- Holiday data rides in portable backups and the web app carries it through
+  without interpreting it (`passthrough` in `backup.mjs`, re-emitted by
+  `stateSnapshot` in `index.html`), so an iOS -> web -> iOS round trip is
+  lossless. Without that, rebuilding the snapshot from a fixed key list would
+  have dropped the whole holiday section on import and on every web save.
+  Absent holiday data normalizes to `null` rather than being omitted, so signing
+  out clears it instead of leaving one account's gifts in place for the next.
+- The web app still cannot show, add or edit holiday data; it only preserves it.
+  Editing a holiday season requires iOS.
 - There is no monthly rollover for a holiday season. Seasons are closed by hand
   ("Start a new season"), which archives the closing season and carries the
   budget and, optionally, the people forward. History is capped at

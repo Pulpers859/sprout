@@ -120,3 +120,43 @@ test('normalization leaves the original object intact and retains every archived
   assert.equal(JSON.stringify(input), before);
   assert.equal(snapshot.updatedAt, '2026-09-29T17:00:00.123Z', 'cache freshness retains millisecond precision');
 });
+
+test('iOS holiday data survives a web import/export round trip', () => {
+  const holidaySeason = {
+    id: 'A1B2C3D4-0000-0000-0000-000000000001', label: 'Holiday 2026', budget: 60000,
+    startedAt: '2026-10-31T12:00:00Z', closedAt: null,
+    recipients: [{ id: 'A1B2C3D4-0000-0000-0000-000000000002', name: 'Mom', emoji: '🎁', plannedAmount: 20000, createdAt: '2026-10-31T12:00:00Z' }],
+    purchases: [{ id: 'A1B2C3D4-0000-0000-0000-000000000003', recipientID: 'A1B2C3D4-0000-0000-0000-000000000002', name: 'Scarf', amount: 4000, note: '', date: '2026-11-02T12:00:00Z' }],
+  };
+  const holidaySeasonHistory = [{ ...holidaySeason, id: 'A1B2C3D4-0000-0000-0000-000000000004', label: 'Holiday 2025', closedAt: '2026-01-02T12:00:00Z' }];
+
+  // The web app has no Holiday tab, so dropping these on import would make an
+  // iOS -> web -> iOS round trip erase every gift the user logged.
+  const { snapshot } = normalizeSnapshot({ ...fixture(), holidaySeason, holidaySeasonHistory }, { strict: true });
+  assert.deepEqual(snapshot.holidaySeason, holidaySeason);
+  assert.deepEqual(snapshot.holidaySeasonHistory, holidaySeasonHistory);
+
+  const portable = exportBackup({ ...fixture(), holidaySeason, holidaySeasonHistory });
+  assert.deepEqual(portable.holidaySeason, holidaySeason);
+  assert.deepEqual(portable.holidaySeasonHistory, holidaySeasonHistory);
+  // Carried verbatim: cents stay cents and are never re-scaled as dollars.
+  assert.equal(portable.holidaySeason.budget, 60000);
+  assert.equal(portable.holidaySeason.purchases[0].amount, 4000);
+});
+
+test('an absent holiday section normalizes to null so it clears on sign-out', () => {
+  const { snapshot } = normalizeSnapshot(fixture(), { strict: true });
+  assert.equal(snapshot.holidaySeason, null);
+  assert.equal(snapshot.holidaySeasonHistory, null);
+  // An omitted key would leave the previous account's data behind, because the
+  // app applies a snapshot with Object.assign.
+  assert.ok('holidaySeason' in snapshot);
+  assert.ok('holidaySeasonHistory' in snapshot);
+});
+
+test('a malformed holiday section is dropped rather than failing the whole import', () => {
+  const circular = { label: 'bad' };
+  circular.self = circular;
+  const { snapshot } = normalizeSnapshot({ ...fixture(), holidaySeason: circular }, { strict: true });
+  assert.equal(snapshot.holidaySeason, null);
+});

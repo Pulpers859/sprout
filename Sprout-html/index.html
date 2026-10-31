@@ -665,6 +665,11 @@
       monthHistory: state.monthHistory,
       currentMonth: state.currentMonth,
       personalCategories: state.personalCategories,
+      // Carried, not understood: see `passthrough` in backup.mjs. Rebuilding
+      // the snapshot from a fixed key list here would drop iOS holiday data on
+      // every save and every export.
+      holidaySeason: state.holidaySeason ?? null,
+      holidaySeasonHistory: state.holidaySeasonHistory ?? null,
       updatedAt: state.updatedAt || new Date().toISOString()
     };
   }

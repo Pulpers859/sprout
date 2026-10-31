@@ -44,6 +44,25 @@ function uuid(value) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20)}`;
 }
 
+// Holiday spending is iOS-only today. The web app neither reads nor writes it,
+// but an importer that rebuilds the snapshot from a fixed key list silently
+// drops it — which turns an iOS -> web -> iOS backup round trip into total loss
+// of the user's holiday budget, people and gifts. It is carried through
+// verbatim instead: checked only for being JSON-safe, never interpreted.
+//
+// `null` rather than omitted when absent, so `Object.assign(state, snapshot)`
+// on sign-out clears it like every other field. An omitted key would leave the
+// previous account's holiday data in place.
+function passthrough(value) {
+  if (value == null) return null;
+  try {
+    const clone = JSON.parse(JSON.stringify(value));
+    return clone == null ? null : clone;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeSnapshot(input, { strict = false } = {}) {
   if (!object(input)) throw new Error('This file is not a Sprout backup.');
   const version = input.schemaVersion ?? 1;
@@ -138,6 +157,8 @@ export function normalizeSnapshot(input, { strict = false } = {}) {
     })).sort((a, b) => b.monthKey.localeCompare(a.monthKey)),
     currentMonth: recover('currentMonth', () => input.currentMonth == null ? localDay(new Date()).slice(0, 7) : month(input.currentMonth), localDay(new Date()).slice(0, 7)),
     personalCategories: categories.length ? categories : defaultCategories,
+    holidaySeason: passthrough(input.holidaySeason),
+    holidaySeasonHistory: passthrough(input.holidaySeasonHistory),
     updatedAt: recover('updatedAt', () => input.updatedAt == null ? '1970-01-01T00:00:00Z' : timestamp(input.updatedAt), '1970-01-01T00:00:00Z'),
   };
   return { snapshot, warnings };
