@@ -111,7 +111,7 @@ private struct ArchivedSeasonRow: View {
     }
 
     private var subtitle: String {
-        let gifts = season.purchaseCount
+        let gifts = season.giftCount
         let people = season.recipients.count
         let giftText = "\(gifts) gift\(gifts == 1 ? "" : "s")"
         guard people > 0 else { return "\(giftText) saved" }
@@ -236,7 +236,7 @@ private struct ArchivedSeasonDetailView: View {
                 dismiss()
             }
         } message: {
-            Text("\(season.label) and its \(season.purchaseCount) gift\(season.purchaseCount == 1 ? "" : "s") will be removed. This can't be undone.")
+            Text("\(season.label) and its \(season.giftCount) gift\(season.giftCount == 1 ? "" : "s") will be removed. This can't be undone.")
         }
     }
 
@@ -246,9 +246,11 @@ private struct ArchivedSeasonDetailView: View {
     @ViewBuilder
     private var peopleBreakdown: some View {
         let people = season.recipientsInDisplayOrder
-        let unassigned = season.totalSpent(for: nil)
+        // Presence is a row count, not an amount: a bucket whose gifts and
+        // returns net to zero still happened and still belongs on screen.
+        let unassignedRows = season.unassignedPurchaseCount
 
-        if !people.isEmpty || unassigned > .zero {
+        if !people.isEmpty || unassignedRows > 0 {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Per person")
                     .font(.headline)
@@ -265,11 +267,11 @@ private struct ArchivedSeasonDetailView: View {
                     Divider()
                 }
 
-                if unassigned > .zero {
+                if unassignedRows > 0 {
                     breakdownRow(
                         emoji: "🎁",
                         name: "Not for one person",
-                        amount: unassigned,
+                        amount: season.totalSpent(for: nil),
                         planned: nil
                     )
                 }

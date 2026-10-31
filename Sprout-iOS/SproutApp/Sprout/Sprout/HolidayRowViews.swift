@@ -13,7 +13,7 @@ struct GiftPurchaseRowView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(emoji)
+            Text(purchase.isReturn ? "↩️" : emoji)
                 .font(.title3)
                 .frame(width: 40, height: 40)
                 .background(Color.sproutCardSoft, in: Circle())
@@ -32,6 +32,11 @@ struct GiftPurchaseRowView: View {
                         Text("·")
                     }
                     Text(SproutDate.shortDate(purchase.date))
+                    if purchase.isReturn {
+                        Text("·")
+                        Text("returned")
+                            .foregroundStyle(Color.sageDark)
+                    }
                     if !purchase.note.isEmpty {
                         Text("·")
                         Text(purchase.note)
@@ -44,15 +49,17 @@ struct GiftPurchaseRowView: View {
 
             Spacer(minLength: 10)
 
-            Text(SproutFormatters.currency(purchase.amount))
+            // Signed, like the monthly ledger's rows: a return is money coming
+            // back, so it must not read as another thing you bought.
+            Text("\(purchase.isReturn ? "+" : "\u{2212}")\(SproutFormatters.currency(purchase.amount))")
                 .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(Color.sproutText)
+                .foregroundStyle(purchase.isReturn ? Color.sageDark : Color.sproutText)
 
             Menu {
-                Button("Edit gift", systemImage: "pencil") {
+                Button(purchase.isReturn ? "Edit return" : "Edit gift", systemImage: "pencil") {
                     onEdit()
                 }
-                Button("Remove gift", systemImage: "trash", role: .destructive) {
+                Button(purchase.isReturn ? "Remove return" : "Remove gift", systemImage: "trash", role: .destructive) {
                     onRemove()
                 }
             } label: {
@@ -72,8 +79,9 @@ struct GiftPurchaseRowView: View {
 
     private var accessibilityLabel: String {
         let amount = SproutFormatters.currency(purchase.amount)
-        guard let recipientName else { return "\(purchase.name), \(amount)" }
-        return "\(purchase.name) for \(recipientName), \(amount)"
+        let kind = purchase.isReturn ? "returned" : "gift"
+        guard let recipientName else { return "\(purchase.name), \(kind), \(amount)" }
+        return "\(purchase.name) for \(recipientName), \(kind), \(amount)"
     }
 }
 
@@ -85,6 +93,7 @@ struct GiftRecipientRowView: View {
     let spent: MoneyAmount
     let plannedAmount: MoneyAmount?
     let giftCount: Int
+    let returnCount: Int
     /// `nil` when the person has no target, which is not the same as a target
     /// of zero and must not render as a full bar.
     let progress: Double?
@@ -139,7 +148,24 @@ struct GiftRecipientRowView: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), \(SproutFormatters.currency(spent)) spent, \(subtitle)")
+        .accessibilityLabel("\(name), \(SproutFormatters.currency(spent)) spent, \(subtitle), \(countSummary)")
+    }
+
+    /// Gifts and returns counted separately, so "3 gifts" never silently
+    /// includes money that came back.
+    private var countSummary: String {
+        let gifts = giftCount == 1 ? "1 gift" : "\(giftCount) gifts"
+        let returns = returnCount == 1 ? "1 return" : "\(returnCount) returns"
+        switch (giftCount, returnCount) {
+        case (0, 0):
+            return "No gifts yet"
+        case (0, _):
+            return returns
+        case (_, 0):
+            return gifts
+        default:
+            return "\(gifts) · \(returns)"
+        }
     }
 
     private var isOverTarget: Bool {
@@ -148,9 +174,7 @@ struct GiftRecipientRowView: View {
     }
 
     private var subtitle: String {
-        guard let plannedAmount else {
-            return giftCount == 0 ? "No gifts yet" : "\(giftCount) gift\(giftCount == 1 ? "" : "s")"
-        }
+        guard let plannedAmount else { return countSummary }
         if spent > plannedAmount {
             return "\(SproutFormatters.currency(spent - plannedAmount)) over \(SproutFormatters.currency(plannedAmount)) planned"
         }

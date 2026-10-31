@@ -41,6 +41,7 @@ struct GiftEntrySheet: View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
+                    modePicker
                     amountField
                     recipientPicker
                     composerFields
@@ -59,7 +60,7 @@ struct GiftEntrySheet: View {
             .safeAreaInset(edge: .bottom) {
                 saveButton
             }
-            .navigationTitle(isEditing ? "Edit Gift" : "Add Gift")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -77,9 +78,26 @@ struct GiftEntrySheet: View {
         }
     }
 
+    /// Gifts and returns are one sheet with a mode, mirroring the monthly
+    /// tab's expense/payment pair. A returned gift keeps its own row instead of
+    /// being deleted or edited down: deleting loses the record of what was
+    /// bought, and editing the amount loses the fact that money moved twice.
+    private var navigationTitle: String {
+        if isEditing { return draft.isReturn ? "Edit Return" : "Edit Gift" }
+        return draft.isReturn ? "Record Return" : "Add Gift"
+    }
+
+    private var modePicker: some View {
+        Picker("Entry type", selection: $draft.isReturn) {
+            Text("Gift").tag(false)
+            Text("Return").tag(true)
+        }
+        .pickerStyle(.segmented)
+    }
+
     private var amountField: some View {
         VStack(spacing: 6) {
-            Text("GIFT AMOUNT")
+            Text(draft.isReturn ? "AMOUNT RETURNED" : "GIFT AMOUNT")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Color.sproutTextMuted)
 
@@ -100,7 +118,9 @@ struct GiftEntrySheet: View {
 
             // Said plainly at the point of entry, because the whole reason this
             // tab exists is that this money is not part of the monthly budget.
-            Text("Counted against your holiday budget only.")
+            Text(draft.isReturn
+                 ? "Comes back off your holiday budget only."
+                 : "Counted against your holiday budget only.")
                 .font(.caption)
                 .foregroundStyle(Color.sproutTextMuted)
         }
@@ -178,7 +198,12 @@ struct GiftEntrySheet: View {
 
     private var composerFields: some View {
         VStack(spacing: 0) {
-            composerField("What did you buy?", text: $draft.name, field: .name, symbol: "text.cursor")
+            composerField(
+                draft.isReturn ? "What did you return?" : "What did you buy?",
+                text: $draft.name,
+                field: .name,
+                symbol: "text.cursor"
+            )
 
             Divider()
                 .padding(.leading, 52)
@@ -191,7 +216,7 @@ struct GiftEntrySheet: View {
 
     private var dateRow: some View {
         HStack(spacing: 10) {
-            Label("Bought on", systemImage: "calendar")
+            Label(draft.isReturn ? "Returned on" : "Bought on", systemImage: "calendar")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.sproutBerryText)
 
@@ -209,8 +234,12 @@ struct GiftEntrySheet: View {
             submit()
         } label: {
             Label(
-                isEditing ? "Save changes" : "Save gift",
-                systemImage: isEditing ? "checkmark.circle.fill" : "gift.fill"
+                isEditing
+                    ? "Save changes"
+                    : (draft.isReturn ? "Save return" : "Save gift"),
+                systemImage: isEditing
+                    ? "checkmark.circle.fill"
+                    : (draft.isReturn ? "arrow.uturn.backward" : "gift.fill")
             )
             .font(.headline)
             .frame(maxWidth: .infinity)
@@ -281,7 +310,9 @@ struct GiftEntrySheet: View {
 
         // Saving a gift against nobody has to be a decision, not a default.
         guard hasPickedRecipient || store.holidayRecipients.isEmpty else {
-            validationMessage = "Choose who this gift is for, or tap \u{201C}Not for one person\u{201D}."
+            validationMessage = draft.isReturn
+                ? "Choose who this return is for, or tap \u{201C}Not for one person\u{201D}."
+                : "Choose who this gift is for, or tap \u{201C}Not for one person\u{201D}."
             return
         }
 
@@ -292,7 +323,9 @@ struct GiftEntrySheet: View {
 
         guard onSubmit(draft) else {
             isSubmitting = false
-            validationMessage = "Sprout couldn't save this gift. Check the amount and try again."
+            validationMessage = draft.isReturn
+                ? "Sprout couldn't save this return. Check the amount and try again."
+                : "Sprout couldn't save this gift. Check the amount and try again."
             return
         }
     }

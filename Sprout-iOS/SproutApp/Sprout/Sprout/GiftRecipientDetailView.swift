@@ -16,19 +16,17 @@ struct GiftRecipientDetailView: View {
     var body: some View {
         let recipient = store.holidayRecipient(with: recipientID)
         let gifts = store.holidayPurchases(for: recipientID)
-        let spent = store.holidaySpent(for: recipientID)
+        let tally = store.holidayTally(for: recipientID)
 
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
-                summary(recipient: recipient, spent: spent, giftCount: gifts.count)
+                summary(recipient: recipient, spent: tally.spent, tally: tally)
 
                 Button {
                     // Pre-chosen, so this sheet does not ask again: the user
                     // reached it from a list that is already scoped to one
                     // person, or from the unassigned bucket.
-                    router.present(.addGift(
-                        recipient: recipientID.map { GiftRecipientSelection.person($0) } ?? .nobody
-                    ))
+                    router.present(.addGift(recipient: selection, isReturn: false))
                 } label: {
                     Label(
                         recipient.map { "Add gift for \($0.name)" } ?? "Add gift",
@@ -53,20 +51,23 @@ struct GiftRecipientDetailView: View {
         .navigationTitle(recipient?.name ?? "Not for one person")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let recipient {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Record a return", systemImage: "arrow.uturn.backward") {
+                        router.present(.addGift(recipient: selection, isReturn: true))
+                    }
+                    if let recipient {
                         Button("Edit person", systemImage: "pencil") {
                             router.present(.editPerson(recipient))
                         }
                         Button("Remove person", systemImage: "trash", role: .destructive) {
                             router.confirm(.removePerson(recipient))
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
-                    .accessibilityLabel("Person options")
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Options")
             }
         }
         // The person can be removed from this very screen, which would
@@ -76,7 +77,17 @@ struct GiftRecipientDetailView: View {
         }
     }
 
-    private func summary(recipient: GiftRecipient?, spent: MoneyAmount, giftCount: Int) -> some View {
+    /// Already decided, because this screen is scoped to one person (or
+    /// explicitly to nobody), so the sheet must not ask again.
+    private var selection: GiftRecipientSelection {
+        recipientID.map { GiftRecipientSelection.person($0) } ?? .nobody
+    }
+
+    private func summary(
+        recipient: GiftRecipient?,
+        spent: MoneyAmount,
+        tally: BudgetStore.HolidayRecipientTally
+    ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Text(recipient?.emoji ?? "🎁")
@@ -128,9 +139,7 @@ struct GiftRecipientDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text(giftCount == 0
-                     ? "No gifts yet."
-                     : "\(giftCount) gift\(giftCount == 1 ? "" : "s") · no per-person target set")
+                Text(untargetedSummary(tally))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Color.white.opacity(0.85))
             }
@@ -138,6 +147,16 @@ struct GiftRecipientDetailView: View {
         .padding(20)
         .background(AppSection.holiday.heroGradient, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .shadow(color: Color.sproutBerryDark.opacity(0.2), radius: 16, x: 0, y: 8)
+    }
+
+    private func untargetedSummary(_ tally: BudgetStore.HolidayRecipientTally) -> String {
+        guard tally.rows > 0 else { return "No gifts yet." }
+        var parts = ["\(tally.gifts) gift\(tally.gifts == 1 ? "" : "s")"]
+        if tally.returns > 0 {
+            parts.append("\(tally.returns) return\(tally.returns == 1 ? "" : "s")")
+        }
+        parts.append("no per-person target set")
+        return parts.joined(separator: " · ")
     }
 
     @ViewBuilder

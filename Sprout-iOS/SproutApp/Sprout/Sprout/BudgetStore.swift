@@ -41,6 +41,7 @@ final class BudgetStore: ObservableObject {
         didSet {
             sortedTransactionsCache.removeAll(keepingCapacity: true)
             holidaySpendCache = nil
+            holidayRecipientIndex = nil
         }
     }
     @Published var activeSection: AppSection = .personal
@@ -67,15 +68,35 @@ final class BudgetStore: ObservableObject {
     /// dropped wholesale by `snapshot`'s `didSet`, so it cannot outlive an edit.
     private var sortedTransactionsCache: [BudgetTab: [TransactionEntry]] = [:]
 
-    struct HolidaySpendTotals {
-        let byRecipient: [UUID: MoneyAmount]
-        let unassigned: MoneyAmount
+    /// One person's share of the season.
+    ///
+    /// Gifts and returns are counted separately rather than lumped together:
+    /// "3 gifts" must not include a return, while deciding whether a person has
+    /// anything at all must, or a list holding only a return would hide while
+    /// its money stayed in the season total.
+    struct HolidayRecipientTally: Equatable {
+        var spent: MoneyAmount = .zero
+        var gifts = 0
+        var returns = 0
+
+        var rows: Int { gifts + returns }
+        var isEmpty: Bool { rows == 0 }
     }
 
-    /// The people list asks for every person's total on each render pass, which
-    /// is otherwise O(people x purchases) every pass. Dropped wholesale by
-    /// `snapshot`'s `didSet`, so it cannot outlive an edit.
+    struct HolidaySpendTotals {
+        let byRecipient: [UUID: HolidayRecipientTally]
+        let unassigned: HolidayRecipientTally
+    }
+
+    /// The people list asks for every person's total *and* their gift count on
+    /// each render pass, which is otherwise O(people x purchases) every pass —
+    /// and the count was being taken from a full filter-and-sort per person.
+    /// Dropped wholesale by `snapshot`'s `didSet`, so it cannot outlive an edit.
     private var holidaySpendCache: HolidaySpendTotals?
+
+    /// The gift list resolves a person per row; a linear scan per row made that
+    /// O(gifts x people).
+    private var holidayRecipientIndex: [UUID: GiftRecipient]?
 
     /// The monthly budget tab on screen.
     ///
@@ -770,9 +791,21 @@ final class BudgetStore: ObservableObject {
 
     var holidayRecipients: [GiftRecipient] { snapshot.holidaySeason.recipientsInDisplayOrder }
 
-    /// Gifts whose person is no longer in the season. They still count toward
-    /// the total, so the dashboard has to show them somewhere.
-    var holidayUnassignedPurchaseCount: Int { snapshot.holidaySeason.unassignedPurchaseCount }
+    /// Rows that belong to no one — deliberately, or because their person was
+    /// removed. Counts returns too: a bucket holding only a return would
+    /// otherwise hide while its money stayed in the season total.
+    var holidayUnassignedPurchaseCount: Int { holidayTally(for: nil).rows }
+
+    /// Gifts only, excluding returns, for copy that says "N gifts".
+    var holidayGiftCount: Int { snapshot.holidaySeason.giftCount }
+
+    var holidayReturnCount: Int { snapshot.holidaySeason.returnCount }
+
+    func holidayTally(for recipientID: UUID?) -> HolidayRecipientTally {
+        let totals = holidaySpendCache ?? rebuildHolidaySpendCache()
+        guard let recipientID else { return totals.unassigned }
+        return totals.byRecipient[recipientID] ?? HolidayRecipientTally()
+    }
 
     var holidaySeasonHistory: [HolidaySeason] { snapshot.holidaySeasonHistory }
 
@@ -819,24 +852,39 @@ final class BudgetStore: ObservableObject {
     }
 
     func holidaySpent(for recipientID: UUID?) -> MoneyAmount {
-        let totals = holidaySpendCache ?? rebuildHolidaySpendCache()
-        guard let recipientID else { return totals.unassigned }
-        return totals.byRecipient[recipientID] ?? .zero
+        holidayTally(for: recipientID).spent
     }
 
     func holidayRecipient(with id: UUID?) -> GiftRecipient? {
-        snapshot.holidaySeason.recipient(with: id)
+        guard let id else { return nil }
+        if let index = holidayRecipientIndex { return index[id] }
+        // `uniquingKeysWith` rather than `uniqueKeysWithValues`, which traps on
+        // a duplicate key. Normalization makes ids unique, but a trap here
+        // would be a crash on render for a file we can simply read leniently.
+        let index = Dictionary(
+            snapshot.holidaySeason.recipients.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        holidayRecipientIndex = index
+        return index[id]
     }
 
     @discardableResult
     private func rebuildHolidaySpendCache() -> HolidaySpendTotals {
-        var byRecipient: [UUID: MoneyAmount] = [:]
-        var unassigned = MoneyAmount.zero
+        var byRecipient: [UUID: HolidayRecipientTally] = [:]
+        var unassigned = HolidayRecipientTally()
         for purchase in snapshot.holidaySeason.purchases {
+            let signed = purchase.isReturn ? -purchase.amount : purchase.amount
+
+            func apply(to tally: inout HolidayRecipientTally) {
+                tally.spent += signed
+                if purchase.isReturn { tally.returns += 1 } else { tally.gifts += 1 }
+            }
+
             if let id = purchase.recipientID {
-                byRecipient[id, default: .zero] += purchase.amount
+                apply(to: &byRecipient[id, default: HolidayRecipientTally()])
             } else {
-                unassigned += purchase.amount
+                apply(to: &unassigned)
             }
         }
         let totals = HolidaySpendTotals(byRecipient: byRecipient, unassigned: unassigned)
@@ -924,8 +972,8 @@ final class BudgetStore: ObservableObject {
         persist()
     }
 
-    func makeHolidayPurchaseDraft(for recipientID: UUID? = nil) -> GiftPurchaseDraft {
-        GiftPurchaseDraft(date: now(), recipientID: recipientID)
+    func makeHolidayPurchaseDraft(for recipientID: UUID? = nil, isReturn: Bool = false) -> GiftPurchaseDraft {
+        GiftPurchaseDraft(date: now(), recipientID: recipientID, isReturn: isReturn)
     }
 
     /// Seeds an edit sheet. The amount goes through `SproutMoneyText` so it is
@@ -936,7 +984,8 @@ final class BudgetStore: ObservableObject {
             amountText: SproutMoneyText.editable(purchase.amount),
             note: purchase.note,
             date: purchase.date,
-            recipientID: purchase.recipientID
+            recipientID: purchase.recipientID,
+            isReturn: purchase.isReturn
         )
     }
 
@@ -956,7 +1005,8 @@ final class BudgetStore: ObservableObject {
                 name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
                 amount: amount,
                 note: draft.note.trimmingCharacters(in: .whitespacesAndNewlines),
-                date: draft.date
+                date: draft.date,
+                isReturn: draft.isReturn
             )
         )
         persist()
@@ -979,6 +1029,7 @@ final class BudgetStore: ObservableObject {
         snapshot.holidaySeason.purchases[index].note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
         snapshot.holidaySeason.purchases[index].date = draft.date
         snapshot.holidaySeason.purchases[index].recipientID = existingRecipientID(draft.recipientID)
+        snapshot.holidaySeason.purchases[index].isReturn = draft.isReturn
         persist()
         return true
     }
@@ -1015,7 +1066,22 @@ final class BudgetStore: ObservableObject {
     func startNewHolidaySeason(label: String? = nil, carryRecipients: Bool) {
         let timestamp = now()
         var closing = snapshot.holidaySeason
-        closing.closedAt = timestamp
+
+        // Stamped strictly later than anything already in history.
+        //
+        // History is sorted by `closedAt` and then trimmed to the cap, so a
+        // stored season closed on a device whose clock ran ahead — or simply a
+        // clock the user has since set back — sorted the season being filed
+        // *right now* to the bottom, where the cap dropped it immediately. The
+        // one season the user certainly still cares about, gone under a "New
+        // season started" toast. `resetMonth` has a backwards-clock guard; this
+        // is the holiday equivalent.
+        let newestStoredClose = snapshot.holidaySeasonHistory.compactMap(\.closedAt).max()
+        if let newestStoredClose, newestStoredClose >= timestamp {
+            closing.closedAt = newestStoredClose.addingTimeInterval(1)
+        } else {
+            closing.closedAt = timestamp
+        }
 
         // An untouched season is nothing to look back at, and archiving it would
         // only push a real one out of the capped history.
@@ -1073,45 +1139,66 @@ final class BudgetStore: ObservableObject {
         var season = season
 
         let label = season.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        season.label = label.isEmpty
-            ? HolidaySeason.defaultLabel(now: season.startedAt, calendar: calendar)
-            : label
+        if label.isEmpty {
+            // `.distantPast` is year 1 AD, so deriving the name from it gave
+            // "Holiday 1" — which then stuck, because only a *blank* label is
+            // replaced. Fall back to today for a season with no usable start.
+            let reference = season.startedAt > .distantPast ? season.startedAt : now()
+            season.label = HolidaySeason.defaultLabel(now: reference, calendar: calendar)
+        } else {
+            season.label = label
+        }
 
         // A negative budget is not a choice any control can make; it can only
         // come from a damaged file, where "unset" is the honest reading.
         if season.budget < .zero { season.budget = .zero }
 
         // Duplicate ids would make every lookup ambiguous and let removing one
-        // person delete another person's gifts.
-        var recipientIDs = Set<UUID>()
+        // person delete another person's gifts — but a row that shares an id is
+        // not automatically a row to throw away, and this used to drop it with
+        // nothing recorded. An identical row is a merge artifact and costs
+        // nothing to discard; a *different* row with a borrowed id is a real
+        // person or a real gift, and deleting it silently loses them. So the
+        // identical ones are dropped and the differing ones are re-identified.
+        var recipientsByID: [UUID: GiftRecipient] = [:]
         var recipients: [GiftRecipient] = []
-        for recipient in season.recipients {
-            guard recipientIDs.insert(recipient.id).inserted else { continue }
-            var recipient = recipient
+        for raw in season.recipients {
+            var recipient = raw
             let name = recipient.name.trimmingCharacters(in: .whitespacesAndNewlines)
             recipient.name = name.isEmpty ? "Someone" : name
             if recipient.emoji.isEmpty { recipient.emoji = GiftRecipient.defaultEmoji }
             if let planned = recipient.plannedAmount, planned < .zero {
                 recipient.plannedAmount = .zero
             }
+
+            if let existing = recipientsByID[recipient.id] {
+                if existing.hasSameContent(as: recipient) { continue }
+                recipient.id = UUID()
+            }
+            recipientsByID[recipient.id] = recipient
             recipients.append(recipient)
         }
         season.recipients = recipients
 
-        var purchaseIDs = Set<UUID>()
+        var purchasesByID: [UUID: GiftPurchase] = [:]
         var purchases: [GiftPurchase] = []
-        for purchase in season.purchases {
-            guard purchaseIDs.insert(purchase.id).inserted else { continue }
-            var purchase = purchase
+        for raw in season.purchases {
+            var purchase = raw
             let name = purchase.name.trimmingCharacters(in: .whitespacesAndNewlines)
             purchase.name = name.isEmpty ? "Gift" : name
             purchase.note = purchase.note.trimmingCharacters(in: .whitespacesAndNewlines)
             // A gift pointing at someone who is no longer here is re-homed as
             // unassigned rather than left dangling. It still counts toward the
             // season total, so it has to appear in a list somewhere.
-            if let id = purchase.recipientID, !recipientIDs.contains(id) {
+            if let id = purchase.recipientID, recipientsByID[id] == nil {
                 purchase.recipientID = nil
             }
+
+            if let existing = purchasesByID[purchase.id] {
+                if existing.hasSameContent(as: purchase) { continue }
+                purchase.id = UUID()
+            }
+            purchasesByID[purchase.id] = purchase
             purchases.append(purchase)
         }
         season.purchases = purchases
@@ -1156,7 +1243,8 @@ final class BudgetStore: ObservableObject {
     private static let backupSignatureKeys: Set<String> = [
         "schemaVersion", "groceryBudget", "personalBudget",
         "groceryCarryover", "personalCarryover", "transactions",
-        "recurringRules", "monthHistory", "currentMonth", "personalCategories"
+        "recurringRules", "monthHistory", "currentMonth", "personalCategories",
+        "holidaySeason", "holidaySeasonHistory"
     ]
 
     static func looksLikeBackup(_ data: Data) -> Bool {
@@ -1186,7 +1274,7 @@ final class BudgetStore: ObservableObject {
         if !Self.containsHolidayData(data) {
             holiday = "no holiday data"
         } else {
-            let gifts = incoming.holidaySeason.purchaseCount
+            let gifts = incoming.holidaySeason.giftCount
             let people = incoming.holidaySeason.recipients.count
             var parts = ["\(gifts) holiday gift\(gifts == 1 ? "" : "s")"]
             if people > 0 {
@@ -1217,6 +1305,10 @@ final class BudgetStore: ObservableObject {
         else {
             return false
         }
+        return containsHolidayData(in: dictionary)
+    }
+
+    static func containsHolidayData(in dictionary: [String: Any]) -> Bool {
         for key in ["holidaySeason", "holidaySeasonHistory"] {
             if let value = dictionary[key], !(value is NSNull) { return true }
         }
@@ -1226,7 +1318,7 @@ final class BudgetStore: ObservableObject {
     /// What an import would destroy on the holiday side, for the confirmation
     /// prompt. `nil` when there is nothing there to lose.
     var holidayReplacementWarning: String? {
-        let gifts = snapshot.holidaySeason.purchaseCount
+        let gifts = snapshot.holidaySeason.giftCount
         let people = snapshot.holidaySeason.recipients.count
         let seasons = snapshot.holidaySeasonHistory.count
         guard gifts > 0 || people > 0 || seasons > 0 || snapshot.holidaySeason.hasBudget else {
@@ -1414,6 +1506,8 @@ final class BudgetStore: ObservableObject {
         // loses gifts is no better than the monthly one doing it.
         if issues.hadUnreadableActiveHolidaySeason {
             clauses.append("your current holiday season")
+        } else if issues.hadUnreadableHolidayAmount {
+            clauses.append("your holiday budget")
         } else if issues.hadUnreadableGiftPurchaseList {
             clauses.append("your holiday gifts")
         } else if issues.droppedGiftPurchases > 0 {
@@ -1470,12 +1564,25 @@ final class BudgetStore: ObservableObject {
     private static func peekSchemaVersion(from data: Data) -> Int {
         guard
             let object = try? JSONSerialization.jsonObject(with: data),
-            let dictionary = object as? [String: Any],
-            let version = dictionary["schemaVersion"] as? Int
+            let dictionary = object as? [String: Any]
         else {
             return 1
         }
-        return version
+        return schemaVersion(in: dictionary)
+    }
+
+    static func schemaVersion(in dictionary: [String: Any]) -> Int {
+        if let version = dictionary["schemaVersion"] as? Int { return version }
+        // A hand-edited or third-party file may quote it. Reading `"2"` as "no
+        // version, so v1" multiplied every stored amount by 100 and then wrote
+        // the inflated figures back as cents.
+        if let text = dictionary["schemaVersion"] as? String, let version = Int(text) { return version }
+        // Holiday data has only ever been written at v2, as integer cents. A
+        // file that carries it cannot be a v1 dollars file, so inferring v1
+        // here would read a $40 gift as $4,000.00 and a $500 budget as
+        // $50,000.00 — permanently, on the next save, with no alert.
+        if containsHolidayData(in: dictionary) { return BudgetSnapshot.currentSchemaVersion }
+        return 1
     }
 
     private func decodeSnapshot(from data: Data) throws -> (snapshot: BudgetSnapshot, issues: SproutDecodeIssueRecorder) {

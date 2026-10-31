@@ -176,13 +176,21 @@ struct HolidaySummaryCardView: View {
         return ("Left to plan", SproutFormatters.currency(unreserved))
     }
 
+    /// Counts gifts, not rows: a return is money coming back, not something
+    /// bought, so it must not be totted up as a gift.
     private var tallyText: String {
         let people = store.holidayRecipients.count
-        let gifts = store.holidayPurchaseCount
-        if people == 0 {
-            return "\(gifts) gift\(gifts == 1 ? "" : "s")"
+        let gifts = store.holidayGiftCount
+        let returns = store.holidayReturnCount
+
+        var parts = ["\(gifts) gift\(gifts == 1 ? "" : "s")"]
+        if returns > 0 {
+            parts.append("\(returns) return\(returns == 1 ? "" : "s")")
         }
-        return "\(gifts) gift\(gifts == 1 ? "" : "s") · \(people) \(people == 1 ? "person" : "people")"
+        if people > 0 {
+            parts.append("\(people) \(people == 1 ? "person" : "people")")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func spendingColor(progress: Double, remaining: MoneyAmount) -> Color {

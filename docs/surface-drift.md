@@ -54,8 +54,13 @@ Added 2026-10-31. The Holiday tab exists on iOS and has no web counterpart yet.
   `BudgetStore.holidaySeasonHistoryLimit` seasons.
 - `sprout://quick-add?tab=holiday` and the "Log Holiday Gift" App Shortcut are
   iOS only. The same link previously fell through to the Personal budget.
-- Holiday gifts have no refund/payment counterpart and no recurring rules.
-  Both are monthly-ledger concepts; a returned gift is edited or removed.
+- Holiday gifts do have a return/credit counterpart, which nets off the season
+  total the way a monthly payment nets off `netSpent`. A returned gift keeps its
+  own row rather than being deleted or edited down, so the record of what was
+  bought and the fact that money moved twice both survive. Copy that says
+  "N gifts" counts gifts only.
+- Holiday gifts have no recurring rules. That is a monthly-ledger concept and a
+  recurring gift is not a thing.
 
 ## Deliberate differences and limits
 

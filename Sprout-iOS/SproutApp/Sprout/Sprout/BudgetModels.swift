@@ -360,6 +360,7 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
     private(set) var hadUnreadableGiftRecipientList = false
     private(set) var hadUnreadableHolidaySeasonList = false
     private(set) var hadUnreadableActiveHolidaySeason = false
+    private(set) var hadUnreadableHolidayAmount = false
 
     var hasIssues: Bool {
         droppedTransactions > 0
@@ -375,6 +376,7 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
             || hadUnreadableGiftRecipientList
             || hadUnreadableHolidaySeasonList
             || hadUnreadableActiveHolidaySeason
+            || hadUnreadableHolidayAmount
     }
 
     func recordDroppedTransaction() {
@@ -436,6 +438,13 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
     /// behind a "Backup Imported" success message.
     func recordUnreadableActiveHolidaySeason() {
         hadUnreadableActiveHolidaySeason = true
+    }
+
+    /// A holiday figure was present but unreadable. It falls back to zero,
+    /// which for the holiday budget means "not set" — so without this the user
+    /// would simply be invited to set a budget they had already chosen.
+    func recordUnreadableHolidayAmount() {
+        hadUnreadableHolidayAmount = true
     }
 }
 

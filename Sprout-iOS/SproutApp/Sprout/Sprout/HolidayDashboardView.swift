@@ -7,6 +7,8 @@ struct HolidayDashboardView: View {
 
     let onOpenSettings: () -> Void
 
+    @State private var searchText = ""
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 26) {
@@ -21,6 +23,9 @@ struct HolidayDashboardView: View {
                     // Starting a season is the one action that creates archived
                     // data, and the only route to it was Settings -> History,
                     // which nothing on this screen mentioned.
+                    Button("Record a return", systemImage: "arrow.uturn.backward") {
+                        router.present(.addGift(recipient: .unspecified, isReturn: true))
+                    }
                     Button("Past seasons", systemImage: "clock.arrow.circlepath") {
                         router.present(.seasonHistory)
                     }
@@ -54,7 +59,7 @@ struct HolidayDashboardView: View {
     private var primaryActions: some View {
         HStack(spacing: 12) {
             Button {
-                router.present(.addGift(recipient: .unspecified))
+                router.present(.addGift(recipient: .unspecified, isReturn: false))
             } label: {
                 Label("Add gift", systemImage: "plus")
                     .font(.headline)
@@ -101,12 +106,19 @@ struct HolidayDashboardView: View {
             } else {
                 ForEach(Array(recipients.enumerated()), id: \.element.id) { index, recipient in
                     NavigationLink(value: HolidayRecipientRoute(recipientID: recipient.id)) {
+                        // Counts come from the cached tally. They used to come
+                        // from `holidayPurchases(for:)`, a full filter-and-sort
+                        // per person per render pass, which defeated the cache
+                        // sitting right beside it.
+                        let tally = store.holidayTally(for: recipient.id)
+
                         GiftRecipientRowView(
                             emoji: recipient.emoji,
                             name: recipient.name,
-                            spent: store.holidaySpent(for: recipient.id),
+                            spent: tally.spent,
                             plannedAmount: recipient.plannedAmount,
-                            giftCount: store.holidayPurchases(for: recipient.id).count,
+                            giftCount: tally.gifts,
+                            returnCount: tally.returns,
                             progress: store.holidayProgress(forRecipient: recipient)
                         )
                     }
@@ -139,20 +151,21 @@ struct HolidayDashboardView: View {
     /// "People" count.
     @ViewBuilder
     private var unassignedSection: some View {
-        let unassignedCount = store.holidayUnassignedPurchaseCount
+        let tally = store.holidayTally(for: nil)
 
-        if unassignedCount > 0 {
+        if !tally.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                sectionHeader("Not assigned to a person", detail: "\(unassignedCount)")
+                sectionHeader("Not assigned to a person", detail: "\(tally.rows)")
                     .padding(.bottom, 8)
 
                 NavigationLink(value: HolidayRecipientRoute(recipientID: nil)) {
                     GiftRecipientRowView(
                         emoji: "🎁",
                         name: "Not for one person",
-                        spent: store.holidaySpent(for: nil),
+                        spent: tally.spent,
                         plannedAmount: nil,
-                        giftCount: unassignedCount,
+                        giftCount: tally.gifts,
+                        returnCount: tally.returns,
                         progress: nil
                     )
                 }
@@ -163,13 +176,27 @@ struct HolidayDashboardView: View {
 
     @ViewBuilder
     private var giftsSection: some View {
-        let gifts = store.holidayPurchasesNewestFirst
+        let all = store.holidayPurchasesNewestFirst
+        // Same rule as the transactions list: the field only appears at five or
+        // more rows, and the filter is inert whenever its control is off screen
+        // — otherwise deleting down to four leaves "No gifts match" with no box
+        // and no way to clear it.
+        let isSearchable = all.count >= 5
+        let query = isSearchable ? searchText : ""
+        let gifts = query.isEmpty ? all : all.filter { matches($0, query: query) }
 
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("All gifts", detail: "\(gifts.count)")
-                .padding(.bottom, 8)
+            sectionHeader(
+                "All gifts",
+                detail: query.isEmpty ? "\(all.count)" : "\(gifts.count) of \(all.count)"
+            )
+            .padding(.bottom, 8)
 
-            if gifts.isEmpty {
+            if isSearchable {
+                searchField
+            }
+
+            if all.isEmpty {
                 ContentUnavailableView(
                     "No gifts logged yet",
                     systemImage: "gift",
@@ -177,6 +204,13 @@ struct HolidayDashboardView: View {
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 28)
+            } else if gifts.isEmpty {
+                Text("No gifts match \u{201C}\(query)\u{201D}")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.sproutTextMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
             } else {
                 ForEach(Array(gifts.enumerated()), id: \.element.id) { index, purchase in
                     let recipient = store.holidayRecipient(with: purchase.recipientID)
@@ -196,6 +230,43 @@ struct HolidayDashboardView: View {
                 }
             }
         }
+    }
+
+    /// Searches the person's name too, which is the thing a holiday list is
+    /// most likely to be scanned by.
+    private func matches(_ purchase: GiftPurchase, query: String) -> Bool {
+        if purchase.name.localizedCaseInsensitiveContains(query) { return true }
+        if purchase.note.localizedCaseInsensitiveContains(query) { return true }
+        let name = store.holidayRecipient(with: purchase.recipientID)?.name ?? "Not for one person"
+        return name.localizedCaseInsensitiveContains(query)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Color.sproutTextMuted)
+            TextField("Search gifts or people", text: $searchText)
+                .font(.subheadline)
+                .foregroundStyle(Color.sproutText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.sproutTextMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.sproutCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.sproutBorder, lineWidth: 1))
+        .padding(.bottom, 10)
     }
 
     private func sectionHeader(_ title: String, detail: String) -> some View {

@@ -305,6 +305,10 @@ struct ContentView: View {
             || editingTransaction != nil
             || isShowingSettings
             || holidayRouter.sheet != nil
+            // A quick-add link arriving while "Remove person?" was on screen
+            // used to pass this guard, present a sheet over the live alert, and
+            // consume the request — so one of the two was silently dropped.
+            || holidayRouter.confirmation != nil
     }
 
     private func presentQuickEntryIfPossible() {
@@ -319,7 +323,7 @@ struct ContentView: View {
         store.activeSection = request.section
 
         if request.section == .holiday {
-            holidayRouter.present(.addGift(recipient: .unspecified))
+            holidayRouter.present(.addGift(recipient: .unspecified, isReturn: false))
         } else {
             transactionSheet = TransactionSheetRequest(
                 tab: request.tab,
@@ -334,15 +338,18 @@ struct ContentView: View {
     @ViewBuilder
     private func holidaySheet(_ sheet: HolidayRouter.Sheet) -> some View {
         switch sheet {
-        case .addGift(let recipient):
+        case .addGift(let recipient, let isReturn):
             GiftEntrySheet(
-                initialDraft: store.makeHolidayPurchaseDraft(for: recipient.recipientID),
+                initialDraft: store.makeHolidayPurchaseDraft(
+                    for: recipient.recipientID,
+                    isReturn: isReturn
+                ),
                 recipientIsChosen: recipient.isChosen
             ) { draft in
                 guard store.addHolidayPurchase(draft: draft) else { return false }
                 HapticFeedback.success()
                 holidayRouter.dismiss()
-                showSuccessToast("Gift saved")
+                showSuccessToast(draft.isReturn ? "Return saved" : "Gift saved")
                 return true
             }
 
@@ -355,7 +362,7 @@ struct ContentView: View {
                 guard store.updateHolidayPurchase(purchase, with: draft) else { return false }
                 HapticFeedback.success()
                 holidayRouter.dismiss()
-                showSuccessToast("Gift updated")
+                showSuccessToast(draft.isReturn ? "Return updated" : "Gift updated")
                 return true
             }
 
@@ -432,8 +439,8 @@ struct ContentView: View {
 
     private var holidayConfirmationTitle: String {
         switch holidayRouter.confirmation {
-        case .removeGift:
-            "Remove gift?"
+        case .removeGift(let purchase):
+            purchase.isReturn ? "Remove return?" : "Remove gift?"
         case .removePerson:
             "Remove person?"
         case nil:
@@ -447,15 +454,23 @@ struct ContentView: View {
     private func holidayConfirmationMessage(_ confirmation: HolidayRouter.Confirmation) -> String {
         switch confirmation {
         case .removeGift(let purchase):
-            return "\(purchase.name) (\(SproutFormatters.currency(purchase.amount))) will be removed from your holiday spending."
+            let kind = purchase.isReturn ? "return" : "gift"
+            return "This \(kind), \(purchase.name) (\(SproutFormatters.currency(purchase.amount))), "
+                + "will be removed from your holiday spending."
         case .removePerson(let recipient):
-            let gifts = store.holidayPurchases(for: recipient.id)
-            guard !gifts.isEmpty else {
+            let tally = store.holidayTally(for: recipient.id)
+            guard tally.rows > 0 else {
                 return "\(recipient.name) will be removed from your holiday list."
             }
-            let total = store.holidaySpent(for: recipient.id)
-            return "\(recipient.name) and \(gifts.count) gift\(gifts.count == 1 ? "" : "s") "
-                + "totalling \(SproutFormatters.currency(total)) will be removed from your holiday spending."
+            var items = ["\(tally.gifts) gift\(tally.gifts == 1 ? "" : "s")"]
+            if tally.returns > 0 {
+                items.append("\(tally.returns) return\(tally.returns == 1 ? "" : "s")")
+            }
+            // The figure comes from the same tally the dashboard shows, so what
+            // the user is told they are losing is exactly what leaves the total.
+            return "\(recipient.name), \(items.joined(separator: " and ")) "
+                + "totalling \(SproutFormatters.currency(tally.spent)) "
+                + "will be removed from your holiday spending."
         }
     }
 

@@ -40,19 +40,34 @@ struct HolidayStoreTests {
         gregorian.date(from: DateComponents(year: year, month: month, day: day, hour: 12)) ?? Date()
     }
 
+    /// `on` defaults to the store's own clock, not the wall clock. Hard-coding
+    /// `Date()` here meant every gift in a clock-controlled test was dated
+    /// today regardless of the season it belonged to, so no test exercised gift
+    /// dates under a controlled clock at all.
     @discardableResult
     private func addGift(
         _ store: BudgetStore,
         _ name: String,
         _ dollars: Double,
         for recipientID: UUID? = nil,
-        on date: Date = Date()
+        on date: Date? = nil,
+        isReturn: Bool = false
     ) -> Bool {
-        var draft = store.makeHolidayPurchaseDraft(for: recipientID)
+        var draft = store.makeHolidayPurchaseDraft(for: recipientID, isReturn: isReturn)
         draft.name = name
         draft.amountText = SproutMoneyText.editable(MoneyAmount(dollars: dollars))
-        draft.date = date
+        if let date { draft.date = date }
         return store.addHolidayPurchase(draft: draft)
+    }
+
+    @discardableResult
+    private func addReturn(
+        _ store: BudgetStore,
+        _ name: String,
+        _ dollars: Double,
+        for recipientID: UUID? = nil
+    ) -> Bool {
+        addGift(store, name, dollars, for: recipientID, isReturn: true)
     }
 
     private func addPerson(
@@ -124,10 +139,57 @@ struct HolidayStoreTests {
         #expect(store.holidayPurchaseCount == 1)
         #expect(store.holidayRecipients.count == 1)
         #expect(store.holidaySpent(for: dad.id) == MoneyAmount(dollars: 120))
-        // And no archived month absorbed the gift.
-        for month in store.archivedMonths {
-            #expect(month.transactions.isEmpty)
+    }
+
+    /// The strong form: a month carrying real transactions *and* a season
+    /// carrying gifts, closed out, with both sides checked against what they
+    /// would have been on their own.
+    @Test func aMonthWithBothKindsOfSpendingClosesOutWithNeitherAffectingTheOther() {
+        let clock = TestClock(Self.makeDate(2026, 11, 20))
+
+        func makeMonthlySpending(_ store: BudgetStore) {
+            for (name, amount) in [("Coffee", 4.75), ("Lunch", 18.40)] {
+                var draft = store.makeDraft(for: .personal, mode: .expense)
+                draft.name = name
+                draft.amountText = SproutMoneyText.editable(MoneyAmount(dollars: amount))
+                draft.date = Self.makeDate(2026, 11, 18)
+                #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+            }
         }
+
+        // Control: the same month, same transactions, no holiday data at all.
+        let control = makeStore(calendar: Self.gregorian, now: { clock.date })
+        makeMonthlySpending(control)
+        control.resetMonth(carryOverRemainders: true)
+
+        let withHoliday = makeStore(calendar: Self.gregorian, now: { clock.date })
+        makeMonthlySpending(withHoliday)
+        withHoliday.setHolidayBudget(MoneyAmount(dollars: 500))
+        let dad = addPerson(withHoliday, "Dad", planned: 150)
+        addGift(withHoliday, "Headphones", 120, for: dad.id, on: Self.makeDate(2026, 11, 18))
+        addReturn(withHoliday, "Headphones returned", 20, for: dad.id)
+        withHoliday.resetMonth(carryOverRemainders: true)
+
+        // Monthly side: identical to the control, down to the cent.
+        #expect(withHoliday.carryover(for: .personal) == control.carryover(for: .personal))
+        #expect(withHoliday.carryover(for: .grocery) == control.carryover(for: .grocery))
+        #expect(withHoliday.archivedMonths.count == control.archivedMonths.count)
+        for (lhs, rhs) in zip(withHoliday.archivedMonths, control.archivedMonths) {
+            #expect(lhs.monthKey == rhs.monthKey)
+            #expect(lhs.transactions.count == rhs.transactions.count)
+            #expect(lhs.netSpent(for: .personal) == rhs.netSpent(for: .personal))
+            #expect(lhs.remaining(for: .personal) == rhs.remaining(for: .personal))
+            // No gift was copied into the archived month's ledger.
+            #expect(lhs.transactions.allSatisfy { $0.name != "Headphones" })
+        }
+
+        // Holiday side: untouched by the close-out, returns netted.
+        #expect(withHoliday.holidayBudget == MoneyAmount(dollars: 500))
+        #expect(withHoliday.holidaySpent == MoneyAmount(dollars: 100))
+        #expect(withHoliday.holidayPurchaseCount == 2)
+        #expect(withHoliday.holidayGiftCount == 1)
+        #expect(withHoliday.holidayReturnCount == 1)
+        #expect(withHoliday.holidaySpent(for: dad.id) == MoneyAmount(dollars: 100))
     }
 
     @Test func aHolidayBudgetIsNotAddedToEitherMonthlyBudget() {
@@ -258,7 +320,11 @@ struct HolidayStoreTests {
         // A target of zero makes the bar meaningful; having none does not, so it
         // must not render as a full bar.
         #expect(store.holidayProgress(forRecipient: zeroTarget) == 0)
-        #expect(store.holidayPlannedTotal == .zero)
+        // The discriminator: `plannedTotal` is zero for both shapes, so only
+        // this can tell "has a target of nothing" from "has no target".
+        #expect(store.holidayHasPerPersonTargets)
+        #expect(untargeted.plannedAmount == nil)
+        #expect(zeroTarget.plannedAmount == .zero)
     }
 
     @Test func unreservedBudgetCountsOnlyRealTargets() {
@@ -627,14 +693,22 @@ struct HolidayStoreTests {
 
     @Test func anArchivedSeasonCanBeDeleted() {
         let store = makeStore()
+        store.setHolidayBudget(MoneyAmount(dollars: 300))
+        _ = addPerson(store, "Mom")
         addGift(store, "Scarf", 40)
-        store.startNewHolidaySeason(carryRecipients: false)
+        store.startNewHolidaySeason(carryRecipients: true)
+        addGift(store, "Mug", 15)
         let archived = store.holidaySeasonHistory[0]
+        let activeLabel = store.holidaySeasonLabel
 
         store.removeArchivedHolidaySeason(archived)
         #expect(store.holidaySeasonHistory.isEmpty)
-        // And the active season is untouched.
-        #expect(store.holidayPurchaseCount == 0)
+        // The active season is untouched — asserted on things that were not
+        // already zero before the delete.
+        #expect(store.holidaySeasonLabel == activeLabel)
+        #expect(store.holidayBudget == MoneyAmount(dollars: 300))
+        #expect(store.holidaySpent == MoneyAmount(dollars: 15))
+        #expect(store.holidayRecipients.map(\.name) == ["Mom"])
     }
 
     // MARK: - Persistence
@@ -754,7 +828,9 @@ struct HolidayStoreTests {
 
         #expect(store.holidayPurchaseCount == 0)
         #expect(store.holidayHasBudget == false)
-        #expect(store.holidaySeasonLabel.isEmpty == false)
+        // A real label for the current year, not "Holiday 1" from a missing
+        // start date, and not merely "some non-empty string".
+        #expect(store.holidaySeasonLabel == store.defaultNewHolidaySeasonLabel)
         // Absent keys are an empty season, not a file that lost data.
         #expect(store.persistenceAlert == nil)
     }
@@ -893,15 +969,51 @@ struct HolidayStoreTests {
         ]
         try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
 
-        // One person, renamed rather than deleted; the duplicate id is dropped.
-        #expect(store.holidayRecipients.count == 1)
-        #expect(store.holidayRecipients[0].name == "Someone")
-        #expect(store.holidayRecipients[0].emoji == GiftRecipient.defaultEmoji)
-        #expect(store.holidaySeasonLabel.isEmpty == false)
+        // Both people survive. They share an id but are different rows, so
+        // dropping the second would delete someone; it is re-identified
+        // instead. The old behaviour dropped it with nothing recorded, and the
+        // test that covered this path asserted the drop.
+        #expect(store.holidayRecipients.count == 2)
+        #expect(store.holidayRecipients.map(\.name).sorted() == ["Duplicate", "Someone"])
+        #expect(Set(store.holidayRecipients.map(\.id)).count == 2)
+        #expect(store.holidaySeasonLabel == store.defaultNewHolidaySeasonLabel)
         #expect(store.holidayHasBudget == false)
+
+        let renamed = try #require(store.holidayRecipients.first { $0.name == "Someone" })
+        #expect(renamed.emoji == GiftRecipient.defaultEmoji)
+        // The gift keeps the id it referenced, which stayed with the first row.
         #expect(store.holidayPurchaseCount == 1)
         #expect(store.holidayPurchasesNewestFirst[0].name == "Gift")
         #expect(store.holidaySpent == MoneyAmount(dollars: 10))
+        #expect(store.holidaySpent(for: renamed.id) == MoneyAmount(dollars: 10))
+    }
+
+    /// The other half of the same rule: an identical row repeated is a merge
+    /// artifact, and collapsing it loses nothing.
+    @Test func anIdenticalRepeatedRowIsCollapsedRatherThanCountedTwice() throws {
+        let store = makeStore()
+        let sharedID = UUID().uuidString
+        let personID = UUID().uuidString
+        let date = ISO8601DateFormatter().string(from: Date())
+        let gift: [String: Any] = [
+            "id": sharedID, "recipientID": personID, "name": "Scarf",
+            "amount": 4_000, "note": "", "date": date
+        ]
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "currentMonth": SproutDate.currentMonthKey(),
+            "transactions": [],
+            "holidaySeason": [
+                "id": UUID().uuidString, "label": "Holiday 2026", "budget": 50_000,
+                "startedAt": date,
+                "recipients": [["id": personID, "name": "Mom", "emoji": "🎁"]],
+                "purchases": [gift, gift]
+            ]
+        ]
+        try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+        #expect(store.holidayPurchaseCount == 1)
+        #expect(store.holidaySpent == MoneyAmount(dollars: 40))
     }
 
     @Test func editingAPersonDoesNotDeleteThemMidEdit() {
@@ -916,6 +1028,244 @@ struct HolidayStoreTests {
         #expect(store.updateHolidayRecipient(mom, with: blanked) == false)
         #expect(store.holidayRecipients.map(\.name) == ["Mom"])
         #expect(store.holidaySpent(for: mom.id) == MoneyAmount(dollars: 40))
+    }
+
+    // MARK: - Returns
+
+    @Test func aReturnComesBackOffTheSeasonTotal() {
+        let store = makeStore()
+        store.setHolidayBudget(MoneyAmount(dollars: 400))
+        let mom = addPerson(store, "Mom", planned: 150)
+        addGift(store, "Sweater", 90, for: mom.id)
+        addReturn(store, "Sweater returned", 90, for: mom.id)
+
+        #expect(store.holidaySpent == .zero)
+        #expect(store.holidayRemaining == MoneyAmount(dollars: 400))
+        #expect(store.holidaySpent(for: mom.id) == .zero)
+        // Both rows are kept: deleting the gift would lose the record of what
+        // was bought, and editing it down would lose that money moved twice.
+        #expect(store.holidayPurchaseCount == 2)
+        #expect(store.holidayGiftCount == 1)
+        #expect(store.holidayReturnCount == 1)
+    }
+
+    @Test func aPartialCreditLeavesTheOriginalGiftIntact() {
+        let store = makeStore()
+        let mom = addPerson(store, "Mom")
+        addGift(store, "Coat", 90, for: mom.id)
+        addReturn(store, "Price match credit", 15, for: mom.id)
+
+        #expect(store.holidaySpent == MoneyAmount(dollars: 75))
+        let gifts = store.holidayPurchases(for: mom.id)
+        #expect(gifts.count == 2)
+        // The $90 the receipt shows is still findable.
+        #expect(gifts.contains { $0.name == "Coat" && $0.amount == MoneyAmount(dollars: 90) })
+    }
+
+    @Test func aReturnDoesNotCountAsAGiftInCopyOrTallies() {
+        let store = makeStore()
+        let mom = addPerson(store, "Mom")
+        addGift(store, "Sweater", 90, for: mom.id)
+        addGift(store, "Book", 20, for: mom.id)
+        addReturn(store, "Sweater returned", 90, for: mom.id)
+
+        let tally = store.holidayTally(for: mom.id)
+        #expect(tally.gifts == 2)
+        #expect(tally.returns == 1)
+        #expect(tally.rows == 3)
+        #expect(tally.spent == MoneyAmount(dollars: 20))
+    }
+
+    /// A bucket holding only a return would hide from the dashboard while its
+    /// money stayed in the season total — counted but invisible.
+    @Test func aBucketHoldingOnlyAReturnIsStillVisible() {
+        let store = makeStore()
+        addReturn(store, "Gift card refund", 25)
+
+        #expect(store.holidaySpent == MoneyAmount(dollars: -25))
+        #expect(store.holidayUnassignedPurchaseCount == 1)
+        #expect(store.holidayTally(for: nil).isEmpty == false)
+        #expect(store.holidayPurchases(for: nil).count == 1)
+    }
+
+    @Test func returningMoreThanWasSpentCannotReserveMoreThanTheTarget() {
+        let store = makeStore()
+        store.setHolidayBudget(MoneyAmount(dollars: 500))
+        let mom = addPerson(store, "Mom", planned: 100)
+        addReturn(store, "Over-refund", 300, for: mom.id)
+
+        #expect(store.holidaySpent(for: mom.id) == MoneyAmount(dollars: -300))
+        // Clamped at the target: a refund must not reserve more than Mom was
+        // ever allotted.
+        #expect(store.holidaySeason.remainingTargets == MoneyAmount(dollars: 100))
+        #expect(store.holidayUnreserved <= store.holidayRemaining)
+    }
+
+    @Test func aReturnSurvivesABackupRoundTrip() throws {
+        let source = makeStore()
+        let mom = addPerson(source, "Mom")
+        addGift(source, "Sweater", 90, for: mom.id)
+        addReturn(source, "Sweater returned", 40, for: mom.id)
+
+        let destination = makeStore()
+        try destination.importBackupData(try source.exportBackupData())
+
+        #expect(destination.holidaySpent == MoneyAmount(dollars: 50))
+        #expect(destination.holidayReturnCount == 1)
+        #expect(destination.holidayGiftCount == 1)
+    }
+
+    @Test func anEditCanTurnAGiftIntoAReturnAndBack() {
+        let store = makeStore()
+        let mom = addPerson(store, "Mom")
+        addGift(store, "Sweater", 90, for: mom.id)
+        let gift = store.holidayPurchases(for: mom.id)[0]
+
+        var draft = store.makeHolidayEditDraft(for: gift)
+        #expect(draft.isReturn == false)
+        draft.isReturn = true
+        #expect(store.updateHolidayPurchase(gift, with: draft))
+        #expect(store.holidaySpent == MoneyAmount(dollars: -90))
+
+        var back = store.makeHolidayEditDraft(for: store.holidayPurchases(for: mom.id)[0])
+        #expect(back.isReturn)
+        back.isReturn = false
+        #expect(store.updateHolidayPurchase(store.holidayPurchases(for: mom.id)[0], with: back))
+        #expect(store.holidaySpent == MoneyAmount(dollars: 90))
+    }
+
+    // MARK: - Recovery
+
+    /// History is sorted by `closedAt` and then trimmed to the cap, so a stored
+    /// season closed on a device whose clock ran ahead sorted the season being
+    /// filed right now to the bottom — where the cap dropped it on the spot,
+    /// under a "New season started" toast.
+    @Test func aSeasonClosedUnderABackwardsClockIsNotEvictedOnTheSpot() throws {
+        let clock = TestClock(Self.makeDate(2030, 12, 1))
+        let store = makeStore(calendar: Self.gregorian, now: { clock.date })
+
+        // Fill history to the cap with seasons closed in the future.
+        for index in 0..<BudgetStore.holidaySeasonHistoryLimit {
+            clock.date = Self.makeDate(2030 + index, 12, 1)
+            addGift(store, "Future gift \(index)", 10)
+            store.startNewHolidaySeason(carryRecipients: false)
+        }
+        #expect(store.holidaySeasonHistory.count == BudgetStore.holidaySeasonHistoryLimit)
+
+        // Now the clock goes back, as it does on a restored device before it
+        // syncs, and the user closes a season holding real money.
+        clock.date = Self.makeDate(2026, 12, 20)
+        _ = store.renameHolidaySeason("The one that matters")
+        addGift(store, "Expensive gift", 800)
+        store.startNewHolidaySeason(carryRecipients: false)
+
+        let archived = try #require(store.holidaySeasonHistory.first)
+        #expect(archived.label == "The one that matters")
+        #expect(archived.spent == MoneyAmount(dollars: 800))
+        #expect(store.holidaySeasonHistory.count == BudgetStore.holidaySeasonHistoryLimit)
+    }
+
+    /// Holiday money has only ever been written as integer cents. A file whose
+    /// `schemaVersion` cannot be read as an Int was treated as v1 dollars,
+    /// which multiplied every gift by 100 and then wrote the inflated figures
+    /// back as cents on the next save.
+    @Test func holidayMoneyIsNeverReadAsV1Dollars() throws {
+        func payload(version: Any?) -> [String: Any] {
+            var dictionary: [String: Any] = [
+                "currentMonth": SproutDate.currentMonthKey(),
+                "transactions": [],
+                "holidaySeason": [
+                    "id": UUID().uuidString, "label": "Holiday 2026", "budget": 50_000,
+                    "startedAt": ISO8601DateFormatter().string(from: Date()),
+                    "recipients": [],
+                    "purchases": [[
+                        "id": UUID().uuidString, "name": "Scarf", "amount": 4_000,
+                        "note": "", "date": ISO8601DateFormatter().string(from: Date())
+                    ]]
+                ]
+            ]
+            if let version { dictionary["schemaVersion"] = version }
+            return dictionary
+        }
+
+        // Version absent entirely, and version quoted as a string.
+        let versions: [Any?] = [nil, "2"]
+        for version in versions {
+            let store = makeStore()
+            let data = try JSONSerialization.data(withJSONObject: payload(version: version))
+            try store.importBackupData(data)
+            #expect(store.holidaySpent == MoneyAmount(dollars: 40))
+            #expect(store.holidayBudget == MoneyAmount(dollars: 500))
+        }
+    }
+
+    /// `.zero` is overloaded to mean "no budget set yet", so a budget that is
+    /// present but unreadable silently invited the user to set one they had
+    /// already chosen.
+    @Test func anUnreadableHolidayBudgetIsReportedRatherThanReadAsUnset() throws {
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "currentMonth": SproutDate.currentMonthKey(),
+            "transactions": [],
+            "holidaySeason": [
+                "id": UUID().uuidString, "label": "Holiday 2026",
+                "budget": "six hundred",
+                "startedAt": ISO8601DateFormatter().string(from: Date()),
+                "recipients": [], "purchases": []
+            ]
+        ]
+        try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+        #expect(store.holidayHasBudget == false)
+        let alert = try #require(store.persistenceAlert)
+        #expect(alert.message.contains("holiday budget"))
+    }
+
+    /// Undo is the only recovery path for a holiday import gone wrong, and
+    /// nothing covered it.
+    @Test func undoImportRestoresHolidayData() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let store = BudgetStore(calendar: .current, saveURL: saveURL)
+        store.setHolidayBudget(MoneyAmount(dollars: 750))
+        let mom = addPerson(store, "Mom", planned: 300)
+        addGift(store, "Scarf", 40, for: mom.id)
+        addReturn(store, "Scarf returned", 10, for: mom.id)
+
+        let other = makeStore()
+        addGift(other, "Someone else's gift", 5)
+        try store.importBackupData(try other.exportBackupData())
+        #expect(store.holidaySpent == MoneyAmount(dollars: 5))
+        #expect(store.canUndoImport)
+
+        try store.undoImport()
+        #expect(store.holidayBudget == MoneyAmount(dollars: 750))
+        #expect(store.holidaySpent == MoneyAmount(dollars: 30))
+        #expect(store.holidayRecipients.map(\.name) == ["Mom"])
+        #expect(store.holidayReturnCount == 1)
+    }
+
+    /// The prompt quotes `holidayTally(for:)`, so what the user is told they
+    /// are losing has to be exactly what leaves the total — returns included.
+    @Test func removingAPersonWithReturnsRemovesTheNetFigureQuoted() {
+        let store = makeStore()
+        store.setHolidayBudget(MoneyAmount(dollars: 500))
+        let mom = addPerson(store, "Mom")
+        let dad = addPerson(store, "Dad")
+        addGift(store, "Sweater", 90, for: mom.id)
+        addReturn(store, "Sweater returned", 40, for: mom.id)
+        addGift(store, "Socks", 12, for: dad.id)
+
+        let tally = store.holidayTally(for: mom.id)
+        #expect(tally.gifts == 1)
+        #expect(tally.returns == 1)
+        #expect(tally.spent == MoneyAmount(dollars: 50))
+
+        let totalBefore = store.holidaySpent
+        store.removeHolidayRecipient(mom)
+        #expect(store.holidaySpent == totalBefore - tally.spent)
+        #expect(store.holidaySpent == MoneyAmount(dollars: 12))
+        #expect(store.holidayUnassignedPurchaseCount == 0)
     }
 
     // MARK: - Routing

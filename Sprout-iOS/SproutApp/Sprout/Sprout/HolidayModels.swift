@@ -114,6 +114,11 @@ struct GiftRecipient: Codable, Hashable, Identifiable {
 
     static let defaultEmoji = "🎁"
 
+    /// Everything except the id, for the same reason as on `GiftPurchase`.
+    func hasSameContent(as other: GiftRecipient) -> Bool {
+        name == other.name && emoji == other.emoji && plannedAmount == other.plannedAmount
+    }
+
     /// Offered in the picker; any emoji the keyboard can produce is accepted too.
     static let emojiChoices = [
         "🎁", "🎄", "❤️", "⭐️", "🧸", "🍪",
@@ -167,6 +172,13 @@ struct GiftPurchase: Codable, Hashable, Identifiable {
     var amount: MoneyAmount
     var note: String
     var date: Date
+    /// Money that came back: a returned gift, an exchange, a price-match credit.
+    ///
+    /// Kept as a row rather than handled by deleting or editing the original,
+    /// which is how the monthly ledger treats a payment. Deleting the gift
+    /// would lose the record of what was bought, and editing its amount down
+    /// would lose the fact that money moved twice.
+    var isReturn: Bool
 
     init(
         id: UUID = UUID(),
@@ -174,7 +186,8 @@ struct GiftPurchase: Codable, Hashable, Identifiable {
         name: String,
         amount: MoneyAmount,
         note: String = "",
-        date: Date
+        date: Date,
+        isReturn: Bool = false
     ) {
         self.id = id
         self.recipientID = recipientID
@@ -182,10 +195,22 @@ struct GiftPurchase: Codable, Hashable, Identifiable {
         self.amount = amount
         self.note = note
         self.date = date
+        self.isReturn = isReturn
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, recipientID, name, amount, note, date
+        case id, recipientID, name, amount, note, date, isReturn
+    }
+
+    /// Everything except the id. Used to tell a merge artifact (the same row
+    /// twice) apart from two different rows that happen to share an id.
+    func hasSameContent(as other: GiftPurchase) -> Bool {
+        recipientID == other.recipientID
+            && name == other.name
+            && amount == other.amount
+            && note == other.note
+            && date == other.date
+            && isReturn == other.isReturn
     }
 
     init(from decoder: Decoder) throws {
@@ -198,6 +223,7 @@ struct GiftPurchase: Codable, Hashable, Identifiable {
         amount = try container.decode(MoneyAmount.self, forKey: .amount)
         note = ((try? container.decodeIfPresent(String.self, forKey: .note)) ?? nil) ?? ""
         date = ((try? container.decodeIfPresent(Date.self, forKey: .date)) ?? nil) ?? .distantPast
+        isReturn = ((try? container.decodeIfPresent(Bool.self, forKey: .isReturn)) ?? nil) ?? false
     }
 }
 
@@ -266,10 +292,28 @@ struct HolidaySeason: Codable, Hashable, Identifiable {
         let recorder = decoder.sproutDecodeIssueRecorder
 
         id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
-        let storedLabel = ((try? container.decodeIfPresent(String.self, forKey: .label)) ?? nil) ?? ""
+        // Left empty when absent rather than derived here. Deriving it from
+        // `startedAt` produced "Holiday 1" for a season with no start date,
+        // which then stuck, and it was the one holiday path that used
+        // `Calendar.current` instead of the store's injected calendar. The
+        // store fills a blank label in normalization, where both are available.
+        label = ((try? container.decodeIfPresent(String.self, forKey: .label)) ?? nil) ?? ""
         startedAt = ((try? container.decodeIfPresent(Date.self, forKey: .startedAt)) ?? nil) ?? .distantPast
-        label = storedLabel.isEmpty ? HolidaySeason.defaultLabel(now: startedAt) : storedLabel
-        budget = (try? container.decodeIfPresent(MoneyAmount.self, forKey: .budget)) ?? .zero
+
+        // A budget that is present but unreadable must not quietly become
+        // `.zero`, because `.zero` is overloaded to mean "no budget set yet":
+        // a user-chosen $600 would vanish and the card would invite them to
+        // set one, with nothing reporting the loss.
+        if container.contains(.budget), !((try? container.decodeNil(forKey: .budget)) ?? true) {
+            if let value = try? container.decode(MoneyAmount.self, forKey: .budget) {
+                budget = value
+            } else {
+                budget = .zero
+                recorder?.recordUnreadableHolidayAmount()
+            }
+        } else {
+            budget = .zero
+        }
         recipients = SproutLossyDecoding.elements(
             GiftRecipient.self,
             in: container,
@@ -289,13 +333,26 @@ struct HolidaySeason: Codable, Hashable, Identifiable {
 
     var hasBudget: Bool { budget > .zero }
 
+    /// Net of returns, the same way `netSpent(for:)` nets refunds on the
+    /// monthly ledger.
     var spent: MoneyAmount {
-        purchases.reduce(.zero) { $0 + $1.amount }
+        purchases.reduce(.zero) { $0 + ($1.isReturn ? -$1.amount : $1.amount) }
     }
 
     var remaining: MoneyAmount { budget - spent }
 
+    /// Every row, gifts and returns alike.
     var purchaseCount: Int { purchases.count }
+
+    /// Gifts only. A return is money coming back, not something bought, so it
+    /// must not be counted in copy that says "N gifts".
+    var giftCount: Int {
+        purchases.reduce(0) { $0 + ($1.isReturn ? 0 : 1) }
+    }
+
+    var returnCount: Int {
+        purchases.reduce(0) { $0 + ($1.isReturn ? 1 : 0) }
+    }
 
     /// Sum of the per-person targets that are actually set.
     var plannedTotal: MoneyAmount {
@@ -316,7 +373,10 @@ struct HolidaySeason: Codable, Hashable, Identifiable {
     var remainingTargets: MoneyAmount {
         recipients.reduce(.zero) { partial, recipient in
             guard let planned = recipient.plannedAmount else { return partial }
-            return partial + max(planned - totalSpent(for: recipient.id), .zero)
+            // Clamped at the target: returning more than you spent on someone
+            // would otherwise reserve *more* than they were ever allotted.
+            let unspent = min(max(planned - totalSpent(for: recipient.id), .zero), planned)
+            return partial + unspent
         }
     }
 
@@ -333,7 +393,8 @@ struct HolidaySeason: Codable, Hashable, Identifiable {
 
     func totalSpent(for recipientID: UUID?) -> MoneyAmount {
         purchases.reduce(.zero) { partial, purchase in
-            purchase.recipientID == recipientID ? partial + purchase.amount : partial
+            guard purchase.recipientID == recipientID else { return partial }
+            return partial + (purchase.isReturn ? -purchase.amount : purchase.amount)
         }
     }
 
@@ -361,8 +422,10 @@ struct HolidaySeason: Codable, Hashable, Identifiable {
             .map(\.element)
     }
 
-    /// Purchases whose person is missing. Surfaced in the UI so the money is
-    /// never counted in the total while being absent from every list.
+    /// Rows that belong to no one: gifts the user deliberately filed that way
+    /// (wrapping paper, a party gift) as well as any whose person was removed.
+    /// Surfaced in the UI so money is never counted in the total while being
+    /// absent from every list.
     var unassignedPurchaseCount: Int {
         purchases.reduce(0) { $0 + ($1.recipientID == nil ? 1 : 0) }
     }
@@ -392,13 +455,22 @@ struct GiftPurchaseDraft: Equatable {
     var note = ""
     var date = Date()
     var recipientID: UUID?
+    var isReturn = false
 
-    init(name: String = "", amountText: String = "", note: String = "", date: Date = Date(), recipientID: UUID? = nil) {
+    init(
+        name: String = "",
+        amountText: String = "",
+        note: String = "",
+        date: Date = Date(),
+        recipientID: UUID? = nil,
+        isReturn: Bool = false
+    ) {
         self.name = name
         self.amountText = amountText
         self.note = note
         self.date = date
         self.recipientID = recipientID
+        self.isReturn = isReturn
     }
 
     /// `SproutMoneyText` is the only amount parser in the app on purpose. A
