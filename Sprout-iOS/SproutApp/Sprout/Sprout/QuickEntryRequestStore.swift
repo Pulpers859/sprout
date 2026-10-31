@@ -3,15 +3,57 @@ import Foundation
 
 struct QuickEntryRequest: Codable, Equatable, Identifiable {
     let id: UUID
-    let tab: BudgetTab
+    let section: AppSection
+    /// Not read for `.holiday`, which has no expense/payment distinction.
     let mode: TransactionMode
     let createdAt: Date
 
-    init(id: UUID = UUID(), tab: BudgetTab, mode: TransactionMode, createdAt: Date = .now) {
+    /// The monthly budget tab, for the call sites that only understand those.
+    var tab: BudgetTab { section.budgetTab ?? .personal }
+
+    init(id: UUID = UUID(), section: AppSection, mode: TransactionMode = .expense, createdAt: Date = .now) {
         self.id = id
-        self.tab = tab
+        self.section = section
         self.mode = mode
         self.createdAt = createdAt
+    }
+
+    init(id: UUID = UUID(), tab: BudgetTab, mode: TransactionMode, createdAt: Date = .now) {
+        self.init(id: id, section: AppSection(budgetTab: tab), mode: mode, createdAt: createdAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, section, mode, createdAt
+        case tab
+    }
+
+    /// A request already sitting in `UserDefaults` when the app updates was
+    /// written as `{tab, mode}`. Requests expire after ten minutes, so this
+    /// matters briefly — but silently dropping one would look like the Shortcut
+    /// simply not working, so the older shape is still read.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
+        if let section = try? container.decode(AppSection.self, forKey: .section) {
+            self.section = section
+        } else if let tab = try? container.decode(BudgetTab.self, forKey: .tab) {
+            self.section = AppSection(budgetTab: tab)
+        } else {
+            self.section = .personal
+        }
+        mode = (try? container.decode(TransactionMode.self, forKey: .mode)) ?? .expense
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(section, forKey: .section)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(createdAt, forKey: .createdAt)
+        // Written so a build without holiday support can still read a pending
+        // request rather than treating it as corrupt.
+        try container.encode(section.budgetTab ?? .personal, forKey: .tab)
     }
 }
 

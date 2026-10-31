@@ -8,6 +8,7 @@ struct SettingsSheet: View {
     @State private var isShowingCategorySettings = false
     @State private var isShowingRecurringTransactions = false
     @State private var isShowingRecentMonths = false
+    @State private var isShowingHolidaySeasons = false
     @State private var isExportingBackup = false
     @State private var isImportingBackup = false
     @State private var exportDocument: SproutBackupDocument?
@@ -61,6 +62,20 @@ struct SettingsSheet: View {
                         )
                     }
                     .buttonStyle(.plain)
+
+                    Button {
+                        isShowingHolidaySeasons = true
+                    } label: {
+                        SettingsRow(
+                            symbol: "gift",
+                            title: "Past Holiday Seasons",
+                            subtitle: store.holidaySeasonHistory.isEmpty
+                                ? "Closed seasons appear after you start a new one"
+                                : "\(store.holidaySeasonHistory.count) closed season\(store.holidaySeasonHistory.count == 1 ? "" : "s") available",
+                            tint: .sproutBerry
+                        )
+                    }
+                    .buttonStyle(.plain)
                 } header: {
                     Text("History")
                 }
@@ -92,7 +107,7 @@ struct SettingsSheet: View {
                 } header: {
                     Text("Backup")
                 } footer: {
-                    Text("Backups include budgets, transactions, recurring entries, categories, and recent month history. Importing replaces everything currently in Sprout.")
+                    Text("Backups include budgets, transactions, recurring entries, categories, recent month history, and your holiday seasons. Importing replaces everything currently in Sprout.")
                 }
             }
             .formStyle(.grouped)
@@ -111,6 +126,10 @@ struct SettingsSheet: View {
         }
         .sheet(isPresented: $isShowingCategorySettings) {
             CategorySettingsSheet()
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $isShowingHolidaySeasons) {
+            HolidaySeasonsSheet()
                 .environmentObject(store)
         }
         .sheet(isPresented: $isShowingRecurringTransactions) {

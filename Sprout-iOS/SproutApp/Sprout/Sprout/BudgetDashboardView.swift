@@ -17,9 +17,13 @@ struct BudgetDashboardView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 26) {
-                dashboardHeader
+                SproutDashboardHeader(onOpenSettings: onOpenSettings) {
+                    Button("Start a new month", systemImage: "arrow.counterclockwise") {
+                        onStartNewMonth()
+                    }
+                }
 
-                BudgetScopePicker(selection: $store.activeTab)
+                SectionPickerView(selection: $store.activeSection)
 
                 SummaryCardView(tab: tab, onEditBudget: onEditBudget)
 
@@ -93,47 +97,6 @@ struct BudgetDashboardView: View {
         case .earlyClose:
             "Tap to close it out early and keep your leftover balance."
         }
-    }
-
-    private var dashboardHeader: some View {
-        HStack(spacing: 10) {
-            Text("Sprout")
-                .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                .foregroundStyle(Color.sproutText)
-
-            Spacer()
-
-            Button {
-                onOpenSettings()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.sproutText)
-                    .frame(width: 44, height: 44)
-                    .background(Color.sproutCard, in: Circle())
-                    .overlay(Circle().stroke(Color.sproutBorderDark, lineWidth: 1))
-                    .shadow(color: Color.sproutShadow, radius: 6, y: 3)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Settings")
-
-            Menu {
-                Button("Start a new month", systemImage: "arrow.counterclockwise") {
-                    onStartNewMonth()
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(Color.sproutText)
-                    .frame(width: 44, height: 44)
-                    .background(Color.sproutCard, in: Circle())
-                    .overlay(Circle().stroke(Color.sproutBorderDark, lineWidth: 1))
-                    .shadow(color: Color.sproutShadow, radius: 6, y: 3)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("More")
-        }
-        .frame(minHeight: 44)
     }
 
     private var primaryActions: some View {

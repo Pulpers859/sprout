@@ -76,6 +76,31 @@ extension SproutQuickAddIntent {
     static var openAppWhenRun: Bool { true }
 }
 
+/// Holiday gifts have no expense/payment distinction and no budget choice —
+/// there is exactly one holiday budget — so this is a separate intent rather
+/// than a third case on `SproutBudgetOption`, which would have offered a
+/// meaningless "holiday payment" combination.
+struct SproutQuickAddGiftIntent: AppIntent {
+    static let title: LocalizedStringResource = "Log Holiday Gift"
+    static let description = IntentDescription("Open Sprout directly to a quick-add sheet for a holiday gift. Counts against your holiday budget only.")
+    static let supportedModes: IntentModes = .foreground
+
+    init() {}
+
+    func perform() async throws -> some IntentResult {
+        let request = await QuickEntryRequest(section: .holiday)
+        await QuickEntryRequestStore.save(request)
+        return .result(
+            dialog: IntentDialog("Opening Sprout to log a gift.")
+        )
+    }
+}
+
+@available(*, deprecated)
+extension SproutQuickAddGiftIntent {
+    static var openAppWhenRun: Bool { true }
+}
+
 struct SproutAppShortcuts: AppShortcutsProvider {
     static var shortcutTileColor: ShortcutTileColor {
         .grayGreen
@@ -118,6 +143,15 @@ struct SproutAppShortcuts: AppShortcutsProvider {
                 ],
                 shortTitle: "Log Grocery Payment",
                 systemImageName: "arrow.uturn.backward.circle.fill"
+            ),
+            AppShortcut(
+                intent: SproutQuickAddGiftIntent(),
+                phrases: [
+                    "Log holiday gift in \(.applicationName)",
+                    "Quick capture holiday gift in \(.applicationName)"
+                ],
+                shortTitle: "Log Holiday Gift",
+                systemImageName: "gift"
             )
         ]
     }

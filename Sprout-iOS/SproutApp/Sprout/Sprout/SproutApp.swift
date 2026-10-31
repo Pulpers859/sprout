@@ -5,6 +5,7 @@ import SwiftUI
 struct SproutApp: App {
     @StateObject private var store = BudgetStore()
     @StateObject private var quickEntryCoordinator = QuickEntryCoordinator()
+    @StateObject private var holidayRouter = HolidayRouter()
 
     init() {
         SproutAppShortcuts.updateAppShortcutParameters()
@@ -15,6 +16,7 @@ struct SproutApp: App {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(quickEntryCoordinator)
+                .environmentObject(holidayRouter)
         }
     }
 }

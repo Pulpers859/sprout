@@ -102,6 +102,23 @@ extension Color {
         light: UIColor(white: 0, alpha: 0.07),
         dark: UIColor(white: 0, alpha: 0.30)
     )
+
+    // Holiday accents. Deliberately a deep berry rather than a bright red:
+    // `sproutRedBright` already means "over budget" on every progress bar, and
+    // an accent that reads as an alert would make the whole holiday tab look
+    // like a warning.
+    static let sproutBerry = adaptive(
+        light: UIColor(red: 0.631, green: 0.173, blue: 0.310, alpha: 1),
+        dark: UIColor(red: 0.800, green: 0.318, blue: 0.439, alpha: 1)
+    )
+    static let sproutBerryDark = adaptive(
+        light: UIColor(red: 0.420, green: 0.086, blue: 0.208, alpha: 1),
+        dark: UIColor(red: 0.733, green: 0.251, blue: 0.388, alpha: 1)
+    )
+    static let sproutBerryLight = adaptive(
+        light: UIColor(red: 0.976, green: 0.902, blue: 0.925, alpha: 1),
+        dark: UIColor(red: 0.196, green: 0.078, blue: 0.114, alpha: 1)
+    )
 }
 
 extension BudgetTab {
@@ -151,6 +168,53 @@ extension BudgetTab {
                 colors: [
                     Color(red: 0.110, green: 0.235, blue: 0.565),
                     Color(red: 0.216, green: 0.365, blue: 0.745)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+}
+
+extension AppSection {
+    /// Holiday has its own accent set rather than borrowing a budget tab's, so
+    /// nothing on screen suggests the two budgets are the same pot of money.
+    var accentColor: Color {
+        switch self {
+        case .personal, .grocery:
+            budgetTab?.accentColor ?? .sage
+        case .holiday:
+            .sproutBerry
+        }
+    }
+
+    var accentDarkColor: Color {
+        switch self {
+        case .personal, .grocery:
+            budgetTab?.accentDarkColor ?? .sageDark
+        case .holiday:
+            .sproutBerryDark
+        }
+    }
+
+    var accentLightColor: Color {
+        switch self {
+        case .personal, .grocery:
+            budgetTab?.accentLightColor ?? .sageLight
+        case .holiday:
+            .sproutBerryLight
+        }
+    }
+
+    var heroGradient: LinearGradient {
+        switch self {
+        case .personal, .grocery:
+            budgetTab?.heroGradient ?? BudgetTab.personal.heroGradient
+        case .holiday:
+            LinearGradient(
+                colors: [
+                    Color(red: 0.325, green: 0.055, blue: 0.157),
+                    Color(red: 0.561, green: 0.133, blue: 0.278)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing

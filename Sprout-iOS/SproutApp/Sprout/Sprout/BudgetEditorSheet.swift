@@ -3,7 +3,15 @@ import SwiftUI
 struct BudgetEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let tab: BudgetTab
+    let navigationTitle: String
+    let scopeTitle: String
+    let scopeSymbol: String
+    let accent: Color
+    let explanation: String
+    let amountAccessibilityLabel: String
+    /// Only the monthly budgets have carryover; the holiday budget has none, and
+    /// the footnote that explains the arithmetic is hidden rather than shown with
+    /// a figure that does not apply.
     let carryover: MoneyAmount
     let onSave: (MoneyAmount) -> Void
 
@@ -12,19 +20,70 @@ struct BudgetEditorSheet: View {
     @ScaledMetric(relativeTo: .title2) private var currencySymbolFontSize: CGFloat = 28
     @State private var amountText: String
 
-    init(tab: BudgetTab, startingAmount: MoneyAmount, carryover: MoneyAmount = .zero, onSave: @escaping (MoneyAmount) -> Void) {
-        self.tab = tab
+    init(
+        navigationTitle: String,
+        scopeTitle: String,
+        scopeSymbol: String,
+        accent: Color,
+        explanation: String,
+        amountAccessibilityLabel: String,
+        startingAmount: MoneyAmount,
+        carryover: MoneyAmount = .zero,
+        onSave: @escaping (MoneyAmount) -> Void
+    ) {
+        self.navigationTitle = navigationTitle
+        self.scopeTitle = scopeTitle
+        self.scopeSymbol = scopeSymbol
+        self.accent = accent
+        self.explanation = explanation
+        self.amountAccessibilityLabel = amountAccessibilityLabel
         self.carryover = carryover
         self.onSave = onSave
         _amountText = State(initialValue: SproutMoneyText.editableWhole(startingAmount))
     }
 
+    /// A monthly budget tab.
+    init(tab: BudgetTab, startingAmount: MoneyAmount, carryover: MoneyAmount = .zero, onSave: @escaping (MoneyAmount) -> Void) {
+        self.init(
+            navigationTitle: "Monthly budget",
+            scopeTitle: tab.title,
+            scopeSymbol: tab == .grocery ? "cart.fill" : "person.fill",
+            accent: tab.accentDarkColor,
+            explanation: "Your budget for every month. Any leftover carried over is added on top of it.",
+            amountAccessibilityLabel: "Monthly budget amount",
+            startingAmount: startingAmount,
+            carryover: carryover,
+            onSave: onSave
+        )
+    }
+
+    /// The holiday budget, which is its own pot: no months, no carryover, and
+    /// deliberately not part of either monthly budget.
+    static func holiday(
+        seasonLabel: String,
+        startingAmount: MoneyAmount,
+        onSave: @escaping (MoneyAmount) -> Void
+    ) -> BudgetEditorSheet {
+        BudgetEditorSheet(
+            navigationTitle: "Holiday budget",
+            scopeTitle: seasonLabel,
+            scopeSymbol: "gift.fill",
+            accent: .sproutBerryDark,
+            explanation: "What you plan to spend on gifts this season. It is kept entirely separate from your Personal and Grocery budgets. Set it to 0 to clear it.",
+            amountAccessibilityLabel: "Holiday budget amount",
+            startingAmount: startingAmount,
+            carryover: .zero,
+            onSave: onSave
+        )
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
-                Label(tab.title, systemImage: tab == .grocery ? "cart.fill" : "person.fill")
+                Label(scopeTitle, systemImage: scopeSymbol)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(tab.accentDarkColor)
+                    .foregroundStyle(accent)
+                    .multilineTextAlignment(.center)
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(SproutFormatters.currencySymbol)
@@ -32,7 +91,7 @@ struct BudgetEditorSheet: View {
                         .foregroundStyle(Color.sproutTextSecondary)
 
                     TextField("0", text: $amountText)
-                        .accessibilityLabel("Monthly budget amount")
+                        .accessibilityLabel(amountAccessibilityLabel)
                         .keyboardType(.decimalPad)
                         .font(.system(size: amountFontSize, weight: .bold, design: .rounded))
                         .multilineTextAlignment(.center)
@@ -41,7 +100,7 @@ struct BudgetEditorSheet: View {
                 }
 
                 VStack(spacing: 6) {
-                    Text("Your budget for every month. Any leftover carried over is added on top of it.")
+                    Text(explanation)
                         .font(.footnote)
                         .foregroundStyle(Color.sproutTextMuted)
                         .multilineTextAlignment(.center)
@@ -71,7 +130,7 @@ struct BudgetEditorSheet: View {
             .padding(24)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(Color.sproutBackground.ignoresSafeArea())
-            .navigationTitle("Monthly budget")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

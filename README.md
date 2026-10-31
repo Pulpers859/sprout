@@ -11,6 +11,12 @@
 
 The iOS app is the higher-value surface. The web app follows the applicable iOS budget behavior; intentional differences are tracked in `docs/surface-drift.md`.
 
+iOS has three tabs: Personal and Grocery are monthly budgets, and Holiday is a
+separate seasonal budget for tracking gifts per person. Holiday spending is
+stored outside the monthly ledger and is never counted against either monthly
+budget. It has no web counterpart yet, so export and import backups on iOS while
+that gap is open — see `docs/surface-drift.md`.
+
 ## Workspace layout
 
 - `AGENTS.md`

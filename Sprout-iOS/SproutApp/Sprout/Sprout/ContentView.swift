@@ -4,6 +4,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var store: BudgetStore
     @EnvironmentObject private var quickEntryCoordinator: QuickEntryCoordinator
+    @EnvironmentObject private var holidayRouter: HolidayRouter
 
     @State private var transactionSheet: TransactionSheetRequest?
     @State private var budgetEditorTab: BudgetTab?
@@ -16,22 +17,28 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            BudgetDashboardView(
-                tab: store.activeTab,
-                onEditBudget: { budgetEditorTab = store.activeTab },
-                onOpenSettings: { isShowingSettings = true },
-                onStartNewMonth: { store.needsMonthResetPrompt = true },
-                onRequestDeleteTransaction: { pendingDeleteTransaction = $0 },
-                onEditTransaction: { editingTransaction = $0 },
-                onOpenTransaction: { mode, seed in
-                    transactionSheet = TransactionSheetRequest(
-                        tab: store.activeTab,
-                        mode: mode,
-                        draft: store.makeDraft(for: store.activeTab, mode: mode, seed: seed),
-                        style: .standard
+            Group {
+                if let tab = store.activeSection.budgetTab {
+                    BudgetDashboardView(
+                        tab: tab,
+                        onEditBudget: { budgetEditorTab = tab },
+                        onOpenSettings: { isShowingSettings = true },
+                        onStartNewMonth: { store.needsMonthResetPrompt = true },
+                        onRequestDeleteTransaction: { pendingDeleteTransaction = $0 },
+                        onEditTransaction: { editingTransaction = $0 },
+                        onOpenTransaction: { mode, seed in
+                            transactionSheet = TransactionSheetRequest(
+                                tab: tab,
+                                mode: mode,
+                                draft: store.makeDraft(for: tab, mode: mode, seed: seed),
+                                style: .standard
+                            )
+                        }
                     )
+                } else {
+                    HolidayDashboardView(onOpenSettings: { isShowingSettings = true })
                 }
-            )
+            }
             .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(item: $transactionSheet) { request in
@@ -72,6 +79,16 @@ struct ContentView: View {
             SettingsSheet()
                 .environmentObject(store)
         }
+        // Presented here rather than inside the holiday views so there is one
+        // sheet authority in the app and `isPresentingAnySheet` can see it.
+        .sheet(item: Binding(
+            get: { holidayRouter.sheet },
+            set: { holidayRouter.sheet = $0 }
+        )) { sheet in
+            holidaySheet(sheet)
+                .environmentObject(store)
+                .environmentObject(holidayRouter)
+        }
         .sheet(item: $editingTransaction) { entry in
             TransactionEntrySheet(
                 tab: entry.tab,
@@ -93,7 +110,14 @@ struct ContentView: View {
         // Deferred while a persistence alert is up: SwiftUI can only present one
         // alert per view, and the dropped one never re-presents on its own.
         .alert(monthResetTitle, isPresented: Binding(
-            get: { store.needsMonthResetPrompt && store.persistenceAlert == nil },
+            // Also held back while a holiday confirmation is up: two alerts
+            // requested at once leaves one of them never shown. `needsMonthResetPrompt`
+            // stays true, so this re-presents by itself once the other clears.
+            get: {
+                store.needsMonthResetPrompt
+                    && store.persistenceAlert == nil
+                    && holidayRouter.confirmation == nil
+            },
             set: { store.needsMonthResetPrompt = $0 }
         )) {
             // An explicit no-op cancel, so the action iOS invokes on an implicit
@@ -135,6 +159,28 @@ struct ContentView: View {
             Text("\(entry.name) on \(SproutDate.shortDate(entry.date)) will be removed.")
         }
         .alert(
+            holidayConfirmationTitle,
+            isPresented: Binding(
+                get: { holidayRouter.confirmation != nil },
+                set: { if !$0 { holidayRouter.confirmation = nil } }
+            ),
+            presenting: holidayRouter.confirmation
+        ) { confirmation in
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                HapticFeedback.warning()
+                switch confirmation {
+                case .removeGift(let purchase):
+                    store.removeHolidayPurchase(purchase)
+                case .removePerson(let recipient):
+                    store.removeHolidayRecipient(recipient)
+                }
+                holidayRouter.confirmation = nil
+            }
+        } message: { confirmation in
+            Text(holidayConfirmationMessage(confirmation))
+        }
+        .alert(
             store.persistenceAlert?.title ?? "",
             isPresented: Binding(
                 get: { store.persistenceAlert != nil },
@@ -148,7 +194,9 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             guard let route = QuickEntryRoute(url: url) else { return }
-            quickEntryCoordinator.present(.init(tab: route.tab, mode: route.mode))
+            // Routed through the coordinator even for holiday, so a link that
+            // arrives while another sheet is up is held rather than dropped.
+            quickEntryCoordinator.present(.init(section: route.section, mode: route.mode))
         }
         .onAppear {
             store.refreshForCurrentDate()
@@ -240,6 +288,7 @@ struct ContentView: View {
             || budgetEditorTab != nil
             || editingTransaction != nil
             || isShowingSettings
+            || holidayRouter.sheet != nil
     }
 
     private func presentQuickEntryIfPossible() {
@@ -251,14 +300,139 @@ struct ContentView: View {
             store.needsMonthResetPrompt = false
         }
 
-        store.activeTab = request.tab
-        transactionSheet = TransactionSheetRequest(
-            tab: request.tab,
-            mode: request.mode,
-            draft: store.makeDraft(for: request.tab, mode: request.mode),
-            style: .quickCapture
-        )
+        store.activeSection = request.section
+
+        if request.section == .holiday {
+            holidayRouter.present(.addGift(recipientID: nil))
+        } else {
+            transactionSheet = TransactionSheetRequest(
+                tab: request.tab,
+                mode: request.mode,
+                draft: store.makeDraft(for: request.tab, mode: request.mode),
+                style: .quickCapture
+            )
+        }
         quickEntryCoordinator.dismiss()
+    }
+
+    @ViewBuilder
+    private func holidaySheet(_ sheet: HolidayRouter.Sheet) -> some View {
+        switch sheet {
+        case .addGift(let recipientID):
+            GiftEntrySheet(initialDraft: store.makeHolidayPurchaseDraft(for: recipientID)) { draft in
+                guard store.addHolidayPurchase(draft: draft) else { return false }
+                HapticFeedback.success()
+                holidayRouter.dismiss()
+                showSuccessToast("Gift saved")
+                return true
+            }
+
+        case .editGift(let purchase):
+            GiftEntrySheet(
+                isEditing: true,
+                initialDraft: store.makeHolidayEditDraft(for: purchase)
+            ) { draft in
+                guard store.updateHolidayPurchase(purchase, with: draft) else { return false }
+                HapticFeedback.success()
+                holidayRouter.dismiss()
+                showSuccessToast("Gift updated")
+                return true
+            }
+
+        case .addPerson:
+            GiftRecipientSheet(initialDraft: GiftRecipientDraft()) { draft in
+                guard store.addHolidayRecipient(draft: draft) != nil else { return false }
+                HapticFeedback.success()
+                holidayRouter.dismiss()
+                showSuccessToast("Person added")
+                return true
+            }
+
+        case .editPerson(let recipient):
+            GiftRecipientSheet(
+                isEditing: true,
+                initialDraft: GiftRecipientDraft(recipient: recipient)
+            ) { draft in
+                guard store.updateHolidayRecipient(recipient, with: draft) else { return false }
+                HapticFeedback.success()
+                holidayRouter.dismiss()
+                showSuccessToast("Person updated")
+                return true
+            }
+
+        case .editBudget:
+            BudgetEditorSheet.holiday(
+                seasonLabel: store.holidaySeasonLabel,
+                startingAmount: store.holidayBudget
+            ) { amount in
+                HapticFeedback.light()
+                store.setHolidayBudget(amount)
+                holidayRouter.dismiss()
+            }
+
+        case .renameSeason:
+            holidaySeasonSheet(mode: .rename)
+
+        case .startNewSeason:
+            holidaySeasonSheet(mode: .startNew)
+        }
+    }
+
+    private func holidaySeasonSheet(mode: HolidaySeasonSheet.Mode) -> HolidaySeasonSheet {
+        HolidaySeasonSheet(
+            mode: mode,
+            currentLabel: store.holidaySeasonLabel,
+            giftCount: store.holidayPurchaseCount,
+            personCount: store.holidayRecipients.count,
+            budget: store.holidayBudget,
+            archivedCount: store.holidaySeasonHistory.count
+        ) { label, carryRecipients in
+            switch mode {
+            case .rename:
+                guard store.renameHolidaySeason(label) else { return false }
+                HapticFeedback.light()
+                holidayRouter.dismiss()
+                showSuccessToast("Season renamed")
+            case .startNew:
+                HapticFeedback.success()
+                store.startNewHolidaySeason(
+                    label: label.isEmpty ? nil : label,
+                    carryRecipients: carryRecipients
+                )
+                holidayRouter.dismiss()
+                showSuccessToast("New season started")
+            }
+            return true
+        }
+    }
+
+    private var holidayConfirmationTitle: String {
+        switch holidayRouter.confirmation {
+        case .removeGift:
+            "Remove gift?"
+        case .removePerson:
+            "Remove person?"
+        case nil:
+            ""
+        }
+    }
+
+    /// Names the exact cost of each removal. For a person that includes the
+    /// gifts that go with them — leaving those behind would keep money in the
+    /// season total with nobody attached to explain it.
+    private func holidayConfirmationMessage(_ confirmation: HolidayRouter.Confirmation) -> String {
+        switch confirmation {
+        case .removeGift(let purchase):
+            return "\(purchase.name) (\(SproutFormatters.currency(purchase.amount))) will be removed from your holiday spending."
+        case .removePerson(let recipient):
+            let gifts = store.holidayPurchases(for: recipient.id)
+            guard !gifts.isEmpty else {
+                return "\(recipient.name) will be removed from your holiday list."
+            }
+            let total = store.holidaySpent(for: recipient.id)
+            return "\(recipient.name) and \(gifts.count) gift\(gifts.count == 1 ? "" : "s") "
+                + "totalling \(SproutFormatters.currency(total)) will be removed from your holiday spending."
+        }
     }
 
     private func showSuccessToast(_ message: String) {
@@ -294,4 +468,5 @@ private struct TransactionSheetRequest: Identifiable {
     ContentView()
         .environmentObject(BudgetStore())
         .environmentObject(QuickEntryCoordinator())
+        .environmentObject(HolidayRouter())
 }

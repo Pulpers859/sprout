@@ -353,6 +353,13 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
     private(set) var droppedRecurringRules = 0
     private(set) var hadUnreadableArchiveList = false
     private(set) var hadUnreadableRuleList = false
+    private(set) var droppedGiftPurchases = 0
+    private(set) var droppedGiftRecipients = 0
+    private(set) var droppedHolidaySeasons = 0
+    private(set) var hadUnreadableGiftPurchaseList = false
+    private(set) var hadUnreadableGiftRecipientList = false
+    private(set) var hadUnreadableHolidaySeasonList = false
+    private(set) var hadUnreadableActiveHolidaySeason = false
 
     var hasIssues: Bool {
         droppedTransactions > 0
@@ -361,6 +368,13 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
             || droppedRecurringRules > 0
             || hadUnreadableArchiveList
             || hadUnreadableRuleList
+            || droppedGiftPurchases > 0
+            || droppedGiftRecipients > 0
+            || droppedHolidaySeasons > 0
+            || hadUnreadableGiftPurchaseList
+            || hadUnreadableGiftRecipientList
+            || hadUnreadableHolidaySeasonList
+            || hadUnreadableActiveHolidaySeason
     }
 
     func recordDroppedTransaction() {
@@ -388,6 +402,40 @@ final class SproutDecodeIssueRecorder: @unchecked Sendable {
 
     func recordUnreadableRuleList() {
         hadUnreadableRuleList = true
+    }
+
+    func recordDroppedGiftPurchase() {
+        droppedGiftPurchases += 1
+    }
+
+    func recordDroppedGiftRecipient() {
+        droppedGiftRecipients += 1
+    }
+
+    func recordDroppedHolidaySeason() {
+        droppedHolidaySeasons += 1
+    }
+
+    func recordUnreadableGiftPurchaseList() {
+        hadUnreadableGiftPurchaseList = true
+    }
+
+    /// Losing the people does not lose the money: every purchase whose owner
+    /// disappears is re-homed as unassigned, so the season total still holds.
+    /// It is still worth telling the user about.
+    func recordUnreadableGiftRecipientList() {
+        hadUnreadableGiftRecipientList = true
+    }
+
+    func recordUnreadableHolidaySeasonList() {
+        hadUnreadableHolidaySeasonList = true
+    }
+
+    /// The active season was present but not even a JSON object. Falling back to
+    /// an empty season without saying so is how a whole holiday list disappears
+    /// behind a "Backup Imported" success message.
+    func recordUnreadableActiveHolidaySeason() {
+        hadUnreadableActiveHolidaySeason = true
     }
 }
 
@@ -484,6 +532,12 @@ struct BudgetSnapshot: Codable {
     var monthHistory: [ArchivedBudgetMonth]
     var currentMonth: String
     var personalCategories: [PersonalCategory]
+    /// The holiday period currently being tracked. Entirely separate from the
+    /// monthly budget: no monthly figure reads it and the rollover never
+    /// touches it.
+    var holidaySeason: HolidaySeason
+    /// Previous holiday periods, newest first. Capped by the store.
+    var holidaySeasonHistory: [HolidaySeason]
     var updatedAt: Date
 
     static func makeEmpty(now: Date = .now, calendar: Calendar = .current) -> BudgetSnapshot {
@@ -497,6 +551,11 @@ struct BudgetSnapshot: Codable {
             monthHistory: [],
             currentMonth: SproutDate.currentMonthKey(now: now, calendar: calendar),
             personalCategories: PersonalCategory.defaults,
+            // A fresh holiday season starts with no budget at all rather than a
+            // made-up figure, so the dashboard asks for one instead of showing
+            // a budget the user never chose.
+            holidaySeason: .makeEmpty(now: now, calendar: calendar),
+            holidaySeasonHistory: [],
             updatedAt: now
         )
     }
@@ -514,6 +573,8 @@ struct BudgetSnapshot: Codable {
         case monthHistory
         case currentMonth
         case personalCategories
+        case holidaySeason
+        case holidaySeasonHistory
         case updatedAt
     }
 
@@ -528,6 +589,8 @@ struct BudgetSnapshot: Codable {
         monthHistory: [ArchivedBudgetMonth],
         currentMonth: String,
         personalCategories: [PersonalCategory],
+        holidaySeason: HolidaySeason? = nil,
+        holidaySeasonHistory: [HolidaySeason] = [],
         updatedAt: Date
     ) {
         self.schemaVersion = schemaVersion
@@ -540,6 +603,8 @@ struct BudgetSnapshot: Codable {
         self.monthHistory = monthHistory
         self.currentMonth = currentMonth
         self.personalCategories = personalCategories
+        self.holidaySeason = holidaySeason ?? .makeEmpty(now: updatedAt)
+        self.holidaySeasonHistory = holidaySeasonHistory
         self.updatedAt = updatedAt
     }
 
@@ -579,6 +644,29 @@ struct BudgetSnapshot: Codable {
         currentMonth = (try? container.decodeIfPresent(String.self, forKey: .currentMonth)) ?? SproutDate.currentMonthKey()
         personalCategories = (try? container.decodeIfPresent([PersonalCategory].self, forKey: .personalCategories)) ?? PersonalCategory.defaults
         updatedAt = (try? container.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? .now
+        // Holiday data is additive: a file written before this feature existed
+        // simply has no key here, which is an empty season rather than damage.
+        // `HolidaySeason`'s own decoder is lossy per element, so one bad gift
+        // costs that gift — but a `holidaySeason` that is present and not even a
+        // JSON object is real loss and has to be reported rather than quietly
+        // replaced with an empty season.
+        let seasonIsAbsent = !container.contains(.holidaySeason)
+            || ((try? container.decodeNil(forKey: .holidaySeason)) ?? true)
+        if seasonIsAbsent {
+            holidaySeason = HolidaySeason.makeEmpty(now: updatedAt)
+        } else if let decoded = try? container.decode(HolidaySeason.self, forKey: .holidaySeason) {
+            holidaySeason = decoded
+        } else {
+            recorder?.recordUnreadableActiveHolidaySeason()
+            holidaySeason = HolidaySeason.makeEmpty(now: updatedAt)
+        }
+        holidaySeasonHistory = SproutLossyDecoding.elements(
+            HolidaySeason.self,
+            in: container,
+            forKey: .holidaySeasonHistory,
+            onDroppedElement: { recorder?.recordDroppedHolidaySeason() },
+            onUnreadableList: { recorder?.recordUnreadableHolidaySeasonList() }
+        )
     }
 }
 

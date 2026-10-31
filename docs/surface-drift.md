@@ -1,6 +1,6 @@
 # Web and iOS behavior alignment
 
-Updated 2026-09-30. iOS is the behavior reference for shared budget flows.
+Updated 2026-10-31. iOS is the behavior reference for shared budget flows.
 The web app now follows these behaviors without replacing its Firebase account
 and local-cache infrastructure.
 
@@ -29,6 +29,29 @@ and local-cache infrastructure.
   visible storage/sync errors, and blocked writes when saved data is unreadable.
 - Recent-item quick add starts a fresh amount/note/date draft. Category edits save
   immediately instead of relying on closing Settings.
+
+## iOS only: holiday spending
+
+Added 2026-10-31. The Holiday tab exists on iOS and has no web counterpart yet.
+
+- Its own budget, people, and gift list, stored in `holidaySeason` /
+  `holidaySeasonHistory` on the snapshot rather than in `transactions`. No
+  monthly figure reads it and `resetMonth` / `closeOutCurrentMonth` never touch
+  it, so holiday spending is excluded from the monthly budgets structurally
+  rather than by filtering.
+- Holiday data rides in portable backups, so a backup exported from iOS carries
+  fields the web importer currently ignores. A web import of such a file keeps
+  the monthly data and silently has nothing to do with the holiday fields;
+  re-exporting from web and re-importing on iOS would therefore drop them.
+  **Export from iOS, import on iOS** while this gap is open.
+- There is no monthly rollover for a holiday season. Seasons are closed by hand
+  ("Start a new season"), which archives the closing season and carries the
+  budget and, optionally, the people forward. History is capped at
+  `BudgetStore.holidaySeasonHistoryLimit` seasons.
+- `sprout://quick-add?tab=holiday` and the "Log Holiday Gift" App Shortcut are
+  iOS only. The same link previously fell through to the Personal budget.
+- Holiday gifts have no refund/payment counterpart and no recurring rules.
+  Both are monthly-ledger concepts; a returned gift is edited or removed.
 
 ## Deliberate differences and limits
 
