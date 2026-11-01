@@ -83,6 +83,23 @@ previews and confirms replacement of the signed-in web account, saves an undo
 copy on that device, and refuses malformed backups. The iOS app does not share
 Firebase accounts: moving data between surfaces requires export/import.
 
+## Installing on the iPhone
+
+The owner has no Mac and no Apple Developer account. They install by
+re-signing an unsigned `.ipa` with **Signulous**, on the phone. Xcode, a
+cable, TestFlight and CI artifacts are all useless for this.
+
+1. Push to `main`.
+2. Run `.github/workflows/build-sideload-ipa.yml` (manual, no inputs).
+3. Hand over the release link it prints:
+   `https://github.com/Pulpers859/sprout/releases/download/sideload-<N>/Sprout.ipa`
+   (`<N>` is the run number).
+4. Open it in Safari on the phone, give it to Signulous, install.
+
+Each Signulous install is signed under a different team, so anything tied to
+the team (App Groups, iCloud, push) would not work; the app uses none of them
+today. CI cannot see the phone: ask the owner how it behaves on device.
+
 ## Git handoff expectation
 
 - All normal work happens directly on `main`. `main` is the only branch agents may use for editing, committing, and pushing.

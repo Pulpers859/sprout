@@ -14,6 +14,7 @@ Claude-specific repo assumptions:
 - When prior work from another agent, machine, terminal, or conversation is mentioned, complete the external-agent reconciliation protocol in `AGENTS.md` before editing or making sync claims.
 - Compare provided outside artifacts against local files, local Git history, and GitHub `main`, then classify every claimed change as present, missing, partially landed, or overwritten.
 - The buildable iOS project lives at `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`.
+- To put a build on the owner's iPhone (no Mac, no developer account), run `.github/workflows/build-sideload-ipa.yml` and hand over the `sideload-<N>/Sprout.ipa` release link for Signulous. See README, "Installing on the iPhone".
 - The web prototype in `Sprout-html/index.html` is still the behavior reference for shared flows.
 
 Highest-risk areas:

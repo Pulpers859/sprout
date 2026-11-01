@@ -1,0 +1,116 @@
+name: Build Sideload IPA
+
+# Builds an installable .ipa for the owner's iPhone and publishes it as a
+# release with a direct link. There is no Mac and no Apple Developer account:
+# the phone installs by re-signing this unsigned .ipa with Signulous.
+#
+# Manual, not on every push: you only want this when you intend to install.
+# Ported from the TimeCapsule, Procedures and EM-Board-Review workflows of the
+# same name, where this route is proven.
+on:
+  workflow_dispatch:
+
+permissions:
+  # write, because the .ipa is published as a release so it has a direct
+  # link the phone itself can open.
+  contents: write
+
+concurrency:
+  group: sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    name: Archive, package and publish
+    # The runner automation-xcode.yml already builds and tests this app on.
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Report Xcode toolchain
+        run: xcodebuild -version
+
+      # Built unsigned on purpose. Signulous re-signs whatever it is given
+      # with its own certificate, so signing here would only be thrown away,
+      # and signing properly needs the Apple Developer account this route
+      # exists to avoid. The app has no entitlements file and no extension,
+      # so nothing needs to be declared for the re-signer either.
+      - name: Archive
+        shell: bash
+        working-directory: 'Sprout-iOS/SproutApp/Sprout'
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project 'Sprout.xcodeproj' \
+            -scheme 'Sprout' \
+            -configuration 'Release' \
+            -destination 'generic/platform=iOS' \
+            -archivePath 'build/Sprout.xcarchive' \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" 2>&1 | tee archive.log
+          status=${PIPESTATUS[0]}
+          if [[ "$status" -ne 0 ]]; then exit "$status"; fi
+
+      # An .ipa is a zip with the .app inside a folder called Payload.
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="Sprout-iOS/SproutApp/Sprout/build/Sprout.xcarchive"
+          app="$archive/Products/Applications/Sprout.app"
+          if [[ ! -d "$app" ]]; then
+            echo "No .app in the archive at $app" >&2
+            ls -R "$archive/Products" >&2 || true
+            exit 1
+          fi
+          mkdir -p out/Payload
+          cp -R "$app" out/Payload/
+          (cd out && zip -qry "Sprout.ipa" Payload)
+          rm -rf out/Payload
+          echo "Built out/Sprout.ipa ($(du -h out/Sprout.ipa | cut -f1))"
+
+      # Artifacts can only be downloaded as a zip from a signed-in desktop
+      # browser. A release asset has a plain link Safari on the phone can
+      # open. This repo is public, so the link works without signing in.
+      - name: Publish as a release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="sideload-${{ github.run_number }}"
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" 'out/Sprout.ipa' \
+            --title "Sprout sideload build ${{ github.run_number }}" \
+            --notes "Unsigned build of ${{ github.sha }} for signing with Signulous." \
+            --prerelease
+          url="${{ github.server_url }}/${{ github.repository }}/releases/download/$tag/Sprout.ipa"
+          echo "IPA_URL=$url" >> "$GITHUB_ENV"
+          echo "Direct link: $url"
+
+      - name: How to install this
+        shell: bash
+        run: |
+          cat <<NOTE
+          ============================================================
+          Download this straight onto the iPhone:
+
+            $IPA_URL
+
+            1. Open that link in Safari on the phone.
+            2. Give it to Signulous and sign it.
+            3. Install from Signulous.
+          ============================================================
+          NOTE
+
+      - name: Upload archive log on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sideload-archive-log
+          path: 'Sprout-iOS/SproutApp/Sprout/archive.log'
+          if-no-files-found: warn
+          retention-days: 7
