@@ -647,9 +647,15 @@ struct BudgetStoreTests {
         #expect(kept.count == 1)
         let keptName = try #require(kept.first)
 
-        // The alert has to say where it is, or a copy nobody can find is no better
-        // than no copy at all.
-        #expect(store.persistenceAlert?.message.contains(keptName) == true)
+        // The alert deliberately does NOT name the file. It lives in Application
+        // Support and the app ships without `UIFileSharingEnabled`, so the user
+        // cannot open it; naming it would promise a recovery route that does not
+        // exist. It says the file was kept, and keeps the one instruction the user
+        // can act on.
+        let message = try #require(store.persistenceAlert?.message)
+        #expect(!message.contains(keptName))
+        #expect(message.contains("kept on this device"))
+        #expect(message.contains("restoring a backup in Settings"))
 
         // An edit is what destroys the evidence, so prove the copy survives one.
         let draft = TransactionDraft(name: "After", amountText: "5", selectedEmoji: "☕")
