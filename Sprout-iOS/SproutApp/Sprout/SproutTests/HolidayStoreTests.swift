@@ -1278,6 +1278,7 @@ struct HolidayStoreTests {
     /// authored in the web app arrives in exactly that shape.
     @Test func holidayTimestampsDecodeWithOrWithoutFractionalSeconds() throws {
         for stamp in ["2026-11-02T12:00:00Z", "2026-11-02T12:00:00.000Z", "2026-11-02T12:00:00.456Z"] {
+            let note = Comment(rawValue: stamp)
             let store = makeStore()
             let personID = UUID().uuidString
             let payload: [String: Any] = [
@@ -1298,14 +1299,14 @@ struct HolidayStoreTests {
             ]
             try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
 
-            let gift = try #require(store.holidayPurchasesNewestFirst.first, stamp)
+            let gift = try #require(store.holidayPurchasesNewestFirst.first, note)
             // Survived rather than collapsing to year 1 AD.
-            #expect(gift.date > Self.makeDate(2026, 11, 1), "\(stamp)")
-            #expect(gift.date < Self.makeDate(2026, 11, 3), "\(stamp)")
-            let person = try #require(store.holidayRecipients.first, stamp)
-            #expect(person.createdAt > Self.makeDate(2026, 11, 1), "\(stamp)")
-            #expect(store.holidaySpent == MoneyAmount(dollars: 40), "\(stamp)")
-            #expect(store.persistenceAlert == nil, "\(stamp)")
+            #expect(gift.date > Self.makeDate(2026, 11, 1), note)
+            #expect(gift.date < Self.makeDate(2026, 11, 3), note)
+            let person = try #require(store.holidayRecipients.first, note)
+            #expect(person.createdAt > Self.makeDate(2026, 11, 1), note)
+            #expect(store.holidaySpent == MoneyAmount(dollars: 40), note)
+            #expect(store.persistenceAlert == nil, note)
         }
     }
 
