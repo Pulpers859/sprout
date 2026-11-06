@@ -46,17 +46,71 @@ enum SproutMoneyText {
             return evaluateWithLocaleFormatter(candidate, locale: locale)
         }
 
-        var normalized = candidate
-        if groupingSeparator != decimalSeparator {
-            normalized = normalized.replacingOccurrences(of: groupingSeparator, with: "")
-        }
-        normalized = normalized.replacingOccurrences(of: decimalSeparator, with: ".")
+        guard let digits = latinDigits(of: candidate, locale: locale) else { return .invalid }
+        let normalized = "\(digits.whole.isEmpty ? "0" : digits.whole).\(digits.fraction.isEmpty ? "0" : digits.fraction)"
 
-        guard normalized.filter({ $0 == "." }).count <= 1 else { return .invalid }
         guard let dollars = Double(normalized), dollars.isFinite, dollars > 0 else { return .invalid }
         guard dollars <= maximum.dollars else { return .exceedsMaximum }
 
         return .valid(MoneyAmount(dollars: dollars))
+    }
+
+    private static func isLatinDigits(_ text: String) -> Bool {
+        !text.isEmpty && text.unicodeScalars.allSatisfy { (48...57).contains($0.value) }
+    }
+
+    /// The locale's own grouping shape: how many digits sit in the last group, and
+    /// how many in each group before it. The two differ — en_IN writes 12,34,56,789.
+    private static func groupingSizes(for locale: Locale) -> (last: Int, interior: Int) {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = locale
+        let last = formatter.groupingSize > 0 ? formatter.groupingSize : 3
+        let secondary = formatter.secondaryGroupingSize
+        return (last, secondary > 0 ? secondary : last)
+    }
+
+    /// Splits well-formed amount text into its integer and fraction digits, or
+    /// returns `nil` if the text is not well formed. Expects Latin digits and the
+    /// locale's own separators; the caller screens anything else out first.
+    ///
+    /// Grouping is **validated**, not stripped. Stripping it read a fat-fingered
+    /// `"1,2"` as `12` — a silent tenfold mis-entry on the one field in the app
+    /// where the user is typing money, and the same permissiveness that stripping
+    /// every space turned `"1 2"` into `12`. Web has rejected malformed grouping
+    /// since its parser was written; iOS had not.
+    private static func latinDigits(of candidate: String, locale: Locale) -> (whole: String, fraction: String)? {
+        let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
+        let groupingSeparator = locale.groupingSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? ","
+
+        let sections = candidate.components(separatedBy: decimalSeparator)
+        guard sections.count <= 2 else { return nil }
+        let fraction = sections.count == 2 ? sections[1] : ""
+        guard fraction.isEmpty || isLatinDigits(fraction) else { return nil }
+
+        var whole = sections[0]
+        // When a locale groups and points with the same character there is no way
+        // to tell the two apart, and the split above has already consumed every
+        // separator, so there is nothing left here to validate.
+        if groupingSeparator != decimalSeparator, whole.contains(groupingSeparator) {
+            let groups = whole.components(separatedBy: groupingSeparator)
+            let sizes = groupingSizes(for: locale)
+            guard
+                groups.count >= 2,
+                groups.allSatisfy(isLatinDigits),
+                groups[groups.count - 1].count == sizes.last,
+                (1 ... sizes.interior).contains(groups[0].count),
+                groups.dropFirst().dropLast().allSatisfy({ $0.count == sizes.interior })
+            else {
+                return nil
+            }
+            whole = groups.joined()
+        }
+
+        guard whole.isEmpty || isLatinDigits(whole) else { return nil }
+        // "." on its own carries no amount at all.
+        guard !whole.isEmpty || !fraction.isEmpty else { return nil }
+        return (whole, fraction)
     }
 
     /// Removes currency decoration and grouping whitespace. Shared so every
@@ -82,17 +136,6 @@ enum SproutMoneyText {
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The digits of an amount, with separators removed.
-    private static func normalizedDigits(_ text: String, locale: Locale) -> String {
-        let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
-        let groupingSeparator = locale.groupingSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? ","
-        var value = stripped(text, locale: locale)
-        if groupingSeparator != decimalSeparator {
-            value = value.replacingOccurrences(of: groupingSeparator, with: "")
-        }
-        return value.replacingOccurrences(of: decimalSeparator, with: "")
-    }
-
     /// Fallback for non-Latin numbering systems. Still refuses anything the
     /// formatter does not consume in full, so trailing text cannot sneak through.
     private static func evaluateWithLocaleFormatter(_ candidate: String, locale: Locale) -> ParseResult {
@@ -111,8 +154,14 @@ enum SproutMoneyText {
     /// True when the text is a well-formed zero. `evaluate` rejects zero because
     /// no transaction may be zero, but a zero *budget* is a legitimate choice.
     static func isZeroAmount(_ text: String, locale: Locale = .current) -> Bool {
-        let digits = normalizedDigits(text, locale: locale)
-        return !digits.isEmpty && digits.allSatisfy { $0 == "0" }
+        // Well formed, not merely zero-ish. This used to strip the separators and
+        // look at what was left, so a mistyped "0,0" read as a deliberate zero
+        // budget — the same permissiveness `evaluate` no longer allows.
+        guard let digits = latinDigits(of: stripped(text, locale: locale), locale: locale) else {
+            return false
+        }
+        let all = digits.whole + digits.fraction
+        return !all.isEmpty && all.allSatisfy { $0 == "0" }
     }
 
     static func parse(_ text: String, locale: Locale = .current) -> MoneyAmount? {

@@ -136,12 +136,11 @@ Holiday differences that remain:
 Found by an independent audit on 2026-11-06 and not yet closed. Listed here
 rather than described as aligned.
 
-- **Web is ahead of iOS in three places.** Web can convert an expense to a
+- **Web is ahead of iOS in two places.** Web can convert an expense to a
   payment while editing (iOS forces delete-and-re-enter); web mints stable
   recurring-occurrence ids (`recurring:<ruleId>:<date>`) deduped against the
   live ledger and every archive, where iOS mints a fresh UUID per occurrence and
-  relies on the rule cursor alone; web validates grouping placement when parsing
-  an amount, rejecting a mistyped `1,2` that iOS reads as 12.
+  relies on the rule cursor alone.
 
   On the recurring ids: this is belt-and-braces on web rather than a live iOS
   bug, and the earlier wording here overstated it. iOS persists rules and
@@ -150,6 +149,25 @@ rather than described as aligned.
   have. The difference still matters in one direction — a row iOS drops on a
   lossy load is never reposted, because the cursor stayed ahead of it, where
   web's dedupe would notice the gap and fill it.
+
+- **Resolved 2026-11-06: iOS accepting a mistyped amount.** iOS stripped the
+  locale's grouping separators before parsing, so `1,2` read as `$12` — a silent
+  tenfold mis-entry on the one field where the user is typing money, and the
+  same permissiveness that once turned `1 2` into `12`. `SproutMoneyText` now
+  validates grouping against the locale's own shape instead of stripping it,
+  including the two-then-three pattern en_IN uses, and `isZeroAmount` agrees
+  with it so `0,0` is no longer read as a deliberate zero budget. One
+  consequence is deliberate: `"12.50"` in de_DE is now rejected rather than read
+  as €1,250, which is what web already did.
+
+  Two gaps remain, both narrower than the one closed. `stripped()` deletes
+  U+00A0 and U+202F before parsing, and deletes plain spaces in locales that
+  group with whitespace, so in fr_FR and the like the grouping separator is gone
+  before there is anything to validate and `"1 2"` is still read as 12. Web
+  instead rewrites whitespace *to* the grouping separator and then validates. And
+  the non-Latin-digit path still hands the whole string to `NumberFormatter`
+  without a grouping check, where web transliterates the digits first and checks.
+  Neither affects the en_US surface this app ships on.
 
 - **Resolved 2026-11-06: iOS writing over a partially-recovered ledger.** iOS
   quarantined a save file it could not parse at all, but not one that parsed

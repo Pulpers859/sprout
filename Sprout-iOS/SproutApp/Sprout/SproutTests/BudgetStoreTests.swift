@@ -1287,8 +1287,13 @@ struct BudgetStoreTests {
         // as a hundredfold larger amount — a saved 12,50 became 1.250,00.
         let oldNormalization = String(format: "%.2f", MoneyAmount(cents: 1250).dollars)
         #expect(oldNormalization == "12.50")
-        #expect(SproutMoneyText.parse(oldNormalization, locale: german)?.cents == 125_000)
         #expect(SproutMoneyText.editable(MoneyAmount(cents: 1250), locale: german) != oldNormalization)
+
+        // That text is now *rejected* in de_DE rather than silently read as
+        // €1,250: "12.50" is not a valid grouping of digits there, because a group
+        // after the separator must hold three. Refusing it is the safer of the two
+        // answers, and the one web already gave.
+        #expect(SproutMoneyText.parse(oldNormalization, locale: german) == nil)
     }
 
     // MARK: - Second-pass fixes
@@ -1678,6 +1683,48 @@ struct BudgetStoreTests {
         #expect(SproutMoneyText.parse("12 34", locale: enUS) == nil)
         // Surrounding whitespace is still fine.
         #expect(SproutMoneyText.parse("  12.50  ", locale: enUS)?.cents == 1250)
+    }
+
+    @Test func misplacedGroupingIsRejectedRatherThanSwallowed() {
+        // Stripping grouping separators read a fat-fingered "1,2" as $12 — the
+        // same silent mis-entry that stripping spaces made of "1 2".
+        let enUS = Locale(identifier: "en_US")
+        for text in ["1,2", "12,34", "1,23", "1,2345", "1,234,5", "12,34.50", ",", ",5", "1,"] {
+            #expect(SproutMoneyText.parse(text, locale: enUS) == nil, "expected \(text) to be rejected")
+        }
+
+        // Correct grouping, and no grouping at all, both still parse.
+        #expect(SproutMoneyText.parse("1,234", locale: enUS)?.cents == 123_400)
+        #expect(SproutMoneyText.parse("1,234.56", locale: enUS)?.cents == 123_456)
+        // The largest amount the field accepts, grouped.
+        #expect(SproutMoneyText.parse("999,999.99", locale: enUS)?.cents == 99_999_999)
+        // Correctly grouped but too large is still "too large", not "malformed" —
+        // the field tells the user which of the two it is.
+        #expect(SproutMoneyText.evaluate("1,234,567", locale: enUS) == .exceedsMaximum)
+        #expect(SproutMoneyText.parse("123456.78", locale: enUS)?.cents == 12_345_678)
+    }
+
+    /// en_IN groups the last three digits and then in pairs: 12,34,56,789. A rule
+    /// that assumed every group is the same size would reject the whole locale.
+    @Test func groupingFollowsTheLocaleItNotEnUS() {
+        let india = Locale(identifier: "en_IN")
+        #expect(SproutMoneyText.parse("1,23,456.78", locale: india)?.cents == 12_345_678)
+        #expect(SproutMoneyText.parse("1,234,56.78", locale: india) == nil)
+
+        // And the en_US shape is wrong in en_IN, as the en_IN shape is in en_US.
+        #expect(SproutMoneyText.parse("123,456.78", locale: india) == nil)
+        #expect(SproutMoneyText.parse("1,23,456.78", locale: Locale(identifier: "en_US")) == nil)
+    }
+
+    @Test func aMistypedZeroIsNotADeliberateZeroBudget() {
+        // `isZeroAmount` gates entering a zero budget. It stripped the separators
+        // and looked at what was left, so "0,0" counted as a deliberate zero.
+        let enUS = Locale(identifier: "en_US")
+        #expect(!SproutMoneyText.isZeroAmount("0,0", locale: enUS))
+        #expect(!SproutMoneyText.isZeroAmount("0,00", locale: enUS))
+        #expect(SproutMoneyText.isZeroAmount("0", locale: enUS))
+        #expect(SproutMoneyText.isZeroAmount("0.00", locale: enUS))
+        #expect(SproutMoneyText.isZeroAmount("0,000", locale: enUS))
     }
 
     // MARK: - Ledger invariants under random month sequences
