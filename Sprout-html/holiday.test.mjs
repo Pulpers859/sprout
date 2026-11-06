@@ -86,8 +86,10 @@ test('a target of nothing is not the same as no target', () => {
   assert.equal(recipientProgress(none, none.recipients[0]), null);
 
   const zero = season({ recipients: [person('neighbour', { plannedAmount: 0 })] });
+  // The discriminator: plannedTotal is zero for BOTH shapes, so only
+  // hasPerPersonTargets can tell them apart.
+  assert.equal(plannedTotalCents(none), 0);
   assert.equal(plannedTotalCents(zero), 0);
-  // The discriminator: plannedTotal is zero for both shapes.
   assert.equal(hasPerPersonTargets(zero), true);
   assert.equal(recipientProgress(zero, zero.recipients[0]), 0);
 });
@@ -106,13 +108,21 @@ test('the planning figure can never out-claim what is available', () => {
   s = season({ ...s, purchases: [...s.purchases, gift('b', { amount: 6000 })] });
   assert.equal(unreservedCents(s), 14000);
 
-  // Walk it well past the budget; the invariant has to hold throughout.
-  for (const amount of [20000, 24000, 10000]) {
+  // Walk it well past the budget. The <= relation is true by construction, so
+  // the exact figures are pinned as well — otherwise a change to the definition
+  // would only be restated by the inequality, not caught.
+  const expected = [
+    [20000, 50000 - 36000 - 15000],
+    [24000, 50000 - 60000 - 15000],
+    [10000, 50000 - 70000 - 15000],
+  ];
+  for (const [amount, unreserved] of expected) {
     s = season({ ...s, purchases: [...s.purchases, gift(`x${amount}`, { recipientID: 'mom', amount })] });
-    assert.ok(unreservedCents(s) <= seasonRemainingCents(s));
+    assert.equal(unreservedCents(s), unreserved, String(amount));
+    assert.ok(unreservedCents(s) <= seasonRemainingCents(s), String(amount));
   }
-  assert.ok(seasonRemainingCents(s) < 0);
-  assert.ok(unreservedCents(s) <= seasonRemainingCents(s));
+  assert.equal(seasonRemainingCents(s), -20000);
+  assert.equal(unreservedCents(s), -35000);
 });
 
 test('returning more than was spent cannot reserve more than the target', () => {
@@ -175,8 +185,109 @@ test('a row sharing an id is re-identified when it differs and dropped when iden
 });
 
 test('a season with no usable start date is not named "Holiday 1"', () => {
-  const s = normalizeSeason({ label: '', startedAt: 'nonsense' }, at('2026-11-06T12:00:00Z'));
-  assert.equal(s.label, 'Holiday 2026');
+  // `.distantPast` is what iOS writes for an absent startedAt, and it PARSES —
+  // so the old test's 'nonsense' took the unparseable branch and passed while
+  // the value that actually occurs produced "Holiday 1", which then stuck
+  // because only a blank label is ever replaced.
+  for (const startedAt of ['0001-01-01T00:00:00Z', 'nonsense', undefined, null, '']) {
+    const s = normalizeSeason({ label: '', startedAt }, at('2026-11-06T12:00:00Z'));
+    assert.equal(s.label, 'Holiday 2026', String(startedAt));
+    assert.equal(s.startedAt, '2026-11-06T12:00:00Z', String(startedAt));
+  }
+});
+
+test('timestamps are written in the only form iOS can decode', () => {
+  const s = normalizeSeason({
+    label: 'Holiday 2026', startedAt: '2026-11-01T12:00:00.000Z',
+    recipients: [person('p', { createdAt: '2026-11-01T12:00:00.123Z' })],
+    purchases: [gift('g', { date: '2026-11-02T12:00:00.456Z' })],
+  }, at('2026-11-06T12:00:00Z'));
+
+  // iOS decodes with ISO8601DateFormatter(.withInternetDateTime), which refuses
+  // fractional seconds and then silently falls back to .distantPast.
+  for (const stamp of [s.startedAt, s.recipients[0].createdAt, s.purchases[0].date]) {
+    assert.match(stamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, stamp);
+  }
+  assert.equal(s.purchases[0].date, '2026-11-02T12:00:00Z');
+  // `new Date(null)` is the epoch, so an active season must not be stamped as
+  // closed in 1970 by a careless conversion.
+  assert.equal(s.closedAt, null);
+  assert.equal(emptySeason(at('2026-11-06T12:00:00Z')).closedAt, null);
+  assert.match(emptySeason(at('2026-11-06T12:00:00Z')).startedAt, /T\d{2}:\d{2}:\d{2}Z$/);
+});
+
+test('an unreadable amount drops its row instead of becoming free money', () => {
+  const s = normalizeSeason({
+    label: 'Holiday 2026', startedAt: '2026-11-01T12:00:00Z',
+    purchases: [
+      gift('good', { amount: 4000 }),
+      gift('string', { amount: '4000' }),
+      gift('missing', { amount: undefined }),
+      gift('nan', { amount: Number.NaN }),
+    ],
+  }, at('2026-11-06T12:00:00Z'));
+
+  // iOS makes `amount` a required decode precisely so the row drops. Coercing
+  // it to zero would have turned a damaged gift into a free one.
+  assert.deepEqual(s.purchases.map(r => r.id), ['good']);
+  assert.equal(seasonSpentCents(s), 4000);
+});
+
+test('an unreadable target is no target, not a target of nothing', () => {
+  const s = normalizeSeason({
+    label: 'Holiday 2026', startedAt: '2026-11-01T12:00:00Z',
+    recipients: [person('a', { plannedAmount: '200' }), person('b', { plannedAmount: 0 })],
+  }, at('2026-11-06T12:00:00Z'));
+
+  // A string target used to become 0, which flips hasPerPersonTargets on and
+  // shows a "Left to plan" figure for someone who never set one.
+  assert.equal(s.recipients[0].plannedAmount, null);
+  assert.equal(s.recipients[1].plannedAmount, 0);
+  assert.equal(recipientProgress(s, s.recipients[0]), null);
+  assert.equal(recipientProgress(s, s.recipients[1]), 0);
+});
+
+test('the backwards-clock clamp uses close stamps only', () => {
+  // An archived season with no closedAt and a future startedAt used to push the
+  // clamp floor to just after that bogus date, and the bad stamp was then
+  // persisted and became the floor for every later rollover.
+  const history = [{
+    id: 'stale', label: 'Stale', budget: 0, recipients: [], purchases: [],
+    startedAt: '2099-01-01T00:00:00Z', closedAt: null,
+  }];
+  const out = startNewSeason({
+    season: season({ purchases: [gift('a')] }), history,
+    carryRecipients: false, now: at('2026-11-06T12:00:00Z'),
+  });
+  // Found by label, not by index: history is ordered by `closedAt ?? startedAt`
+  // (as on iOS), so the stale season's 2099 start still sorts it first.
+  const filed = out.history.find(h => h.label === 'Holiday 2026');
+  assert.equal(filed.closedAt, '2026-11-06T12:00:00Z');
+
+  // A real future close stamp still clamps, because that one is genuine.
+  const closed = [{ ...history[0], closedAt: '2099-01-01T00:00:00Z' }];
+  const clamped = startNewSeason({
+    season: season({ purchases: [gift('a')] }), history: closed,
+    carryRecipients: false, now: at('2026-11-06T12:00:00Z'),
+  });
+  assert.equal(clamped.history.find(h => h.label === 'Holiday 2026').closedAt, '2099-01-01T00:00:01Z');
+});
+
+test('archive label de-duplication sees normalized labels', () => {
+  // The label being filed is normalized, so comparing it against raw stored
+  // labels let a padded or defaulted duplicate slip past the check.
+  for (const stored of [{ label: '  Holiday 2026  ' }, { label: '' }]) {
+    const history = [{
+      id: 'old', budget: 0, recipients: [], purchases: [],
+      startedAt: '2026-01-01T00:00:00Z', closedAt: '2026-01-02T00:00:00Z', ...stored,
+    }];
+    const out = startNewSeason({
+      season: season({ label: 'Holiday 2026', purchases: [gift('a')] }), history,
+      carryRecipients: false, now: at('2026-12-01T12:00:00Z'),
+    });
+    const labels = out.history.map(h => h.label);
+    assert.equal(new Set(labels).size, labels.length, JSON.stringify(stored));
+  }
 });
 
 test('starting a new season archives the old one and keeps the name asked for', () => {

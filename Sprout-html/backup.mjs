@@ -59,26 +59,46 @@ function holidayCents(value, path) {
   return value;
 }
 
-/** Shape check only; `normalizeSeason` does the renaming, re-homing and
- * de-duplication, exactly as it does for the live ledger. Throwing here lets a
- * strict import reject a damaged holiday section rather than partially replace
- * the user's data, which is how this importer already treats every other row. */
+/**
+ * Structural check only: the season has to be an object and its two lists have
+ * to be lists. Everything row-level is handled per row.
+ *
+ * This used to throw for the whole season on a single bad amount, which was
+ * justified as "how this importer already treats every other row" — and that
+ * was simply wrong. `list()` recovers per row for transactions, recurring rules
+ * and archived months, dropping one and keeping the rest, and iOS drops one
+ * element through `SproutLossyDecoding`. Holiday was the only all-or-nothing
+ * section, so one `plannedAmount: 1.5` anywhere emptied the entire Holiday tab
+ * and blocked saving.
+ */
 function checkSeasonShape(value, path) {
   if (!object(value)) throw new Error(`${path}: expected an object`);
-  holidayCents(value.budget ?? 0, `${path}.budget`);
   for (const key of ['recipients', 'purchases']) {
     const rows = value[key];
     if (rows === undefined || rows === null) continue;
     if (!Array.isArray(rows)) throw new Error(`${path}.${key}: expected a list`);
-    rows.forEach((row, index) => {
-      if (!object(row)) throw new Error(`${path}.${key}[${index}]: expected an object`);
-      if (key === 'purchases') holidayCents(row.amount, `${path}.${key}[${index}].amount`);
-      if (key === 'recipients' && row.plannedAmount != null) {
-        holidayCents(row.plannedAmount, `${path}.${key}[${index}].plannedAmount`);
-      }
-    });
   }
   return value;
+}
+
+/** Row-level validation, reported rather than fatal. Mirrors iOS: an
+ * unreadable budget is kept reportable instead of destroying the season, and an
+ * unreadable row is dropped and counted instead of silently becoming free. */
+function seasonRowIssues(value, path) {
+  const issues = [];
+  const check = (amount, where) => {
+    try { holidayCents(amount, where); } catch (error) { issues.push(error.message); }
+  };
+  check(value.budget ?? 0, `${path}.budget`);
+  (Array.isArray(value.purchases) ? value.purchases : []).forEach((row, index) => {
+    if (!object(row)) { issues.push(`${path}.purchases[${index}]: expected an object`); return; }
+    check(row.amount, `${path}.purchases[${index}].amount`);
+  });
+  (Array.isArray(value.recipients) ? value.recipients : []).forEach((row, index) => {
+    if (!object(row)) { issues.push(`${path}.recipients[${index}]: expected an object`); return; }
+    if (row.plannedAmount != null) check(row.plannedAmount, `${path}.recipients[${index}].plannedAmount`);
+  });
+  return issues;
 }
 
 /**
@@ -212,11 +232,25 @@ export function normalizeSnapshot(input, { strict = false } = {}) {
     // `null` rather than omitted when absent, so `Object.assign(state, snapshot)`
     // on sign-out clears it like every other field. An omitted key would leave
     // the previous account's holiday data in place.
-    holidaySeason: input.holidaySeason == null ? null : recover('holidaySeason', () =>
-      normalizeSeason(checkSeasonShape(input.holidaySeason, 'holidaySeason')), null),
+    holidaySeason: input.holidaySeason == null ? null : recover('holidaySeason', () => {
+      const checked = checkSeasonShape(input.holidaySeason, 'holidaySeason');
+      // Row problems are reported, then the row is dropped by `normalizeSeason`
+      // — the season itself survives. A strict import still refuses, because
+      // `recover` rethrows there.
+      seasonRowIssues(checked, 'holidaySeason').forEach(message => recover(message, () => {
+        throw new Error('skipped');
+      }, null));
+      return normalizeSeason(checked);
+    }, null),
     holidaySeasonHistory: input.holidaySeasonHistory == null ? null : recover('holidaySeasonHistory', () => {
       if (!Array.isArray(input.holidaySeasonHistory)) throw new Error('expected a list');
-      input.holidaySeasonHistory.forEach((row, index) => checkSeasonShape(row, `holidaySeasonHistory[${index}]`));
+      input.holidaySeasonHistory.forEach((row, index) => {
+        const path = `holidaySeasonHistory[${index}]`;
+        const checked = checkSeasonShape(row, path);
+        seasonRowIssues(checked, path).forEach(message => recover(message, () => {
+          throw new Error('skipped');
+        }, null));
+      });
       return normalizeHistory(input.holidaySeasonHistory);
     }, null),
     updatedAt: recover('updatedAt', () => input.updatedAt == null ? '1970-01-01T00:00:00Z' : timestamp(input.updatedAt), '1970-01-01T00:00:00Z'),

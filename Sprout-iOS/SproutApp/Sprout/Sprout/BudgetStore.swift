@@ -134,7 +134,21 @@ final class BudgetStore: ObservableObject {
         self.encoder = encoder
 
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        // Deliberately not `.iso8601`, which refuses fractional seconds and
+        // then fails *silently* here: every holiday date falls back to
+        // `.distantPast`. See `SproutDate.iso8601`. Encoding still uses
+        // `.iso8601`, so what Sprout writes is unchanged.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let text = try container.decode(String.self)
+            guard let date = SproutDate.iso8601(text) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Expected an ISO-8601 date, got \(text)."
+                )
+            }
+            return date
+        }
         self.decoder = decoder
 
         self.snapshot = .makeEmpty(now: now(), calendar: calendar)
@@ -1169,6 +1183,14 @@ final class BudgetStore: ObservableObject {
             if recipient.emoji.isEmpty { recipient.emoji = GiftRecipient.defaultEmoji }
             if let planned = recipient.plannedAmount, planned < .zero {
                 recipient.plannedAmount = .zero
+            }
+            // A person whose stamp was absent or unreadable decodes to
+            // `.distantPast`, which sorts them ahead of everyone forever. The
+            // web app treats such a person as having joined when the season
+            // did; matching that keeps the display order identical across
+            // surfaces for the same file.
+            if recipient.createdAt <= .distantPast {
+                recipient.createdAt = season.startedAt > .distantPast ? season.startedAt : now()
             }
 
             if let existing = recipientsByID[recipient.id] {

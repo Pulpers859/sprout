@@ -1268,6 +1268,125 @@ struct HolidayStoreTests {
         #expect(store.holidayUnassignedPurchaseCount == 0)
     }
 
+    // MARK: - Timestamp compatibility
+
+    /// `JSONDecoder.DateDecodingStrategy.iso8601` is `ISO8601DateFormatter`
+    /// with `.withInternetDateTime` only — it refuses fractional seconds, and
+    /// the refusal is silent here: a gift's date falls back to `.distantPast`,
+    /// a person's `createdAt` likewise, and an archived `closedAt` to `nil`.
+    /// JavaScript's `toISOString()` always emits three decimals, so a backup
+    /// authored in the web app arrives in exactly that shape.
+    @Test func holidayTimestampsDecodeWithOrWithoutFractionalSeconds() throws {
+        for stamp in ["2026-11-02T12:00:00Z", "2026-11-02T12:00:00.000Z", "2026-11-02T12:00:00.456Z"] {
+            let store = makeStore()
+            let personID = UUID().uuidString
+            let payload: [String: Any] = [
+                "schemaVersion": 2,
+                "currentMonth": SproutDate.currentMonthKey(),
+                "transactions": [],
+                "holidaySeason": [
+                    "id": UUID().uuidString, "label": "Holiday 2026", "budget": 50_000,
+                    "startedAt": stamp, "closedAt": NSNull(),
+                    "recipients": [[
+                        "id": personID, "name": "Mom", "emoji": "🎁", "createdAt": stamp
+                    ]],
+                    "purchases": [[
+                        "id": UUID().uuidString, "recipientID": personID, "name": "Scarf",
+                        "amount": 4_000, "note": "", "date": stamp
+                    ]]
+                ]
+            ]
+            try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+            let gift = try #require(store.holidayPurchasesNewestFirst.first, stamp)
+            // Survived rather than collapsing to year 1 AD.
+            #expect(gift.date > Self.makeDate(2026, 11, 1), "\(stamp)")
+            #expect(gift.date < Self.makeDate(2026, 11, 3), "\(stamp)")
+            let person = try #require(store.holidayRecipients.first, stamp)
+            #expect(person.createdAt > Self.makeDate(2026, 11, 1), "\(stamp)")
+            #expect(store.holidaySpent == MoneyAmount(dollars: 40), "\(stamp)")
+            #expect(store.persistenceAlert == nil, "\(stamp)")
+        }
+    }
+
+    /// The widened strategy applies to the whole file, so the monthly ledger
+    /// gains the same tolerance.
+    @Test func aMonthlyTransactionWithFractionalSecondsDecodes() throws {
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "currentMonth": "2026-11",
+            "transactions": [[
+                "id": UUID().uuidString, "name": "Coffee", "amount": 475,
+                "emoji": "☕️", "date": "2026-11-02T12:00:00.000Z",
+                "tab": "personal", "isRefund": false
+            ]],
+            "personalBudget": 20_000, "groceryBudget": 40_000
+        ]
+        try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+        #expect(store.netSpent(for: .personal) == MoneyAmount(dollars: 4.75))
+        let entry = try #require(store.transactions(for: .personal).first)
+        #expect(entry.date > Self.makeDate(2026, 11, 1))
+        #expect(store.persistenceAlert == nil)
+    }
+
+    /// Widening must not mean accepting anything: a date that is not a
+    /// timestamp still fails its row, which the lossy decode then reports.
+    @Test func anUnreadableDateStillCostsItsRowAndIsReported() throws {
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "currentMonth": "2026-11",
+            "transactions": [[
+                "id": UUID().uuidString, "name": "Coffee", "amount": 475,
+                "emoji": "☕️", "date": "not a date", "tab": "personal", "isRefund": false
+            ]],
+            "personalBudget": 20_000
+        ]
+        try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+        #expect(store.transactions(for: .personal).isEmpty)
+        let alert = try #require(store.persistenceAlert)
+        #expect(alert.message.contains("transaction"))
+    }
+
+    /// What Sprout writes is unchanged: whole seconds, which is what the web
+    /// app's importer and every older build expect.
+    @Test func exportedTimestampsCarryNoFractionalSeconds() throws {
+        let store = makeStore()
+        let mom = addPerson(store, "Mom")
+        addGift(store, "Scarf", 40, for: mom.id)
+        let text = try #require(String(data: try store.exportBackupData(), encoding: .utf8))
+
+        #expect(text.contains("holidaySeason"))
+        // No "…:SS.mmmZ" anywhere in the payload.
+        #expect(text.range(of: #":\d{2}\.\d+Z"#, options: .regularExpression) == nil)
+    }
+
+    /// A person whose stamp was absent sorted ahead of everyone forever,
+    /// because `.distantPast` is year 1 AD. The web app treats such a person as
+    /// having joined when the season did; both surfaces now agree.
+    @Test func aPersonWithNoCreatedStampJoinsWhenTheSeasonDid() throws {
+        let store = makeStore()
+        let payload: [String: Any] = [
+            "schemaVersion": 2,
+            "currentMonth": SproutDate.currentMonthKey(),
+            "transactions": [],
+            "holidaySeason": [
+                "id": UUID().uuidString, "label": "Holiday 2026", "budget": 50_000,
+                "startedAt": "2026-11-01T12:00:00Z",
+                "recipients": [["id": UUID().uuidString, "name": "Mom", "emoji": "🎁"]],
+                "purchases": []
+            ]
+        ]
+        try store.importBackupData(try JSONSerialization.data(withJSONObject: payload))
+
+        let person = try #require(store.holidayRecipients.first)
+        #expect(person.createdAt > Self.makeDate(2026, 10, 31))
+        #expect(person.createdAt < Self.makeDate(2026, 11, 2))
+    }
+
     // MARK: - Routing
 
     @Test func aHolidayQuickAddLinkDoesNotLandInThePersonalBudget() throws {

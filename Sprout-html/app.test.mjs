@@ -334,7 +334,7 @@ test('holiday gifts never touch either monthly budget', async () => {
   const h = harness(); await h.login();
   const before = { personal: h.value(`getRemaining('personal')`), grocery: h.value(`getRemaining('grocery')`) };
   h.run(`commitSeason({ ...season(), budget: 60000 })`);
-  const mom = h.run(addPerson(h, 'Mom', '150') && `state.holidaySeason.recipients[0].id`);
+  const mom = addPerson(h, 'Mom', '150');
   addGift(h, { name: 'Sweater', amount: '80', person: mom });
   addGift(h, { name: 'Wrapping paper', amount: '12' });
 
@@ -499,9 +499,100 @@ test('a damaged holiday section in the cache does not cost the monthly ledger', 
   const h = harness(storage); await h.login();
   assert.equal(h.value('state.transactions.length'), 1);
   assert.equal(h.value(`netSpent('personal')`), 4.75);
-  // Reported, not silently swapped for an empty season.
+  // A structurally broken section IS swapped for an empty one — it is not an
+  // object, so there is nothing to salvage. What matters is that it is
+  // reported, and that the monthly ledger above survives intact.
   assert.ok(h.value('state.statusMessage'));
   assert.equal(h.value('state.holidaySeason.purchases.length'), 0);
+});
+
+/// One bad number used to empty the whole Holiday tab and block saving, where
+/// iOS loses only the offending row. Holiday was the only all-or-nothing
+/// section in an importer that recovers per row everywhere else.
+test('one unreadable holiday amount costs that row, not the season', async () => {
+  const storage = new Map();
+  const seed = harness(storage); await seed.login();
+  const mom = addPerson(seed, 'Mom');
+  addGift(seed, { name: 'Good gift', amount: '40', person: mom });
+  addGift(seed, { name: 'Also good', amount: '15', person: mom });
+  seed.run(`commitSeason({ ...season(), budget: 60000 })`);
+  seed.fireTimers();
+
+  const key = seed.value(`cacheKeyForUser('alice')`);
+  const cached = JSON.parse(storage.get(key));
+  cached.holidaySeason.purchases.push({
+    id: 'broken', recipientID: mom, name: 'Broken', amount: '4000',
+    note: '', date: '2026-11-02T12:00:00Z', isReturn: false,
+  });
+  storage.set(key, JSON.stringify(cached));
+
+  const h = harness(storage); await h.login();
+  // The season, its budget, its people and the two good gifts all survive.
+  assert.equal(h.value('state.holidaySeason.budget'), 60000);
+  assert.equal(h.value('state.holidaySeason.recipients.length'), 1);
+  assert.equal(h.value('state.holidaySeason.purchases.length'), 2);
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 5500);
+  // Reported rather than silent. Saving is paused, which is web's existing
+  // contract for any salvaged row — a dropped transaction does the same — not
+  // something specific to holiday. What changed is that the season itself is no
+  // longer emptied.
+  assert.ok(h.value('state.statusMessage'));
+  assert.match(h.value('state.statusMessage'), /holidaySeason\.purchases\[2\]\.amount/);
+  assert.equal(h.value('state.writeBlocked'), true);
+});
+
+test('a new season is not offered, nor announced, when there is nothing to archive', async () => {
+  const h = harness(); await h.login();
+  h.run(`state.activeSection='holiday'; render()`);
+  // Disabled rather than silently archiving nothing.
+  assert.match(h.app.innerHTML, /id="holidayNewSeason" disabled|disabled[^>]*>✨ New season/);
+
+  h.run(`state.holidayForm={kind:'season',label:'',carry:false}; saveHolidayNewSeason()`);
+  assert.equal(h.value('state.holidaySeasonHistory.length'), 0);
+  // And the toast must not name a row that is not in Past seasons.
+  assert.doesNotMatch(h.value('state.statusMessage'), /under Past seasons/);
+
+  addGift(h, { name: 'Scarf', amount: '40' });
+  h.run(`state.holidayForm={kind:'season',label:'',carry:false}; saveHolidayNewSeason()`);
+  assert.equal(h.value('state.holidaySeasonHistory.length'), 1);
+  assert.match(h.value('state.statusMessage'), /under Past seasons/);
+});
+
+test('a season can be renamed without archiving it', async () => {
+  const h = harness(); await h.login();
+  addGift(h, { name: 'Scarf', amount: '40' });
+  h.run(`state.holidayForm={kind:'rename',label:'  Christmas with the Kanes  '}; saveHolidayRename()`);
+  assert.equal(h.value('state.holidaySeason.label'), 'Christmas with the Kanes');
+  // Nothing was archived and nothing was lost.
+  assert.equal(h.value('state.holidaySeasonHistory.length'), 0);
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 4000);
+
+  h.run(`state.holidayForm={kind:'rename',label:'   '}; saveHolidayRename()`);
+  assert.equal(h.value('state.holidaySeason.label'), 'Christmas with the Kanes');
+  assert.ok(h.value('state.holidayFormError'));
+});
+
+/// A label is the one holiday value that is user-controlled and then
+/// interpolated into the import prompt, and it was going in unescaped.
+test('a season label carrying markup cannot execute in the import prompt', async () => {
+  const h = harness(); await h.login();
+  addGift(h, { name: 'Scarf', amount: '40' });
+  h.run(`commitSeason({ ...season(), label: '<img src=x onerror=alert(1)>' })`);
+  h.run(`state.pendingImport = { snapshot: normalizeSnapshot({ personalBudget: 1, currentMonth: getCurrentMonth() }).snapshot, uid: 'alice', generation: 0, hasHoliday: false }; render()`);
+
+  const html = h.app.innerHTML;
+  assert.ok(!html.includes('<img src=x onerror=alert(1)>'), 'raw markup reached the DOM');
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
+test('only one modal overlay is ever on screen on the holiday tab', async () => {
+  const h = harness(); await h.login();
+  addGift(h, { name: 'Scarf', amount: '40' });
+  // The month-reset dialog renders from the same string and was not in the gate.
+  h.run(`state.activeSection='holiday'; state.showHolidaySeasons=true; state.showReset=true; render()`);
+  assert.equal((h.app.innerHTML.match(/class="modal-overlay"/g) || []).length, 1);
+  h.run(`state.showReset=false; render()`);
+  assert.equal((h.app.innerHTML.match(/class="modal-overlay"/g) || []).length, 1);
 });
 
 test('transaction search filters by name and note, and goes inert when hidden', async () => {
@@ -521,10 +612,15 @@ test('transaction search filters by name and note, and goes inert when hidden', 
   h.run(`state.txSearch='coff'; state.transactions = state.transactions.slice(0,3); render()`);
   assert.ok(!h.app.innerHTML.includes('id="txSearch"'));
   assert.match(h.app.innerHTML, /Lunch/);
-  // And a query does not survive a tab change.
-  h.run(`state.txSearch='coff'; bindEvents()`);
-  h.run(`state.activeSection='grocery'; state.txSearch=''; render()`);
+  // And a query does not survive a tab change. The harness's querySelectorAll
+  // returns [], so bindEvents binds nothing — invoke the handler's work the way
+  // the click does, rather than assigning the expected value and asserting it.
+  h.run(`state.txSearch='coff'; state.holidaySearch='mom'; state.pendingHolidayDelete={kind:'gift',id:'x'}`);
+  h.run(`switchSection('grocery')`);
   assert.equal(h.value('state.txSearch'), '');
+  assert.equal(h.value('state.holidaySearch'), '');
+  assert.equal(h.value('state.pendingHolidayDelete'), null);
+  assert.equal(h.value('state.activeSection'), 'grocery');
 });
 
 test('a closed month shows its leftover, not the whole balance as a daily figure', async () => {
@@ -540,11 +636,18 @@ test('a closed month shows its leftover, not the whole balance as a daily figure
 test('the progress bar is coloured by spend, and pace is its own labelled signal', async () => {
   const h = harness(); await h.login();
   h.run(`state.personalBudget=100; startForm('expense'); state.formName='Big'; state.formAmount='101'; addTransaction(false)`);
-  // Over budget is red even when the month's pace calls it "on plan".
+  // Over budget is red even when the month's pace calls it "on plan" — which
+  // is the whole point, so the pace verdict is pinned rather than matched
+  // against a pattern that accepts all three.
   assert.equal(h.value(`getProgressColor(netSpent('personal'), getBudget('personal'))`), 'var(--red)');
-  assert.match(h.app.innerHTML, /Spending (too fast|on plan|under plan)/);
-  h.run(`state.transactions=[]; state.personalBudget=100; render()`);
+  assert.equal(h.value(`getPaceLabel(101, 100).text`), 'Spending too fast');
+  assert.equal(h.value(`getPaceLabel(0, 100).text`), 'Spending under plan');
+  assert.match(h.app.innerHTML, /Spending too fast/);
+  // 80% of the budget is amber while the bar is still only four-fifths full.
+  assert.equal(h.value(`getProgressColor(80, 100)`), 'var(--amber)');
   assert.equal(h.value(`getProgressColor(0, 100)`), 'var(--sage)');
+  // A zero budget with spending against it is consumed, not untouched.
+  assert.equal(h.value(`getProgressColor(5, 0)`), 'var(--red)');
 });
 
 test('the import prompt names the holiday data on both sides', async () => {

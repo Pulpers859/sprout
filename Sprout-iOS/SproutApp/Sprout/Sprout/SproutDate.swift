@@ -1,6 +1,50 @@
 import Foundation
 
 enum SproutDate {
+    /// Parses an ISO-8601 timestamp with or without fractional seconds.
+    ///
+    /// `JSONDecoder.DateDecodingStrategy.iso8601` is `ISO8601DateFormatter`
+    /// with `.withInternetDateTime` and *not* `.withFractionalSeconds`, so a
+    /// `2026-11-02T12:00:00.000Z` string fails to decode. In this app that
+    /// failure is silent and expensive: `GiftPurchase.date`,
+    /// `GiftRecipient.createdAt` and `HolidaySeason.startedAt` all fall back to
+    /// `.distantPast`, and `closedAt` to `nil` — a whole holiday season comes
+    /// back dated year 1 AD with its archive chronology destroyed.
+    ///
+    /// JavaScript's `Date.prototype.toISOString()` always emits three decimals,
+    /// so anything a web build or a third-party tool writes is in that shape
+    /// unless it strips them. Accepting both forms keeps such a file readable.
+    /// Encoding is unchanged, so what Sprout itself writes still carries no
+    /// fractional part.
+    static func iso8601(_ text: String) -> Date? {
+        Formatters.shared.date(from: text)
+    }
+
+    /// `ISO8601DateFormatter` instances are reused rather than rebuilt per
+    /// value, because a decode touches one per date across the whole ledger.
+    private final class Formatters: @unchecked Sendable {
+        static let shared = Formatters()
+
+        private let lock = NSLock()
+        private let internetDateTime: ISO8601DateFormatter
+        private let fractionalSeconds: ISO8601DateFormatter
+
+        init() {
+            internetDateTime = ISO8601DateFormatter()
+            internetDateTime.formatOptions = [.withInternetDateTime]
+            fractionalSeconds = ISO8601DateFormatter()
+            fractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        }
+
+        func date(from text: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            // Whole seconds first: that is the form Sprout writes, so it is the
+            // common case.
+            return internetDateTime.date(from: text) ?? fractionalSeconds.date(from: text)
+        }
+    }
+
     static func currentMonthKey(now: Date = .now, calendar: Calendar = .current) -> String {
         let components = calendar.dateComponents([.year, .month], from: now)
         let year = components.year ?? 0

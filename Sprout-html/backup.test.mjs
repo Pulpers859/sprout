@@ -131,11 +131,40 @@ test('normalization leaves the original object intact and retains every archived
   assert.equal(snapshot.updatedAt, '2026-09-29T17:00:00.123Z', 'cache freshness retains millisecond precision');
 });
 
+// Whole-second timestamps, which is what iOS actually writes: its decoder is
+// `ISO8601DateFormatter` with `.withInternetDateTime` and no fractional
+// seconds, so a "…T12:00:00.000Z" string fails to decode there and the field
+// falls back to `.distantPast`. The old fixture used milliseconds and
+// deep-equalled them straight through, so the one test whose name claims
+// iOS compatibility was pinning the incompatible format.
 const holidayFixture = () => ({
   id: 'a1b2c3d4-0000-0000-0000-000000000001', label: 'Holiday 2026', budget: 60000,
-  startedAt: '2026-10-31T12:00:00.000Z', closedAt: null,
-  recipients: [{ id: 'a1b2c3d4-0000-0000-0000-000000000002', name: 'Mom', emoji: '🎁', plannedAmount: 20000, createdAt: '2026-10-31T12:00:00.000Z' }],
-  purchases: [{ id: 'a1b2c3d4-0000-0000-0000-000000000003', recipientID: 'a1b2c3d4-0000-0000-0000-000000000002', name: 'Scarf', amount: 4000, note: '', date: '2026-11-02T12:00:00.000Z', isReturn: false }],
+  startedAt: '2026-10-31T12:00:00Z', closedAt: null,
+  recipients: [{ id: 'a1b2c3d4-0000-0000-0000-000000000002', name: 'Mom', emoji: '🎁', plannedAmount: 20000, createdAt: '2026-10-31T12:00:00Z' }],
+  purchases: [{ id: 'a1b2c3d4-0000-0000-0000-000000000003', recipientID: 'a1b2c3d4-0000-0000-0000-000000000002', name: 'Scarf', amount: 4000, note: '', date: '2026-11-02T12:00:00Z', isReturn: false }],
+});
+
+test('holiday timestamps are written in the only form iOS can decode', () => {
+  const withMillis = {
+    ...holidayFixture(),
+    startedAt: '2026-10-31T12:00:00.000Z',
+    recipients: [{ ...holidayFixture().recipients[0], createdAt: '2026-10-31T12:00:00.123Z' }],
+    purchases: [{ ...holidayFixture().purchases[0], date: '2026-11-02T12:00:00.456Z' }],
+  };
+  const { snapshot } = normalizeSnapshot({ ...fixture(), holidaySeason: withMillis }, { strict: true });
+  const season = snapshot.holidaySeason;
+  for (const stamp of [season.startedAt, season.recipients[0].createdAt, season.purchases[0].date]) {
+    assert.doesNotMatch(stamp, /\.\d+Z$/, stamp);
+    assert.match(stamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  }
+  // Truncated, not rounded away — the instant still matches to the second.
+  assert.equal(season.purchases[0].date, '2026-11-02T12:00:00Z');
+  // An active season stays active: `new Date(null)` is the epoch, so a careless
+  // conversion marks it closed in 1970.
+  assert.equal(season.closedAt, null);
+
+  const portable = exportBackup({ ...fixture(), holidaySeason: withMillis });
+  assert.doesNotMatch(portable.holidaySeason.purchases[0].date, /\.\d+Z$/);
 });
 
 test('holiday amounts are cents at every version and are never rescaled', () => {
@@ -157,7 +186,7 @@ test('holiday amounts are cents at every version and are never rescaled', () => 
 
 test('iOS holiday data survives a web import/export round trip', () => {
   const holidaySeason = holidayFixture();
-  const holidaySeasonHistory = [{ ...holidayFixture(), id: 'a1b2c3d4-0000-0000-0000-000000000004', label: 'Holiday 2025', closedAt: '2026-01-02T12:00:00.000Z' }];
+  const holidaySeasonHistory = [{ ...holidayFixture(), id: 'a1b2c3d4-0000-0000-0000-000000000004', label: 'Holiday 2025', closedAt: '2026-01-02T12:00:00Z' }];
 
   // The web app renders holiday data now, but it must still come back out in
   // the shape iOS wrote it: an iOS -> web -> iOS round trip cannot lose gifts.

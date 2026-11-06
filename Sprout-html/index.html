@@ -675,8 +675,11 @@
     cloudWriteQueue = cloudWriteQueue.then(() => saveData(uid, snapshot, generation)).catch(() => {});
     return cloudWriteQueue;
   }
+  // Holiday keys count as a signature here too, matching `backup.mjs` and iOS.
+  // Without them a document whose only Sprout keys were holiday ones was
+  // rejected as unrecognized and blocked saving.
   function validateStoredSnapshot(data) {
-    if (!data || typeof data !== "object" || !["transactions","currentMonth","personalBudget","groceryBudget","monthHistory","recurringRules","personalCategories"].some(key => Object.hasOwn(data, key))) {
+    if (!data || typeof data !== "object" || !["transactions","currentMonth","personalBudget","groceryBudget","monthHistory","recurringRules","personalCategories","holidaySeason","holidaySeasonHistory"].some(key => Object.hasOwn(data, key))) {
       throw new Error("The saved document is not a recognized Sprout ledger.");
     }
     return normalizeSnapshot(data);
@@ -1105,6 +1108,7 @@
   function saveHolidayNewSeason() {
     if (!canEdit()) return;
     const form = state.holidayForm;
+    const archived = !Holiday.seasonIsEmpty(season());
     const next = Holiday.startNewSeason({
       season: season(), history: state.holidaySeasonHistory,
       label: form.label, carryRecipients: Boolean(form.carry) && season().recipients.length > 0,
@@ -1114,7 +1118,21 @@
     state.holidayDetailId = undefined;
     state.holidaySearch = "";
     commitSeason(next.season, next.history);
-    state.statusMessage = "New holiday season started. The one you closed is under Past seasons.";
+    // An untouched season is not archived, so saying it was would name a row
+    // that is not in Past seasons.
+    state.statusMessage = archived
+      ? "New holiday season started. The one you closed is under Past seasons."
+      : "New holiday season started.";
+    render();
+  }
+
+  function saveHolidayRename() {
+    if (!canEdit()) return;
+    const label = state.holidayForm.label.trim();
+    if (!label) { state.holidayFormError = "Give this season a name."; render(); return; }
+    state.holidayForm = null;
+    state.holidayFormError = "";
+    commitSeason({ ...season(), label });
     render();
   }
 
@@ -1138,6 +1156,28 @@
     } else {
       commitSeason(current, state.holidaySeasonHistory.filter(past => past.id !== pending.id));
     }
+    render();
+  }
+
+  /**
+   * Leaving a section closes what belonged to it.
+   *
+   * A named function rather than the body of a click handler, because the
+   * clearing is behaviour worth testing: a holiday form left open behind the
+   * Personal tab would reopen on a screen with no place for it, a stale
+   * per-person view would survive the switch, a query typed on one tab would
+   * filter the other, and a pending delete whose row had since gone rendered
+   * nothing while leaving "Past seasons" a dead button.
+   */
+  function switchSection(section) {
+    state.activeSection = section;
+    state.showCalendar = false; state.showForm = null; state.editingTransactionId = null;
+    state.selectedCalDay = null; state.editingBudget = false;
+    state.holidayForm = null; state.holidayFormError = "";
+    state.holidayDetailId = undefined; state.holidaySearch = "";
+    state.txSearch = "";
+    state.pendingHolidayDelete = null; state.showHolidaySeasons = false;
+    state.formEmoji = budgetCat() === "personal" ? (state.personalCategories[0]?.emoji || "🛍️") : "🛒";
     render();
   }
 
@@ -1259,6 +1299,9 @@
   /** What the import would destroy on the holiday side. The prompt used to
    * name only budgets, transactions, categories and history, and then also
    * take the season, every person and every gift. */
+  /// Returns plain text, not markup. The caller escapes it: this is the one
+  /// holiday string that is built from a user-controlled value (the season
+  /// label) and then interpolated into the template, and it was going in raw.
   function holidayReplacementWarning() {
     const current = season();
     const gifts = Holiday.giftCount(current);
@@ -1407,7 +1450,7 @@
         <div class="modal-text">${escapeHtml(fmtMonthKey(preview.currentMonth))} · ${preview.transactions.length} transactions · ${preview.recurringRules.length} recurring entries · ${preview.monthHistory.length} archived months.</div>
         <div class="modal-text">Personal budget ${fmtCurrency(preview.personalBudget)} · Grocery budget ${fmtCurrency(preview.groceryBudget)}.</div>
         <div class="modal-text">${holidayImportSummary(state.pendingImport)}</div>
-        <div class="modal-text">This replaces budgets, transactions, categories, history and holiday seasons on this device and in your signed-in cloud account.${holidayReplacementWarning()} A device copy of the current data will be kept for undo.</div>
+        <div class="modal-text">This replaces budgets, transactions, categories, history and holiday seasons on this device and in your signed-in cloud account.${escapeHtml(holidayReplacementWarning())} A device copy of the current data will be kept for undo.</div>
         <div class="modal-actions"><button class="modal-btn keep" id="importCancel">Cancel</button><button class="modal-btn reset" id="importConfirm">Replace data</button></div>
       </div></div>`;
     }
@@ -1458,8 +1501,12 @@
 
     // Holiday overlays. Gated behind the same modals the rest of the app is,
     // so two dialogs are never requested at once and one silently dropped.
+    // `showReset` belongs here: it renders an overlay from this same string,
+    // and leaving it out put two fixed, full-screen dialogs on screen at once
+    // with focus landing in the one underneath.
     const holidayModalsFree = !state.pendingImport && !state.pendingAction
-      && !state.showSettings && !state.pendingDeleteId && state.emojiPickerForIndex === null;
+      && !state.showSettings && !state.pendingDeleteId && !state.showReset
+      && state.emojiPickerForIndex === null;
     if (state.pendingHolidayDelete && holidayModalsFree) {
       html += renderHolidayDeleteModal();
     } else if (state.showHolidaySeasons && holidayModalsFree) {
@@ -1762,7 +1809,8 @@
       <button class="btn-cancel" id="holidayAddGift">＋ Add gift</button>
       <button class="btn-cancel" id="holidayAddPerson"${atLimit ? " disabled" : ""}>＋ Add person</button>
       <button class="btn-cancel" id="holidayAddReturn">↩ Record a return</button>
-      <button class="btn-cancel" id="holidayNewSeason">✨ New season</button>
+      <button class="btn-cancel" id="holidayRenameSeason">✎ Rename season</button>
+      <button class="btn-cancel" id="holidayNewSeason"${Holiday.seasonIsEmpty(season()) ? " disabled" : ""}>✨ New season</button>
       <button class="btn-cancel" id="holidayPastSeasons">🕘 Past seasons</button>
     </div>`;
   }
@@ -1771,6 +1819,7 @@
     const form = state.holidayForm;
     if (!form) return "";
     if (form.kind === "person") return renderHolidayPersonForm(form);
+    if (form.kind === "rename") return renderHolidayRenameForm(form);
     if (form.kind === "season") return renderHolidaySeasonForm(form);
     return renderHolidayGiftForm(form);
   }
@@ -1832,6 +1881,22 @@
         <button class="modal-btn reset" id="holidayPersonSave">${editing ? "Save changes" : "Add person"}</button>
       </div></div>`;
     return h;
+  }
+
+  /** iOS has "Rename this season"; without it on web a typo in the label can
+   * only be fixed by archiving the season, and a label that arrived from a sync
+   * cannot be cleaned up through the UI at all. */
+  function renderHolidayRenameForm(form) {
+    let h = `<div class="add-form">
+      <div class="form-header">Rename season</div>
+      <div class="form-row">
+        <input type="text" id="holidayRenameName" placeholder="${escapeHtml(season().label)}" value="${escapeHtml(form.label)}">
+      </div>`;
+    if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
+    return h + `<div class="form-actions">
+        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
+        <button class="modal-btn reset" id="holidayRenameSave">Save name</button>
+      </div></div>`;
   }
 
   function renderHolidaySeasonForm(form) {
@@ -2552,6 +2617,13 @@
       state.holidayForm = { kind: "season", label: "", carry: season().recipients.length > 0 };
       render();
     });
+    document.getElementById("holidayRenameSeason")?.addEventListener("click", () => {
+      state.holidayFormError = "";
+      state.holidayForm = { kind: "rename", label: season().label };
+      render();
+    });
+    document.getElementById("holidayRenameName")?.addEventListener("input", e => { state.holidayForm.label = e.target.value; });
+    document.getElementById("holidayRenameSave")?.addEventListener("click", saveHolidayRename);
     document.getElementById("holidayPastSeasons")?.addEventListener("click", () => { state.showHolidaySeasons = true; render(); });
     document.getElementById("holidaySeasonsClose")?.addEventListener("click", () => { state.showHolidaySeasons = false; render(); });
     document.getElementById("holidayFormCancel")?.addEventListener("click", () => {
@@ -2619,19 +2691,7 @@
 
     // Tabs
     document.querySelectorAll("[data-tab]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        state.activeSection = btn.dataset.tab;
-        state.showCalendar = false; state.showForm = null; state.editingTransactionId = null;
-        state.selectedCalDay = null; state.editingBudget = false;
-        // Leaving a section closes what belonged to it. A holiday form left
-        // open behind the Personal tab would reopen on a screen that has no
-        // place for it, and a stale per-person view would survive the switch.
-        state.holidayForm = null; state.holidayFormError = "";
-        state.holidayDetailId = undefined; state.holidaySearch = "";
-        state.txSearch = "";
-        state.formEmoji = budgetCat() === "personal" ? (state.personalCategories[0]?.emoji || "🛍️") : "🛒";
-        render();
-      });
+      btn.addEventListener("click", () => switchSection(btn.dataset.tab));
     });
 
     // Budget setter

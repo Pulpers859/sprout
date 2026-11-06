@@ -30,6 +30,52 @@ export const RECIPIENT_EMOJI_OPTIONS = [
 const MAX_CENTS = 100_000_000_000_000;
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+/**
+ * ISO-8601 to whole seconds, which is the only form iOS can read.
+ *
+ * iOS decodes with `JSONDecoder.DateDecodingStrategy.iso8601`, i.e.
+ * `ISO8601DateFormatter` with `.withInternetDateTime` and NOT
+ * `.withFractionalSeconds`. `Date.prototype.toISOString()` always emits three
+ * decimals, so `2026-11-02T12:00:00.000Z` fails to decode there and the field
+ * falls back — `.distantPast` for a gift's `date`, a person's `createdAt` and a
+ * season's `startedAt`, and `nil` for an archived `closedAt`. Every gift would
+ * come back dated year 1 AD with the archive's chronology destroyed.
+ *
+ * `backup.mjs` has the same helper for the monthly fields and has always
+ * applied it on export. Holiday rows are authored here, so the canonical form
+ * is produced at the source instead: the device cache, the Firestore document
+ * and the exported file then all agree, and normalizing on every load converts
+ * anything already stored in the wrong shape.
+ */
+function isoSeconds(value, fallback = null) {
+  // `new Date(null)` is the Unix epoch, not an invalid date, so a null
+  // `closedAt` would be stamped "1970-01-01T00:00:00Z" — marking the ACTIVE
+  // season closed, which is the exact failure the complete-key-set rule exists
+  // to prevent. Only a Date or a non-empty string is a date here.
+  if (!(value instanceof Date) && typeof value !== 'string') return fallback;
+  if (typeof value === 'string' && value.trim() === '') return fallback;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return fallback;
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * Earliest instant a real season can have started.
+ *
+ * iOS's decoder falls back to `.distantPast` (year 1 AD) for an absent or
+ * unreadable `startedAt`, and that value *parses*, so deriving the season name
+ * from it produced "Holiday 1" — which then stuck, because only a blank label
+ * is ever replaced. iOS guards this in `normalizedHolidaySeason`; this is the
+ * same guard, widened slightly because web can be handed any garbage year.
+ */
+const EARLIEST_PLAUSIBLE_START = Date.parse('2000-01-01T00:00:00Z');
+
+function usableStart(value) {
+  const stamp = Date.parse(value);
+  if (!Number.isFinite(stamp) || stamp < EARLIEST_PLAUSIBLE_START) return null;
+  return isoSeconds(value);
+}
+
 function newId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   // Only reached in environments without WebCrypto; uniqueness is all that is
@@ -57,7 +103,7 @@ export function emptySeason(now = new Date()) {
     budget: 0,
     recipients: [],
     purchases: [],
-    startedAt: startedAt.toISOString(),
+    startedAt: isoSeconds(startedAt),
     closedAt: null,
   };
 }
@@ -243,9 +289,8 @@ export function normalizeSeason(season, now = new Date()) {
   // without `closedAt` would silently inherit the closed stamp of the season
   // it replaced and come back looking closed.
   const source = isObject(season) ? season : {};
-  const startedAt = typeof source.startedAt === 'string' && Number.isFinite(Date.parse(source.startedAt))
-    ? source.startedAt
-    : (now instanceof Date ? now : new Date()).toISOString();
+  const fallbackNow = isoSeconds(now instanceof Date ? now : new Date(), isoSeconds(new Date()));
+  const startedAt = usableStart(source.startedAt) ?? fallbackNow;
 
   const label = String(source.label ?? '').trim();
   const budget = Math.max(clampCents(source.budget), 0);
@@ -256,16 +301,18 @@ export function normalizeSeason(season, now = new Date()) {
     if (!isObject(raw)) continue;
     const name = String(raw.name ?? '').trim();
     const emoji = String(raw.emoji ?? '').trim();
-    const planned = raw.plannedAmount == null ? null : Math.max(clampCents(raw.plannedAmount), 0);
+    const planned = typeof raw.plannedAmount === 'number' && Number.isFinite(raw.plannedAmount)
+      ? Math.max(clampCents(raw.plannedAmount), 0)
+      : null;
     const person = {
       ...raw,
       id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
       name: name || 'Someone',
       emoji: emoji || DEFAULT_RECIPIENT_EMOJI,
       plannedAmount: planned,
-      createdAt: typeof raw.createdAt === 'string' && Number.isFinite(Date.parse(raw.createdAt))
-        ? raw.createdAt
-        : startedAt,
+      // A person with no usable stamp is treated as having joined when the
+      // season did, rather than in year 1 AD, so the display order is stable.
+      createdAt: usableStart(raw.createdAt) ?? startedAt,
     };
     const existing = byRecipientId.get(person.id);
     if (existing) {
@@ -280,6 +327,10 @@ export function normalizeSeason(season, now = new Date()) {
   const purchases = [];
   for (const raw of Array.isArray(source.purchases) ? source.purchases : []) {
     if (!isObject(raw)) continue;
+    // iOS makes `amount` a required decode precisely so an unreadable one
+    // drops and reports the row. Coercing it to zero here would have turned a
+    // damaged gift into a free one.
+    if (typeof raw.amount !== 'number' || !Number.isFinite(raw.amount)) continue;
     const name = String(raw.name ?? '').trim();
     const referenced = raw.recipientID == null ? null : String(raw.recipientID);
     const gift = {
@@ -292,7 +343,7 @@ export function normalizeSeason(season, now = new Date()) {
       name: name || 'Gift',
       amount: clampCents(raw.amount),
       note: String(raw.note ?? '').trim(),
-      date: typeof raw.date === 'string' && Number.isFinite(Date.parse(raw.date)) ? raw.date : startedAt,
+      date: isoSeconds(raw.date) ?? startedAt,
       isReturn: raw.isReturn === true,
     };
     const existing = byPurchaseId.get(gift.id);
@@ -314,17 +365,32 @@ export function normalizeSeason(season, now = new Date()) {
     recipients,
     purchases,
     startedAt,
-    closedAt: typeof source.closedAt === 'string' && Number.isFinite(Date.parse(source.closedAt))
-      ? source.closedAt
-      : null,
+    closedAt: isoSeconds(source.closedAt),
   };
 }
 
+/** For ordering history: a season with no close stamp falls back to its start. */
 function closeStamp(season) {
   const closed = Date.parse(season?.closedAt);
   if (Number.isFinite(closed)) return closed;
   const started = Date.parse(season?.startedAt);
   return Number.isFinite(started) ? started : 0;
+}
+
+/**
+ * For the backwards-clock clamp: close stamps only, matching iOS's
+ * `compactMap(\.closedAt).max()`.
+ *
+ * Falling back to `startedAt` here made the clamp far too broad — one archived
+ * season with no `closedAt` and a future `startedAt` pushed the next close
+ * stamp to just after that bogus date, and that value was then persisted and
+ * became the floor for every later rollover.
+ */
+function newestCloseStamp(history) {
+  return (history || []).reduce((newest, row) => {
+    const closed = Date.parse(row?.closedAt);
+    return Number.isFinite(closed) ? Math.max(newest, closed) : newest;
+  }, -Infinity);
 }
 
 export function normalizeHistory(history, now = new Date()) {
@@ -377,13 +443,17 @@ export function startNewSeason({ season, history, label, carryRecipients, now = 
 
   let nextHistory = existingHistory;
   if (!seasonIsEmpty(closing)) {
-    const newestStored = existingHistory.reduce((newest, row) => Math.max(newest, closeStamp(row)), -Infinity);
+    // Normalized first: the label being filed is normalized, so comparing it
+    // against raw stored labels let a whitespace-padded or defaulted duplicate
+    // slip past the very check this exists for.
+    const normalizedHistory = normalizeHistory(existingHistory, stamp);
+    const newestStored = newestCloseStamp(normalizedHistory);
     const closedMs = Number.isFinite(newestStored) && newestStored >= stamp.getTime()
       ? newestStored + 1000
       : stamp.getTime();
-    closing.closedAt = new Date(closedMs).toISOString();
-    closing.label = uniqueArchivedLabel(existingHistory, closing.label);
-    nextHistory = [closing, ...existingHistory];
+    closing.closedAt = isoSeconds(new Date(closedMs));
+    closing.label = uniqueArchivedLabel(normalizedHistory, closing.label);
+    nextHistory = [closing, ...normalizedHistory];
   }
 
   const requested = String(label ?? '').trim();
@@ -395,7 +465,7 @@ export function startNewSeason({ season, history, label, carryRecipients, now = 
     budget: closing.budget,
     recipients: carryRecipients ? closing.recipients.map(person => ({ ...person })) : [],
     purchases: [],
-    startedAt: stamp.toISOString(),
+    startedAt: isoSeconds(stamp),
     closedAt: null,
   };
 
