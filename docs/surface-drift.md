@@ -1,6 +1,6 @@
 # Web and iOS behavior alignment
 
-Updated 2026-10-31. iOS is the behavior reference for shared budget flows.
+Updated 2026-11-06. iOS is the behavior reference for shared budget flows.
 The web app now follows these behaviors without replacing its Firebase account
 and local-cache infrastructure.
 
@@ -30,37 +30,53 @@ and local-cache infrastructure.
 - Recent-item quick add starts a fresh amount/note/date draft. Category edits save
   immediately instead of relying on closing Settings.
 
-## iOS only: holiday spending
+## Holiday spending (ported 2026-11-06)
 
-Added 2026-10-31. The Holiday tab exists on iOS and has no web counterpart yet.
+The Holiday tab now exists on both surfaces: a third section with its own
+budget, the people being bought for, gifts, returns, and seasons.
 
-- Its own budget, people, and gift list, stored in `holidaySeason` /
-  `holidaySeasonHistory` on the snapshot rather than in `transactions`. No
-  monthly figure reads it and `resetMonth` / `closeOutCurrentMonth` never touch
-  it, so holiday spending is excluded from the monthly budgets structurally
-  rather than by filtering.
-- Holiday data rides in portable backups and the web app carries it through
-  without interpreting it (`passthrough` in `backup.mjs`, re-emitted by
-  `stateSnapshot` in `index.html`), so an iOS -> web -> iOS round trip is
-  lossless. Without that, rebuilding the snapshot from a fixed key list would
-  have dropped the whole holiday section on import and on every web save.
-  Absent holiday data normalizes to `null` rather than being omitted, so signing
-  out clears it instead of leaving one account's gifts in place for the next.
-- The web app still cannot show, add or edit holiday data; it only preserves it.
-  Editing a holiday season requires iOS.
-- There is no monthly rollover for a holiday season. Seasons are closed by hand
-  ("Start a new season"), which archives the closing season and carries the
-  budget and, optionally, the people forward. History is capped at
-  `BudgetStore.holidaySeasonHistoryLimit` seasons.
-- `sprout://quick-add?tab=holiday` and the "Log Holiday Gift" App Shortcut are
-  iOS only. The same link previously fell through to the Personal budget.
-- Holiday gifts do have a return/credit counterpart, which nets off the season
-  total the way a monthly payment nets off `netSpent`. A returned gift keeps its
-  own row rather than being deleted or edited down, so the record of what was
-  bought and the fact that money moved twice both survive. Copy that says
-  "N gifts" counts gifts only.
-- Holiday gifts have no recurring rules. That is a monthly-ledger concept and a
-  recurring gift is not a thing.
+- Separation is structural on both. iOS keeps gifts in `snapshot.holidaySeason`
+  and types `BudgetTab` so monthly math cannot be handed `.holiday`. Web splits
+  `state.activeSection` from `budgetCat()`, which only ever answers `personal`
+  or `grocery` — so `getTx`/`netSpent`/`getBudget`/`getCarryover` and the
+  `['personal','grocery']` guards in `ledger.mjs` cannot be pointed at a season.
+- Shared logic lives in `Sprout-html/holiday.mjs`, which mirrors
+  `HolidayModels.swift` and the holiday half of `BudgetStore.swift`: net-of-returns
+  totals, per-person tallies counting gifts and returns separately, `unreserved`
+  (never greater than remaining, so it cannot contradict the headline),
+  gifts-only counting for copy, normalization that renames rather than deletes,
+  duplicate-id re-identification, orphan re-homing, the archive cap, archive-time
+  label de-duplication and the backwards-clock guard on `closedAt`.
+- **Holiday money is integer cents on both surfaces**, including inside web
+  state, where every monthly amount beside it is dollars. That asymmetry is
+  deliberate: holiday data has only ever been written by iOS at schema v2 in
+  cents, and web snapshots already on disk carry it that way under
+  `schemaVersion: 1` because an earlier web build passed it through
+  uninterpreted. Rescaling it by version would read every stored $40 gift as
+  $4,000. `holiday.mjs` names every money helper `...Cents` for that reason.
+- `normalizeSeason` writes a complete, fixed key set and preserves keys it does
+  not model. Both matter: Firestore writes use `{merge: true}`, which
+  deep-merges nested maps, so an active season written without `closedAt` would
+  inherit the closed stamp of the season it replaced; and dropping unmodelled
+  keys would make an iOS -> web -> iOS round trip lossy for any field iOS adds
+  later.
+- The import confirmation names holiday data on both sides on both surfaces:
+  what the incoming file carries (distinguishing "no holiday data" from a season
+  with zero gifts, from the raw payload) and what the import would destroy.
+- Holiday keys count toward the backup signature on both surfaces, so a
+  holiday-only export is not rejected by one and accepted by the other.
+
+Holiday differences that remain:
+
+- Web has no pushed per-person screen, because the page has no navigation stack.
+  The per-person view is an in-place swap with a Back button, keyed by
+  `state.holidayDetailId`.
+- iOS has `sprout://quick-add?tab=holiday` and a "Log Holiday Gift" App
+  Shortcut. Web has no deep links or intents, as for every other flow.
+- Holiday gifts have no recurring rules on either surface. That is a
+  monthly-ledger concept and a recurring gift is not a thing.
+- Returns exist on both: a returned gift keeps its own row and nets off the
+  season total, the way a monthly payment nets off `netSpent`.
 
 ## Deliberate differences and limits
 
@@ -83,6 +99,32 @@ Added 2026-10-31. The Holiday tab exists on iOS and has no web counterpart yet.
 - Recurring catch-up is capped at 600 occurrences per rule per pass and rollover
   at 240 months, matching native bounds. These are safety limits, not unlimited
   historical reconstruction.
+
+## Known remaining drift
+
+Found by an independent audit on 2026-11-06 and not yet closed. Listed here
+rather than described as aligned.
+
+- **Web is ahead of iOS in four places.** Web can convert an expense to a
+  payment while editing (iOS forces delete-and-re-enter); web mints stable
+  recurring-occurrence ids (`recurring:<ruleId>:<date>`) deduped against the
+  live ledger and every archive, where iOS mints a fresh UUID per occurrence and
+  relies on the rule cursor alone; web blocks writes while saved data is
+  unreadable and offers to export the recovered and original copies, where iOS
+  alerts and keeps writing; web validates grouping placement when parsing an
+  amount, rejecting a mistyped `1,2` that iOS reads as 12. None of these is
+  fixed on iOS.
+- The 12-month archive cap is applied on web only when archiving, not on
+  import, so importing a 20-month backup leaves 20 archived months on web and
+  12 on iOS. Web deliberately keeps everything an import carries.
+- iOS has a month-ending banner that closes the month out when tapped; web has
+  only a passive notice and the header Reset button.
+- iOS shows success toasts and haptics after a save; web just closes the form.
+- iOS lets a category use any emoji from the keyboard; web offers a fixed grid.
+- iOS groups the recurring list by tab and sorts by next date; web lists it in
+  array order.
+- iOS quarantines corrupt saves to timestamped files and prunes to three; web
+  keeps one `:recovery` slot in browser storage.
 
 ## Verification
 

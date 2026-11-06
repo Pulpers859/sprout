@@ -11,12 +11,14 @@
 
 The iOS app is the higher-value surface. The web app follows the applicable iOS budget behavior; intentional differences are tracked in `docs/surface-drift.md`.
 
-iOS has three tabs: Personal and Grocery are monthly budgets, and Holiday is a
-separate seasonal budget for tracking gifts per person. Holiday spending is
-stored outside the monthly ledger and is never counted against either monthly
-budget. The web app cannot show or edit holiday data, but it carries it through
-backups and saves untouched, so a round trip between the two surfaces does not
-lose it — see `docs/surface-drift.md`.
+Both surfaces have three tabs: Personal and Grocery are monthly budgets, and
+Holiday is a separate seasonal budget for tracking gifts per person. Holiday
+spending is stored outside the monthly ledger and is never counted against
+either monthly budget — structurally, not by filtering. Shared holiday logic
+lives in `Sprout-html/holiday.mjs`, mirroring the Swift; holiday amounts are
+integer cents on both sides, which `holiday.mjs` explains. Remaining
+differences, and the places web is ahead of iOS, are listed in
+`docs/surface-drift.md`.
 
 ## Workspace layout
 
@@ -65,7 +67,7 @@ Until that runs, the hook file is inert. Live Firebase values belong in
 Run the dependency-free regression suite with Node.js 20 or newer:
 
 ```powershell
-node --test Sprout-html/money.test.mjs Sprout-html/ledger.test.mjs Sprout-html/backup.test.mjs Sprout-html/app.test.mjs
+node --test Sprout-html/money.test.mjs Sprout-html/ledger.test.mjs Sprout-html/holiday.test.mjs Sprout-html/backup.test.mjs Sprout-html/app.test.mjs
 ```
 
 These tests cover money, rollover, recurrence, backups, and app integration with

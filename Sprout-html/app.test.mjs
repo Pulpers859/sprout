@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import * as money from './money.mjs';
 import * as ledger from './ledger.mjs';
 import * as backup from './backup.mjs';
+import * as holiday from './holiday.mjs';
 
 const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
 const script = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
@@ -26,7 +27,7 @@ function harness(storage = new Map()) {
     },
   };
   const context = vm.createContext({
-    ...money, ...ledger, ...backup, sumTransactions: money.netSpent,
+    ...money, ...ledger, ...backup, sumTransactions: money.netSpent, Holiday: holiday,
     console, Intl, Date, structuredClone, crypto: { randomUUID },
     navigator: { language: 'en-US' }, document,
     window: { SPROUT_FIREBASE: { apiKey: 'test-placeholder' }, addEventListener() {} },
@@ -309,4 +310,276 @@ test('save timestamps advance even when the clock has not caught up with the pre
   assert.equal(h.value('state.updatedAt'), '2090-01-01T00:00:00.001Z');
   h.run('scheduleSave()');
   assert.equal(h.value('state.updatedAt'), '2090-01-01T00:00:00.002Z');
+});
+
+// ── Holiday ──
+
+const addGift = (h, { name = 'Scarf', amount = '40', person = null, isReturn = false, note = '', date = null } = {}) =>
+  h.run(`startHolidayGiftForm({ recipientID: ${person === null ? 'null' : JSON.stringify(person)}, isReturn: ${isReturn} });
+    state.holidayForm.name = ${JSON.stringify(name)};
+    state.holidayForm.amount = ${JSON.stringify(amount)};
+    state.holidayForm.note = ${JSON.stringify(note)};
+    ${date ? `state.holidayForm.date = ${JSON.stringify(date)};` : ''}
+    state.holidayForm.recipientChosen = true;
+    saveHolidayGift()`);
+
+const addPerson = (h, name, planned = '') =>
+  h.run(`startHolidayPersonForm();
+    state.holidayForm.name = ${JSON.stringify(name)};
+    state.holidayForm.planned = ${JSON.stringify(planned)};
+    saveHolidayPerson();
+    state.holidaySeason.recipients.at(-1).id`);
+
+test('holiday gifts never touch either monthly budget', async () => {
+  const h = harness(); await h.login();
+  const before = { personal: h.value(`getRemaining('personal')`), grocery: h.value(`getRemaining('grocery')`) };
+  h.run(`commitSeason({ ...season(), budget: 60000 })`);
+  const mom = h.run(addPerson(h, 'Mom', '150') && `state.holidaySeason.recipients[0].id`);
+  addGift(h, { name: 'Sweater', amount: '80', person: mom });
+  addGift(h, { name: 'Wrapping paper', amount: '12' });
+
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 9200);
+  assert.equal(h.value(`getRemaining('personal')`), before.personal);
+  assert.equal(h.value(`getRemaining('grocery')`), before.grocery);
+  // Not in the monthly ledger at all, which is what makes the exclusion
+  // structural rather than a filter every caller has to remember.
+  assert.equal(h.value('state.transactions.length'), 0);
+});
+
+test('monthly spending never touches the holiday budget, and a reset leaves the season alone', async () => {
+  const h = harness(); await h.login();
+  h.run(`commitSeason({ ...season(), budget: 50000 })`);
+  const mom = addPerson(h, 'Mom');
+  addGift(h, { name: 'Headphones', amount: '120', person: mom });
+  h.run(`startForm('expense'); state.formName='Coffee'; state.formAmount='4.75'; addTransaction(false)`);
+
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 12000);
+  h.run(`resetMonth(true)`);
+  assert.equal(h.value('state.holidaySeason.budget'), 50000);
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 12000);
+  assert.equal(h.value('state.holidaySeason.recipients.length'), 1);
+  // And no archived month absorbed the gift.
+  assert.ok(h.value('state.monthHistory').every(m => m.transactions.every(t => t.name !== 'Headphones')));
+});
+
+test('holiday amounts persist as cents to the device cache and the cloud', async () => {
+  const h = harness(); await h.login();
+  addGift(h, { name: 'Scarf', amount: '40.25' });
+  h.fireTimers();
+  await h.run('cloudWriteQueue');
+  const cloud = h.cloudSnapshot();
+  assert.equal(cloud.holidaySeason.purchases[0].amount, 4025);
+  // Dollars beside it, cents inside it — the one representation that cannot
+  // read a stored $40 gift as $4,000. See the header of holiday.mjs.
+  assert.equal(cloud.personalBudget, 200);
+  assert.equal(cloud.schemaVersion, 1);
+  const cached = JSON.parse(h.storage.get(h.value(`cacheKeyForUser('alice')`)));
+  assert.equal(cached.holidaySeason.purchases[0].amount, 4025);
+});
+
+test('a reloaded cache brings holiday data back unchanged', async () => {
+  const storage = new Map();
+  const first = harness(storage); await first.login();
+  first.run(`commitSeason({ ...season(), budget: 75000 })`);
+  const mom = addPerson(first, 'Mom', '300');
+  addGift(first, { name: 'Scarf', amount: '40.25', person: mom });
+  addGift(first, { name: 'Scarf returned', amount: '10', person: mom, isReturn: true });
+  first.fireTimers();
+
+  const second = harness(storage); await second.login();
+  assert.equal(second.value('state.holidaySeason.budget'), 75000);
+  assert.equal(second.value(`Holiday.seasonSpentCents(season())`), 3025);
+  assert.equal(second.value('state.holidaySeason.recipients[0].name'), 'Mom');
+  assert.equal(second.value('state.holidaySeason.recipients[0].plannedAmount'), 30000);
+  assert.equal(second.value(`Holiday.returnCount(season())`), 1);
+  assert.equal(second.value('state.statusMessage'), '');
+});
+
+test('signing out clears holiday data instead of leaving it for the next account', async () => {
+  const h = harness(); await h.login('alice');
+  addGift(h, { name: 'Scarf', amount: '40' });
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 4000);
+  h.run('applyPersistedData({})');
+  // A fresh empty season, not Alice's.
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), 0);
+  assert.equal(h.value('state.holidaySeason.purchases.length'), 0);
+  assert.equal(h.value('state.holidaySeasonHistory.length'), 0);
+});
+
+test('a gift is refused without a description, a positive amount, or a chosen person', async () => {
+  const h = harness(); await h.login();
+  addPerson(h, 'Mom');
+
+  h.run(`startHolidayGiftForm(); state.holidayForm.amount='20'; saveHolidayGift()`);
+  assert.equal(h.value('state.holidaySeason.purchases.length'), 0);
+  assert.ok(h.value('state.holidayFormError'));
+
+  for (const amount of ['', '0', '-5', '1e3', '1000000', 'oops']) {
+    h.run(`startHolidayGiftForm(); state.holidayForm.name='Gift'; state.holidayForm.recipientChosen=true;
+      state.holidayForm.amount=${JSON.stringify(amount)}; saveHolidayGift()`);
+    assert.equal(h.value('state.holidaySeason.purchases.length'), 0, amount);
+  }
+
+  // With people on the list, filing against nobody has to be a decision.
+  h.run(`startHolidayGiftForm(); state.holidayForm.name='Gift'; state.holidayForm.amount='20'; saveHolidayGift()`);
+  assert.equal(h.value('state.holidaySeason.purchases.length'), 0);
+  assert.match(h.value('state.holidayFormError'), /Choose who/);
+});
+
+test('a gift can be filed against nobody when nobody is on the list', async () => {
+  const h = harness(); await h.login();
+  h.run(`startHolidayGiftForm(); state.holidayForm.name='Wrapping paper'; state.holidayForm.amount='12'; saveHolidayGift()`);
+  assert.equal(h.value('state.holidaySeason.purchases.length'), 1);
+  assert.equal(h.value('state.holidaySeason.purchases[0].recipientID'), null);
+});
+
+test('removing a person removes exactly the money the confirmation named', async () => {
+  const h = harness(); await h.login();
+  const mom = addPerson(h, 'Mom');
+  addPerson(h, 'Dad');
+  const dad = h.value('state.holidaySeason.recipients[1].id');
+  addGift(h, { name: 'Sweater', amount: '90', person: mom });
+  addGift(h, { name: 'Sweater returned', amount: '40', person: mom, isReturn: true });
+  addGift(h, { name: 'Socks', amount: '12', person: dad });
+
+  const quoted = h.value(`Holiday.recipientTally(season(), ${JSON.stringify(mom)}).spentCents`);
+  assert.equal(quoted, 5000);
+  const total = h.value(`Holiday.seasonSpentCents(season())`);
+  h.run(`state.pendingHolidayDelete={kind:'person',id:${JSON.stringify(mom)}}; confirmHolidayDelete()`);
+  assert.equal(h.value(`Holiday.seasonSpentCents(season())`), total - quoted);
+  assert.equal(h.value('state.holidaySeason.recipients.length'), 1);
+  // Nothing was left behind as an orphan.
+  assert.equal(h.value(`Holiday.unassignedRowCount(season())`), 0);
+});
+
+test('a holiday backup round trip keeps the season, its people and its history', async () => {
+  const h = harness(); await h.login();
+  h.run(`commitSeason({ ...season(), budget: 40000 })`);
+  const mom = addPerson(h, 'Mom', '150');
+  addGift(h, { name: 'Scarf', amount: '40', person: mom });
+  h.run(`state.holidayForm={kind:'season',label:'',carry:true}; saveHolidayNewSeason()`);
+  addGift(h, { name: "Next year's first", amount: '20' });
+
+  const portable = h.value('exportBackup(stateSnapshot())');
+  assert.equal(portable.schemaVersion, 2);
+  assert.equal(portable.holidaySeason.budget, 40000);
+  assert.equal(portable.holidaySeason.purchases[0].amount, 2000);
+  assert.equal(portable.holidaySeasonHistory.length, 1);
+  assert.equal(portable.holidaySeasonHistory[0].purchases[0].amount, 4000);
+
+  const fresh = harness(); await fresh.login();
+  fresh.run(`applyPersistedData(${JSON.stringify(portable)})`);
+  assert.equal(fresh.value('state.holidaySeason.budget'), 40000);
+  assert.equal(fresh.value(`Holiday.seasonSpentCents(season())`), 2000);
+  assert.equal(fresh.value('state.holidaySeasonHistory.length'), 1);
+  assert.deepEqual(fresh.value('state.holidaySeason.recipients.map(p => p.name)'), ['Mom']);
+});
+
+test('the holiday tab keeps the monthly figures reachable and unchanged', async () => {
+  const h = harness(); await h.login();
+  h.run(`startForm('expense'); state.formName='Coffee'; state.formAmount='4.75'; addTransaction(false)`);
+  h.run(`state.activeSection='holiday'`);
+  // The bridge never answers "holiday" for a budget question.
+  assert.equal(h.value('budgetCat()'), 'personal');
+  assert.equal(h.value(`netSpent(budgetCat())`), 4.75);
+  h.run(`state.activeSection='grocery'`);
+  assert.equal(h.value('budgetCat()'), 'grocery');
+});
+
+test('a damaged holiday section in the cache does not cost the monthly ledger', async () => {
+  const storage = new Map();
+  const seed = harness(storage); await seed.login();
+  seed.run(`startForm('expense'); state.formName='Coffee'; state.formAmount='4.75'; addTransaction(false)`);
+  seed.fireTimers();
+  const key = seed.value(`cacheKeyForUser('alice')`);
+  const cached = JSON.parse(storage.get(key));
+  cached.holidaySeason = 'wiped';
+  storage.set(key, JSON.stringify(cached));
+
+  const h = harness(storage); await h.login();
+  assert.equal(h.value('state.transactions.length'), 1);
+  assert.equal(h.value(`netSpent('personal')`), 4.75);
+  // Reported, not silently swapped for an empty season.
+  assert.ok(h.value('state.statusMessage'));
+  assert.equal(h.value('state.holidaySeason.purchases.length'), 0);
+});
+
+test('transaction search filters by name and note, and goes inert when hidden', async () => {
+  const h = harness(); await h.login();
+  for (const [name, note] of [['Coffee','morning'],['Lunch',''],['Bus',''],['Books','gift'],['Gas','']]) {
+    h.run(`startForm('expense'); state.formName=${JSON.stringify(name)}; state.formNote=${JSON.stringify(note)}; state.formAmount='5'; addTransaction(false)`);
+  }
+  h.run(`state.txSearch='coff'; render()`);
+  assert.match(h.app.innerHTML, /Coffee/);
+  assert.ok(!h.app.innerHTML.includes('>Lunch<'));
+  // Matches the note too.
+  h.run(`state.txSearch='gift'; render()`);
+  assert.match(h.app.innerHTML, /Books/);
+  assert.ok(!h.app.innerHTML.includes('>Coffee<'));
+  // Below five rows the field is gone, so the filter must stop applying or the
+  // list reads "no match" with no box to clear.
+  h.run(`state.txSearch='coff'; state.transactions = state.transactions.slice(0,3); render()`);
+  assert.ok(!h.app.innerHTML.includes('id="txSearch"'));
+  assert.match(h.app.innerHTML, /Lunch/);
+  // And a query does not survive a tab change.
+  h.run(`state.txSearch='coff'; bindEvents()`);
+  h.run(`state.activeSection='grocery'; state.txSearch=''; render()`);
+  assert.equal(h.value('state.txSearch'), '');
+});
+
+test('a closed month shows its leftover, not the whole balance as a daily figure', async () => {
+  const h = harness(); await h.login();
+  h.run(`state.currentMonth='2020-01'; state.personalBudget=200; render()`);
+  const html = h.app.innerHTML;
+  // The pre-fix bug: daysLeft is 1 for a past month, so the figure meant to say
+  // what you may spend today said "spend all of it".
+  assert.ok(!html.includes('$200.00/day'), 'must not offer the whole balance per day');
+  assert.match(html, /unspent in/);
+});
+
+test('the progress bar is coloured by spend, and pace is its own labelled signal', async () => {
+  const h = harness(); await h.login();
+  h.run(`state.personalBudget=100; startForm('expense'); state.formName='Big'; state.formAmount='101'; addTransaction(false)`);
+  // Over budget is red even when the month's pace calls it "on plan".
+  assert.equal(h.value(`getProgressColor(netSpent('personal'), getBudget('personal'))`), 'var(--red)');
+  assert.match(h.app.innerHTML, /Spending (too fast|on plan|under plan)/);
+  h.run(`state.transactions=[]; state.personalBudget=100; render()`);
+  assert.equal(h.value(`getProgressColor(0, 100)`), 'var(--sage)');
+});
+
+test('the import prompt names the holiday data on both sides', async () => {
+  const h = harness(); await h.login();
+  const mom = addPerson(h, 'Mom');
+  addGift(h, { name: 'Scarf', amount: '40', person: mom });
+
+  // A backup with no holiday section still replaces the holiday data you have.
+  h.run(`state.pendingImport = { snapshot: normalizeSnapshot({ personalBudget: 1, currentMonth: getCurrentMonth() }).snapshot, uid: 'alice', generation: 0, hasHoliday: false }; render()`);
+  let html = h.app.innerHTML;
+  assert.match(html, /no holiday data/);
+  assert.match(html, /You will lose/);
+  assert.match(html, /1 gift/);
+  assert.match(html, /1 person/);
+  assert.match(html, /holiday seasons on this device/);
+
+  // And an incoming season is described rather than summarised as a count of zero.
+  const incoming = h.value('exportBackup(stateSnapshot())');
+  h.run(`state.pendingImport = { snapshot: normalizeSnapshot(${JSON.stringify(incoming)}).snapshot, uid: 'alice', generation: 0, hasHoliday: true }; render()`);
+  html = h.app.innerHTML;
+  assert.match(html, /Holiday: 1 holiday gift, 1 person/);
+});
+
+test('an active season written to the cloud always carries closedAt', async () => {
+  const h = harness(); await h.login();
+  addGift(h, { name: 'Scarf', amount: '40' });
+  h.run(`state.holidayForm={kind:'season',label:'',carry:false}; saveHolidayNewSeason()`);
+  h.fireTimers();
+  await h.run('cloudWriteQueue');
+  const written = h.cloudSnapshot().holidaySeason;
+  // Firestore merges nested maps, so a write that omitted closedAt would let
+  // the closed season's stamp survive onto the active one and come back
+  // looking closed.
+  assert.ok('closedAt' in written);
+  assert.equal(written.closedAt, null);
+  assert.deepEqual(Object.keys(written).sort(),
+    ['budget','closedAt','id','label','purchases','recipients','startedAt']);
 });

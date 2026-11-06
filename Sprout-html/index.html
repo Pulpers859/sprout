@@ -458,7 +458,8 @@
 <script type="module">
   import { toCents, fromCents, parseAmount, netSpent as sumTransactions, sumMoney, paceStatus, progress } from "./money.mjs";
   import { validDate, monthInfo, nextOccurrence, processRecurring, resetLedger, keepLedger } from "./ledger.mjs";
-  import { normalizeSnapshot, exportBackup } from "./backup.mjs";
+  import { normalizeSnapshot, exportBackup, containsHolidayData } from "./backup.mjs";
+  import * as Holiday from "./holiday.mjs";
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, signInWithPopup, signInWithRedirect, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -520,7 +521,10 @@
     canUndoImport: false,
     authLoading: true,
     authError: "",
-    activeTab: "personal",
+    // "personal" | "grocery" | "holiday". Holiday is not a monthly budget, so
+    // every monthly figure reads `budgetCat()` instead, which only ever answers
+    // one of the two budget tabs. One stored selection, as on iOS.
+    activeSection: "personal",
     groceryBudget: 400,
     personalBudget: 200,
     transactions: [],
@@ -545,6 +549,18 @@
     groceryCarryover: 0,
     // Emoji picker state for settings
     emojiPickerForIndex: null, // index of category being edited
+    // ── Holiday ──
+    // Amounts inside these two are integer CENTS, not dollars. See the header
+    // of holiday.mjs for why; every read goes through a `...Cents` helper.
+    holidaySeason: Holiday.emptySeason(),
+    holidaySeasonHistory: [],
+    holidayForm: null,        // null | {kind:"gift"|"person"|"season", ...}
+    holidayFormError: "",
+    holidaySearch: "",
+    txSearch: "",
+    holidayDetailId: undefined, // undefined = list; null = unassigned; id = person
+    showHolidaySeasons: false,
+    pendingHolidayDelete: null, // {kind:"gift"|"person"|"season", id}
   };
 
   // ── Helpers ──
@@ -586,9 +602,28 @@
   function displayedMonth() { return monthInfo(state.currentMonth, getToday()); }
   function getDaysLeftInMonth() { return displayedMonth().daysLeft; }
   function getMonthPaceProgress() { return displayedMonth().pace; }
+  /**
+   * Coloured by how much of the budget is gone, matching `spendingColor` in
+   * Sprout-iOS `SummaryCardView`. It used to be coloured by *pace*, which made
+   * a month spent 1.01x over budget on its final day amber here and red on
+   * iOS — the bar disagreed with the headline beside it. Pace is its own
+   * signal now, shown as a dot and a label.
+   */
   function getProgressColor(spent, budget) {
+    const remaining = sumMoney(budget, -spent);
+    const filled = progress(spent, budget);
+    if (remaining < 0 || filled >= 1) return "var(--red)";
+    if (filled >= 0.8) return "var(--amber)";
+    return "var(--sage)";
+  }
+
+  function getPaceLabel(spent, budget) {
     const {day, days} = displayedMonth();
-    return {ahead:"var(--red)", behind:"var(--sage)", on:"var(--amber)"}[paceStatus(spent,budget,day,days)];
+    return {
+      ahead: {text: "Spending too fast", color: "var(--red)"},
+      on: {text: "Spending on plan", color: "var(--amber)"},
+      behind: {text: "Spending under plan", color: "var(--sage)"},
+    }[paceStatus(spent, budget, day, days)];
   }
 
 
@@ -665,9 +700,7 @@
       monthHistory: state.monthHistory,
       currentMonth: state.currentMonth,
       personalCategories: state.personalCategories,
-      // Carried, not understood: see `passthrough` in backup.mjs. Rebuilding
-      // the snapshot from a fixed key list here would drop iOS holiday data on
-      // every save and every export.
+      // Cents, deliberately — see the header of holiday.mjs.
       holidaySeason: state.holidaySeason ?? null,
       holidaySeasonHistory: state.holidaySeasonHistory ?? null,
       updatedAt: state.updatedAt || new Date().toISOString()
@@ -684,6 +717,17 @@
     state.editingBudget = false;
     state.showReset = state.currentMonth !== getCurrentMonth();
     state.formEmoji = state.personalCategories[0]?.emoji || "🛍️";
+    // `null` from the importer means "this account has no holiday data", which
+    // is an empty season, not an absent one. Substituting here rather than in
+    // the importer keeps the snapshot honest about what was actually stored.
+    state.holidaySeason = state.holidaySeason ?? Holiday.emptySeason();
+    state.holidaySeasonHistory = state.holidaySeasonHistory ?? [];
+    state.holidayForm = null;
+    state.holidayFormError = "";
+    state.holidaySearch = "";
+    state.holidayDetailId = undefined;
+    state.showHolidaySeasons = false;
+    state.pendingHolidayDelete = null;
     if (warnings.length) {
       state.writeBlocked = true;
       state.statusMessage = `Some saved data needs attention: ${warnings.join(" ")} Saving is paused. Export the recovered data or import a valid backup before continuing.`;
@@ -908,7 +952,7 @@
     // Clearing only `transactions` left budgets, carryover, categories and month
     // history from the previous account on screen and in memory.
     applyPersistedData({});
-    state.activeTab = "personal";
+    state.activeSection = "personal";
     state.showSettings = false;
     state.showCalendar = false;
     state.showForm = null;
@@ -919,6 +963,184 @@
   }
 
   // ── Actions ──
+  // ── Holiday ──
+  // Holiday money is integer cents throughout (holiday.mjs explains why), so
+  // every display goes through `holidayMoney` and every input through
+  // `parseHolidayCents`. Nothing here touches the monthly ledger, and no
+  // monthly figure can reach the season: `budgetCat()` never answers
+  // "holiday", so `getTx`/`netSpent`/`getBudget` cannot be pointed at it.
+  function budgetCat() { return state.activeSection === "grocery" ? "grocery" : "personal"; }
+  function season() { return state.holidaySeason; }
+  function holidayMoney(cents) { return fmtCurrency(fromCents(cents)); }
+  function parseHolidayCents(text) {
+    const dollars = parseAmount(text, navigator.language || "en-US");
+    return dollars === null ? null : toCents(dollars);
+  }
+  function holidayDayValue(iso) {
+    const parsed = new Date(iso);
+    return Number.isFinite(parsed.getTime()) ? localDayString(parsed) : getToday();
+  }
+  function localDayString(date) {
+    return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+  function holidayDateToIso(day) {
+    return validDate(day) ? new Date(`${day}T12:00:00`).toISOString() : new Date().toISOString();
+  }
+  function commitSeason(next, history = state.holidaySeasonHistory) {
+    state.holidaySeason = Holiday.normalizeSeason(next);
+    state.holidaySeasonHistory = Holiday.normalizeHistory(history);
+    scheduleSave();
+  }
+  function newHolidayId() { return newTransactionId(); }
+
+  // ── Holiday mutations ──
+  // Every one goes through `commitSeason`, which normalizes and saves, so the
+  // same invariants hold on web as on iOS: blank names are renamed rather than
+  // deleted, a gift whose person is gone is re-homed instead of dangling, and
+  // ids stay unique.
+  function startHolidayGiftForm({ id = null, recipientID = undefined, isReturn = false } = {}) {
+    const current = season();
+    const existing = id ? current.purchases.find(row => row.id === id) : null;
+    state.holidayFormError = "";
+    state.holidayForm = existing
+      ? {
+          kind: "gift", id: existing.id, name: existing.name,
+          amount: editableAmount(fromCents(existing.amount)), note: existing.note,
+          date: holidayDayValue(existing.date), recipientID: existing.recipientID ?? null,
+          // Already decided for an existing row.
+          recipientChosen: true, isReturn: existing.isReturn,
+        }
+      : {
+          kind: "gift", id: null, name: "", amount: "", note: "", date: getToday(),
+          recipientID: recipientID === undefined ? null : recipientID,
+          // Saving a gift against nobody has to be a decision, not a default:
+          // `recipientID: null` cannot by itself distinguish "not for one
+          // person" from "nobody has said yet".
+          recipientChosen: recipientID !== undefined,
+          isReturn,
+        };
+    render();
+  }
+
+  function startHolidayPersonForm(id = null) {
+    const person = Holiday.findRecipient(season(), id);
+    state.holidayFormError = "";
+    state.holidayForm = {
+      kind: "person",
+      id: person ? person.id : null,
+      name: person ? person.name : "",
+      emoji: person ? person.emoji : Holiday.DEFAULT_RECIPIENT_EMOJI,
+      // Empty means "no target", which is deliberately not "a target of zero".
+      planned: person && person.plannedAmount != null ? editableAmount(fromCents(person.plannedAmount)) : "",
+    };
+    render();
+  }
+
+  function saveHolidayGift() {
+    if (!canEdit()) return;
+    const form = state.holidayForm;
+    const current = season();
+    const name = form.name.trim();
+    if (!name) { state.holidayFormError = "Add a short description first."; render(); return; }
+    const cents = parseHolidayCents(form.amount);
+    if (cents === null || cents <= 0) {
+      state.holidayFormError = "Enter an amount from $0.01 to $999,999.99.";
+      render(); return;
+    }
+    if (!form.recipientChosen && current.recipients.length > 0) {
+      state.holidayFormError = `Choose who this ${form.isReturn ? "return" : "gift"} is for, or “${Holiday.UNASSIGNED_LABEL}”.`;
+      render(); return;
+    }
+    const row = {
+      id: form.id || newHolidayId(),
+      recipientID: form.recipientID ?? null,
+      name, amount: cents, note: form.note.trim(),
+      date: holidayDateToIso(form.date), isReturn: Boolean(form.isReturn),
+    };
+    const purchases = form.id
+      ? current.purchases.map(existing => (existing.id === form.id ? row : existing))
+      : [...current.purchases, row];
+    state.holidayForm = null;
+    state.holidayFormError = "";
+    commitSeason({ ...current, purchases });
+    render();
+  }
+
+  function saveHolidayPerson() {
+    if (!canEdit()) return;
+    const form = state.holidayForm;
+    const current = season();
+    const name = form.name.trim();
+    if (!name) { state.holidayFormError = "Give this person a name first."; render(); return; }
+    let planned = null;
+    if (form.planned.trim() !== "") {
+      const cents = parseHolidayCents(form.planned);
+      if (cents === null || cents < 0) {
+        state.holidayFormError = "Enter a planned amount from $0 to $999,999.99, or leave it empty.";
+        render(); return;
+      }
+      planned = cents;
+    }
+    if (!form.id && current.recipients.length >= Holiday.RECIPIENT_LIMIT) {
+      state.holidayFormError = `Sprout holds up to ${Holiday.RECIPIENT_LIMIT} people in a season.`;
+      render(); return;
+    }
+    const person = {
+      id: form.id || newHolidayId(),
+      name, emoji: form.emoji || Holiday.DEFAULT_RECIPIENT_EMOJI,
+      plannedAmount: planned,
+      createdAt: form.id
+        ? (Holiday.findRecipient(current, form.id)?.createdAt || new Date().toISOString())
+        : new Date().toISOString(),
+    };
+    const recipients = form.id
+      ? current.recipients.map(existing => (existing.id === form.id ? person : existing))
+      : [...current.recipients, person];
+    state.holidayForm = null;
+    state.holidayFormError = "";
+    commitSeason({ ...current, recipients });
+    render();
+  }
+
+  function saveHolidayNewSeason() {
+    if (!canEdit()) return;
+    const form = state.holidayForm;
+    const next = Holiday.startNewSeason({
+      season: season(), history: state.holidaySeasonHistory,
+      label: form.label, carryRecipients: Boolean(form.carry) && season().recipients.length > 0,
+    });
+    state.holidayForm = null;
+    state.holidayFormError = "";
+    state.holidayDetailId = undefined;
+    state.holidaySearch = "";
+    commitSeason(next.season, next.history);
+    state.statusMessage = "New holiday season started. The one you closed is under Past seasons.";
+    render();
+  }
+
+  function confirmHolidayDelete() {
+    const pending = state.pendingHolidayDelete;
+    state.pendingHolidayDelete = null;
+    if (!pending || !canEdit()) { render(); return; }
+    const current = season();
+    if (pending.kind === "gift") {
+      commitSeason({ ...current, purchases: current.purchases.filter(row => row.id !== pending.id) });
+    } else if (pending.kind === "person") {
+      // Removing a person removes the gifts logged against them. Leaving those
+      // behind would keep money in the season total with nobody attached to
+      // explain it; the confirmation names the exact figure that leaves.
+      commitSeason({
+        ...current,
+        recipients: current.recipients.filter(person => person.id !== pending.id),
+        purchases: current.purchases.filter(row => row.recipientID !== pending.id),
+      });
+      if (state.holidayDetailId === pending.id) state.holidayDetailId = undefined;
+    } else {
+      commitSeason(current, state.holidaySeasonHistory.filter(past => past.id !== pending.id));
+    }
+    render();
+  }
+
   function getTx(cat) { return state.transactions.filter(t => t.type === cat).sort(compareTxByDateOnly); }
   function netSpent(cat) { return sumTransactions(getTx(cat)); }
   function getBaseBudget(cat) { return cat === "grocery" ? state.groceryBudget : state.personalBudget; }
@@ -972,8 +1194,8 @@
     const entry = {
       id: state.editingTransactionId || newTransactionId(),
       name: state.formName.trim(), amount, note: state.formNote.trim(),
-      emoji: isRefund ? "💸" : (state.activeTab === "grocery" ? "🛒" : state.formEmoji),
-      date: state.formDate, type: state.activeTab, isRefund,
+      emoji: isRefund ? "💸" : (budgetCat() === "grocery" ? "🛒" : state.formEmoji),
+      date: state.formDate, type: budgetCat(), isRefund,
     };
     if (state.editingTransactionId) {
       const index = state.transactions.findIndex(t => t.id === state.editingTransactionId);
@@ -1016,15 +1238,57 @@
     try { downloadJSON(exportBackup(stateSnapshot()), `Sprout-Backup-${getToday()}.json`); }
     catch (error) { state.statusMessage = `Backup export failed: ${error.message}`; render(); }
   }
+  /** What the incoming file carries on the holiday side. Stated even when it
+   * is nothing, because importing a file without holiday data still replaces
+   * the holiday data you have. */
+  function holidayImportSummary(pending) {
+    if (!pending.hasHoliday) return "This backup has no holiday data.";
+    const incoming = pending.snapshot.holidaySeason;
+    const parts = [];
+    if (incoming) {
+      const gifts = Holiday.giftCount(incoming);
+      const people = incoming.recipients.length;
+      parts.push(`${gifts} holiday gift${gifts === 1 ? "" : "s"}`);
+      if (people > 0) parts.push(`${people} ${people === 1 ? "person" : "people"}`);
+    }
+    const seasons = (pending.snapshot.holidaySeasonHistory || []).length;
+    if (seasons > 0) parts.push(`${seasons} past season${seasons === 1 ? "" : "s"}`);
+    return parts.length ? `Holiday: ${parts.join(", ")}.` : "This backup has no holiday data.";
+  }
+
+  /** What the import would destroy on the holiday side. The prompt used to
+   * name only budgets, transactions, categories and history, and then also
+   * take the season, every person and every gift. */
+  function holidayReplacementWarning() {
+    const current = season();
+    const gifts = Holiday.giftCount(current);
+    const people = current.recipients.length;
+    const seasons = state.holidaySeasonHistory.length;
+    if (!gifts && !people && !seasons && !Holiday.seasonHasBudget(current)) return "";
+    const parts = [];
+    if (gifts || people || Holiday.seasonHasBudget(current)) {
+      const inner = [];
+      if (gifts) inner.push(`${gifts} gift${gifts === 1 ? "" : "s"}`);
+      if (people) inner.push(`${people} ${people === 1 ? "person" : "people"}`);
+      parts.push(inner.length ? `${current.label} (${inner.join(", ")})` : current.label);
+    }
+    if (seasons) parts.push(`${seasons} past season${seasons === 1 ? "" : "s"}`);
+    return ` You will lose ${parts.join(" and ")}.`;
+  }
+
   async function previewImport(file) {
     if (!file || !state.user) return;
     const uid = state.user.uid;
     const generation = authGeneration;
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error("Choose a JSON backup smaller than 10 MB.");
-      const {snapshot} = normalizeSnapshot(JSON.parse(await file.text()), {strict:true});
+      const raw = JSON.parse(await file.text());
+      const {snapshot} = normalizeSnapshot(raw, {strict:true});
       if (state.user?.uid !== uid || generation !== authGeneration) return;
-      state.pendingImport = {snapshot, uid, generation};
+      // Kept from the raw payload: the normalized snapshot turns an absent
+      // holiday section into an empty season, which looks identical to a real
+      // season nobody has shopped for yet.
+      state.pendingImport = {snapshot, uid, generation, hasHoliday: containsHolidayData(raw)};
     } catch (error) { state.statusMessage = `Backup was not imported: ${error.message}`; }
     render();
   }
@@ -1103,7 +1367,8 @@
       return;
     }
 
-    const cat = state.activeTab;
+    const cat = budgetCat();
+    const onHoliday = state.activeSection === "holiday";
     const txs = getTx(cat);
     const spent = netSpent(cat);
     const budget = getBudget(cat);
@@ -1112,11 +1377,17 @@
     const pacePct = getMonthPaceProgress();
     const barColor = getProgressColor(spent, budget);
 
-    const title = cat === "grocery" ? "Groceries" : "Personal Expenses";
+    const title = onHoliday ? "Holiday Gifts" : (cat === "grocery" ? "Groceries" : "Personal Expenses");
 
     // Daily allowance calculation
     const daysLeft = getDaysLeftInMonth();
     const dailyAllowance = fromCents(Math.trunc(toCents(remaining) / daysLeft));
+    const pace = getPaceLabel(spent, budget);
+    // A per-day allowance is meaningless for a period that has already ended,
+    // and `daysLeft` is 1 for a past month by construction — so the figure that
+    // exists to say what you may spend today was telling the user to spend the
+    // entire remaining balance. Matches Sprout-iOS `dailyAllowanceLabel`.
+    const viewingClosedMonth = state.currentMonth !== getCurrentMonth();
 
     // Build HTML
     let html = "";
@@ -1135,7 +1406,8 @@
         <div class="modal-title">Replace your account's data?</div>
         <div class="modal-text">${escapeHtml(fmtMonthKey(preview.currentMonth))} · ${preview.transactions.length} transactions · ${preview.recurringRules.length} recurring entries · ${preview.monthHistory.length} archived months.</div>
         <div class="modal-text">Personal budget ${fmtCurrency(preview.personalBudget)} · Grocery budget ${fmtCurrency(preview.groceryBudget)}.</div>
-        <div class="modal-text">This replaces budgets, transactions, categories and history on this device and in your signed-in cloud account. A device copy of the current data will be kept for undo.</div>
+        <div class="modal-text">${holidayImportSummary(state.pendingImport)}</div>
+        <div class="modal-text">This replaces budgets, transactions, categories, history and holiday seasons on this device and in your signed-in cloud account.${holidayReplacementWarning()} A device copy of the current data will be kept for undo.</div>
         <div class="modal-actions"><button class="modal-btn keep" id="importCancel">Cancel</button><button class="modal-btn reset" id="importConfirm">Replace data</button></div>
       </div></div>`;
     }
@@ -1184,6 +1456,16 @@
       html += renderEmojiPicker();
     }
 
+    // Holiday overlays. Gated behind the same modals the rest of the app is,
+    // so two dialogs are never requested at once and one silently dropped.
+    const holidayModalsFree = !state.pendingImport && !state.pendingAction
+      && !state.showSettings && !state.pendingDeleteId && state.emojiPickerForIndex === null;
+    if (state.pendingHolidayDelete && holidayModalsFree) {
+      html += renderHolidayDeleteModal();
+    } else if (state.showHolidaySeasons && holidayModalsFree) {
+      html += renderHolidaySeasonsModal();
+    }
+
     // Header
     html += `<div class="header">
       <div class="user-bar">
@@ -1196,18 +1478,27 @@
       <div class="header-row">
         <h1>${title}</h1>
         <div style="display:flex;align-items:center;">
-          <button class="btn-reset" id="resetBtn">🌱 Reset</button>
+          ${onHoliday ? "" : `<button class="btn-reset" id="resetBtn">🌱 Reset</button>`}
           <button class="btn-settings" id="settingsBtn" aria-label="Settings">⚙️</button>
         </div>
       </div>
-      <div class="header-date">${fmtMonthYear()}</div>
+      <div class="header-date">${onHoliday ? escapeHtml(season().label) : fmtMonthYear()}</div>
     </div>`;
 
     // Content
     html += `<div class="content"><div>`;
     if (state.statusMessage) html += `<div class="notice" role="status">${escapeHtml(state.statusMessage)}</div>`;
     if (state.writeBlocked) html += `<div class="notice"><button class="btn-cancel" id="recoveryExport">Export recovered data</button><button class="btn-cancel" id="recoveryOriginal">Download original device save</button><div>Import a valid backup in Settings to resume saving.</div></div>`;
-    if (state.currentMonth !== getCurrentMonth()) html += `<div class="notice">Showing ${escapeHtml(fmtMonthYear())}. Use Reset to choose what to do with this ledger.</div>`;
+    // Only on a budget tab: the Reset button it points at is hidden on Holiday,
+    // so saying "use Reset" there would name a control that is not on screen.
+    if (!onHoliday && state.currentMonth !== getCurrentMonth()) html += `<div class="notice">Showing ${escapeHtml(fmtMonthYear())}. Use Reset to choose what to do with this ledger.</div>`;
+
+    if (onHoliday) {
+      html += renderHolidayBody();
+      html += `</div></div>`;
+      html += renderTabBar();
+      return finishRender(app, html);
+    }
 
     // Summary card
     const carryover = getCarryover(cat);
@@ -1246,9 +1537,16 @@
         <div class="remaining-label">remaining</div>
       </div>
       <div class="daily-allowance">
-        <div class="daily-amount ${dailyAllowance < 0 ? 'negative' : ''}">${fmtCurrency(Math.abs(dailyAllowance))}/day</div>
-        <div class="daily-label">${dailyAllowance < 0 ? 'over budget' : `for the next ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}</div>
+        ${viewingClosedMonth
+          ? `<div class="daily-amount ${remaining < 0 ? 'negative' : ''}">${fmtCurrency(Math.abs(remaining))}</div>
+             <div class="daily-label">${remaining < 0 ? `${escapeHtml(fmtMonthYear())} is over budget` : `unspent in ${escapeHtml(fmtMonthYear())}`}</div>`
+          : `<div class="daily-amount ${dailyAllowance < 0 ? 'negative' : ''}">${fmtCurrency(Math.abs(dailyAllowance))}/day</div>
+             <div class="daily-label">${dailyAllowance < 0 ? 'over budget' : `for the next ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}</div>`}
       </div>
+    </div>
+    <div class="bar-labels" style="margin-top:4px">
+      <span style="color:${pace.color}">● ${pace.text}</span>
+      <span></span>
     </div>`;
 
     // Calendar toggle
@@ -1284,12 +1582,26 @@
       html += renderAddForm(true, cat);
     }
 
-    // Transaction list
-    html += `<div class="tx-header">Transactions</div>`;
+    // Transaction list. The search field appears at five or more rows and the
+    // filter is inert whenever its control is off screen — otherwise deleting
+    // down to four leaves "No transactions match" with no box to clear.
+    const txSearchable = txs.length >= 5;
+    const txQuery = txSearchable ? state.txSearch.trim() : "";
+    const matching = txQuery
+      ? txs.filter(t => t.name.toLowerCase().includes(txQuery.toLowerCase())
+          || (t.note || "").toLowerCase().includes(txQuery.toLowerCase()))
+      : txs;
+
+    html += `<div class="tx-header">Transactions${txQuery ? ` <span style="color:var(--text4);font-weight:400">${matching.length} of ${txs.length}</span>` : ""}</div>`;
+    if (txSearchable) {
+      html += `<div class="form-row" style="margin-bottom:10px"><input type="text" id="txSearch" placeholder="Search transactions" value="${escapeHtml(state.txSearch)}"></div>`;
+    }
     if (txs.length === 0) {
       html += `<div class="tx-empty">No transactions yet — you're doing great! 🌿</div>`;
+    } else if (matching.length === 0) {
+      html += `<div class="tx-empty">No transactions match “${escapeHtml(txQuery)}”</div>`;
     } else {
-      const reversed = [...txs].reverse();
+      const reversed = [...matching].reverse();
       reversed.forEach(t => {
         html += `<div class="tx-row">
           <span class="tx-emoji">${t.isRefund ? "💸" : escapeHtml(t.emoji)}</span>
@@ -1309,17 +1621,28 @@
     }
 
     html += `</div></div>`; // close content
+    html += renderTabBar();
+    return finishRender(app, html);
+  }
 
-    // Tab bar
-    html += `<div class="tab-bar">
-      <button class="tab-btn ${cat === 'personal' ? 'active' : ''}" data-tab="personal">
+  function renderTabBar() {
+    const section = state.activeSection;
+    return `<div class="tab-bar">
+      <button class="tab-btn ${section === 'personal' ? 'active' : ''}" data-tab="personal">
         <span class="tab-icon">🛍️</span><span class="tab-label">Personal</span>
       </button>
-      <button class="tab-btn ${cat === 'grocery' ? 'active' : ''}" data-tab="grocery">
+      <button class="tab-btn ${section === 'grocery' ? 'active' : ''}" data-tab="grocery">
         <span class="tab-icon">🛒</span><span class="tab-label">Grocery</span>
       </button>
+      <button class="tab-btn ${section === 'holiday' ? 'active' : ''}" data-tab="holiday">
+        <span class="tab-icon">🎁</span><span class="tab-label">Holiday</span>
+      </button>
     </div>`;
+  }
 
+  /** Shared by both section branches: preserves focus, selection and scroll
+   * across the full re-render, then rebinds. */
+  function finishRender(app, html) {
     const activeId = document.activeElement?.id || null;
     const selStart = document.activeElement?.selectionStart;
     const selEnd = document.activeElement?.selectionEnd;
@@ -1342,6 +1665,465 @@
     if (overlay && !overlay.contains(document.activeElement)) overlay.querySelector("button,input,select")?.focus();
     const content = document.querySelector('.content');
     if (content) content.scrollTop = scrollTop;
+  }
+
+  // ── Holiday rendering ──
+  function renderHolidayBody() {
+    if (state.holidayDetailId !== undefined) return renderHolidayDetail();
+    return renderHolidaySummary() + renderHolidayActions() + renderHolidayForm()
+      + renderHolidayPeople() + renderHolidayUnassigned() + renderHolidayGifts();
+  }
+
+  function renderHolidaySummary() {
+    const current = season();
+    const hasBudget = Holiday.seasonHasBudget(current);
+    const spent = Holiday.seasonSpentCents(current);
+    const remaining = Holiday.seasonRemainingCents(current);
+    const pct = Holiday.seasonProgress(current);
+    const barColor = getProgressColor(fromCents(spent), fromCents(current.budget));
+
+    // The header already shows the season name where a budget tab shows the
+    // month, so repeating it here just printed it twice.
+    let h = `<div class="summary-card">
+      <div class="summary-top">`;
+    if (state.editingBudget) {
+      h += `<div class="budget-edit">
+        <span style="font-size:16px;color:var(--text2);font-family:var(--font-mono)">$</span>
+        <input class="budget-edit-input" type="text" inputmode="decimal" aria-label="Holiday budget" id="holidayBudgetInput" value="${escapeHtml(state.budgetInput)}">
+        <button class="budget-edit-save" id="holidayBudgetSave">Set</button>
+        <button class="budget-edit-cancel" id="holidayBudgetCancel">×</button>
+      </div>`;
+    } else {
+      h += `<button class="budget-setter" id="holidayBudgetEdit">${hasBudget ? `Holiday budget: ${holidayMoney(current.budget)}` : "Set a holiday budget"} <span class="edit-icon">✎</span></button>`;
+    }
+    h += `</div>`;
+
+    if (state.editingBudget) {
+      h += `<div class="settings-help">What you plan to spend on gifts this season. Kept entirely separate from your Personal and Grocery budgets. Set it to 0 to clear it.${state.budgetError ? `<div class="notice" role="alert">${escapeHtml(state.budgetError)}</div>` : ""}</div>`;
+    }
+
+    if (hasBudget) {
+      h += `<div class="bar-labels">
+        <span>${spent < 0 ? `${holidayMoney(-spent)} net returned` : `${holidayMoney(spent)} spent`}</span>
+        <span class="bar-remaining ${remaining < 0 ? 'negative' : 'positive'}">of ${holidayMoney(current.budget)}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct*100}%;background:${barColor}"></div></div>
+      <div class="remaining-display">
+        <div class="remaining-amount ${remaining < 0 ? 'negative' : ''}">${holidayMoney(Math.abs(remaining))}</div>
+        <div class="remaining-label">${remaining < 0 ? "over budget" : "available"}</div>
+      </div>`;
+    } else {
+      // No bar, because there is nothing to fill. Saying so beats an empty
+      // track that looks like a budget you have not touched.
+      h += `<div class="remaining-display">
+        <div class="remaining-amount">${holidayMoney(spent)}</div>
+        <div class="remaining-label">spent so far</div>
+      </div>
+      <div class="settings-help">No holiday budget set yet. It stays separate from your monthly budgets.</div>`;
+    }
+
+    h += `<div class="bar-labels" style="margin-top:10px">${renderHolidayPlanning()}<span>${escapeHtml(holidayTallyText())}</span></div>`;
+    return h + `</div>`;
+  }
+
+  /**
+   * The planning figure, or nothing when there is nothing honest to put there.
+   * `unreservedCents` subtracts spend, so it is always a slice of the available
+   * balance rather than a rival claim about it — the monthly card once showed
+   * two different figures a reader takes as "money I can still commit". Hidden
+   * once the budget is gone, and when nobody has a target, where it would only
+   * restate the tally beside it.
+   */
+  function renderHolidayPlanning() {
+    const current = season();
+    if (!Holiday.seasonHasBudget(current) || !Holiday.hasPerPersonTargets(current)) return `<span></span>`;
+    if (Holiday.seasonRemainingCents(current) < 0) return `<span></span>`;
+    const unreserved = Holiday.unreservedCents(current);
+    const label = unreserved < 0 ? "Targets exceed what's left by" : "Left to plan";
+    return `<span>${label} ${holidayMoney(Math.abs(unreserved))}</span>`;
+  }
+
+  /** Counts gifts, not rows: a return is money coming back, not something bought. */
+  function holidayTallyText() {
+    const current = season();
+    const gifts = Holiday.giftCount(current);
+    const returns = Holiday.returnCount(current);
+    const people = current.recipients.length;
+    const parts = [`${gifts} gift${gifts === 1 ? "" : "s"}`];
+    if (returns > 0) parts.push(`${returns} return${returns === 1 ? "" : "s"}`);
+    if (people > 0) parts.push(`${people} ${people === 1 ? "person" : "people"}`);
+    return parts.join(" · ");
+  }
+
+  function renderHolidayActions() {
+    if (state.holidayForm) return "";
+    const atLimit = season().recipients.length >= Holiday.RECIPIENT_LIMIT;
+    return `<div class="form-actions" style="margin:14px 0">
+      <button class="btn-cancel" id="holidayAddGift">＋ Add gift</button>
+      <button class="btn-cancel" id="holidayAddPerson"${atLimit ? " disabled" : ""}>＋ Add person</button>
+      <button class="btn-cancel" id="holidayAddReturn">↩ Record a return</button>
+      <button class="btn-cancel" id="holidayNewSeason">✨ New season</button>
+      <button class="btn-cancel" id="holidayPastSeasons">🕘 Past seasons</button>
+    </div>`;
+  }
+
+  function renderHolidayForm() {
+    const form = state.holidayForm;
+    if (!form) return "";
+    if (form.kind === "person") return renderHolidayPersonForm(form);
+    if (form.kind === "season") return renderHolidaySeasonForm(form);
+    return renderHolidayGiftForm(form);
+  }
+
+  function renderHolidayGiftForm(form) {
+    const current = season();
+    const editing = Boolean(form.id);
+    const chips = [{ id: null, name: Holiday.UNASSIGNED_LABEL, emoji: "🎁" }]
+      .concat(Holiday.recipientsInDisplayOrder(current));
+    // "Not for one person" is first, not last: on iOS it sat after every person
+    // in a scrolling row, so it was usually off screen while being the selected
+    // option, and a gift saved straight away was filed against nobody.
+    const picked = form.recipientChosen;
+    let h = `<div class="add-form${form.isReturn ? " payment" : ""}">
+      <div class="form-header">${editing ? (form.isReturn ? "Edit return" : "Edit gift") : (form.isReturn ? "↩ Record a return" : "Add gift")}</div>
+      <div class="form-row">
+        <input type="text" id="holidayGiftName" placeholder="${form.isReturn ? "What did you return?" : "What did you buy?"}" value="${escapeHtml(form.name)}">
+        <input type="text" id="holidayGiftAmount" inputmode="decimal" placeholder="0.00" value="${escapeHtml(form.amount)}" style="max-width:120px">
+      </div>
+      <div class="form-row">
+        <input type="text" id="holidayGiftNote" placeholder="Note (optional)" value="${escapeHtml(form.note)}">
+        <input type="date" id="holidayGiftDate" value="${escapeHtml(form.date)}" style="max-width:160px">
+      </div>
+      <div class="settings-help">Who it's for</div>
+      <div class="form-actions">`;
+    chips.forEach(person => {
+      const selected = picked && (form.recipientID ?? null) === (person.id ?? null);
+      h += `<button class="btn-cancel${selected ? " active" : ""}" data-holidaypick="${person.id === null ? "" : escapeHtml(person.id)}" aria-pressed="${selected ? "true" : "false"}" style="${selected ? "border-color:var(--sage);color:var(--sage);font-weight:600" : ""}">${escapeHtml(person.emoji)} ${escapeHtml(person.name)}</button>`;
+    });
+    h += `</div>
+      <div class="settings-help">${form.isReturn ? "Comes back off your holiday budget only." : "Counted against your holiday budget only."}${current.recipients.length === 0 ? " Add a person to track who each gift is for." : (picked ? "" : " Pick a person, or “" + Holiday.UNASSIGNED_LABEL + "”.")}</div>`;
+    if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
+    h += `<div class="form-actions">
+        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
+        <button class="modal-btn reset" id="holidayGiftSave">${editing ? "Save changes" : (form.isReturn ? "Save return" : "Save gift")}</button>
+      </div></div>`;
+    return h;
+  }
+
+  function renderHolidayPersonForm(form) {
+    const editing = Boolean(form.id);
+    let h = `<div class="add-form">
+      <div class="form-header">${editing ? "Edit person" : "Add person"}</div>
+      <div class="form-row">
+        <input type="text" id="holidayPersonName" placeholder="Mom, Dad, Sam…" value="${escapeHtml(form.name)}">
+        <input type="text" id="holidayPersonPlanned" inputmode="decimal" placeholder="No target" value="${escapeHtml(form.planned)}" style="max-width:130px">
+      </div>
+      <div class="settings-help">Icon</div>
+      <div class="form-actions">`;
+    Holiday.RECIPIENT_EMOJI_OPTIONS.forEach(emoji => {
+      const selected = form.emoji === emoji;
+      h += `<button class="btn-cancel" data-holidayemoji="${escapeHtml(emoji)}" aria-pressed="${selected ? "true" : "false"}" style="${selected ? "border-color:var(--sage);background:var(--sage-mist)" : ""}">${escapeHtml(emoji)}</button>`;
+    });
+    h += `</div>
+      <div class="settings-help">Leave the target empty if you don't want a per-person figure. It only affects “Left to plan” — gifts always count against the holiday budget.</div>`;
+    if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
+    h += `<div class="form-actions">
+        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
+        <button class="modal-btn reset" id="holidayPersonSave">${editing ? "Save changes" : "Add person"}</button>
+      </div></div>`;
+    return h;
+  }
+
+  function renderHolidaySeasonForm(form) {
+    const current = season();
+    const gifts = Holiday.giftCount(current);
+    const people = current.recipients.length;
+    const archived = state.holidaySeasonHistory.length;
+    let h = `<div class="add-form">
+      <div class="form-header">Start a new season</div>
+      <div class="form-row">
+        <input type="text" id="holidaySeasonName" placeholder="${escapeHtml(Holiday.defaultSeasonLabel())}" value="${escapeHtml(form.label)}">
+      </div>
+      <div class="settings-help">Leave it empty to use “${escapeHtml(Holiday.defaultSeasonLabel())}”.</div>
+      <label class="form-row" style="gap:8px">
+        <input type="checkbox" id="holidayCarry"${form.carry ? " checked" : ""}${people === 0 ? " disabled" : ""}>
+        <span>Keep the same people${people === 0 ? " — none on the list yet" : ` (${people} ${people === 1 ? "person" : "people"} and their targets, without their gifts)`}</span>
+      </label>
+      <div class="settings-help">
+        · ${escapeHtml(current.label)} moves to your past seasons${gifts === 0 ? "." : ` with its ${gifts} gift${gifts === 1 ? "" : "s"}.`}<br>
+        · ${current.budget > 0 ? `Your ${holidayMoney(current.budget)} holiday budget carries over — you can change it afterwards.` : "The new season starts with no budget set."}<br>
+        · Sprout keeps your ${Holiday.HISTORY_LIMIT} most recent seasons${archived >= Holiday.HISTORY_LIMIT ? ", so the oldest one will be dropped." : "."}<br>
+        · Your monthly budgets are not affected.
+      </div>`;
+    if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
+    h += `<div class="form-actions">
+        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
+        <button class="modal-btn reset" id="holidaySeasonSave">Start new season</button>
+      </div></div>`;
+    return h;
+  }
+
+  function renderHolidayPeople() {
+    const current = season();
+    const people = Holiday.recipientsInDisplayOrder(current);
+    let h = `<div class="tx-header">People <span style="color:var(--text4);font-weight:400">${people.length}</span></div>`;
+    // Gated on the people list alone: requiring zero unassigned gifts too meant
+    // logging one gift with nobody added flipped this to "People 0" and took
+    // away the only instruction for adding people exactly when it was needed.
+    if (people.length === 0) {
+      return h + `<div class="tx-empty">No one on the list yet. Add the people you're buying for, then log each gift as you buy it.</div>`;
+    }
+    people.forEach(person => {
+      h += renderHolidayPersonRow(person);
+    });
+    return h;
+  }
+
+  function renderHolidayPersonRow(person) {
+    const current = season();
+    const tally = Holiday.recipientTally(current, person.id);
+    const fraction = Holiday.recipientProgress(current, person);
+    const planned = person.plannedAmount;
+    const over = planned != null && tally.spentCents > planned;
+    let sub;
+    if (planned == null) {
+      const parts = [`${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}`];
+      if (tally.returns > 0) parts.push(`${tally.returns} return${tally.returns === 1 ? "" : "s"}`);
+      sub = tally.rows === 0 ? "No gifts yet" : parts.join(" · ");
+    } else if (over) {
+      sub = `${holidayMoney(tally.spentCents - planned)} over ${holidayMoney(planned)} planned`;
+    } else {
+      sub = `${holidayMoney(planned - tally.spentCents)} left of ${holidayMoney(planned)}`;
+    }
+    return `<div class="tx-item">
+      <div class="tx-emoji">${escapeHtml(person.emoji)}</div>
+      <div class="tx-body">
+        <div class="tx-top">
+          <span class="tx-name">${escapeHtml(person.name)}</span>
+          <span class="tx-amount">${holidayMoney(tally.spentCents)}</span>
+        </div>
+        <div class="tx-bottom">
+          <span class="tx-meta" style="${over ? "color:var(--red)" : ""}">${escapeHtml(sub)}</span>
+          <button class="tx-remove" data-holidayopen="${escapeHtml(person.id)}">open</button>
+          <button class="tx-remove" data-holidayeditperson="${escapeHtml(person.id)}">edit</button>
+          <button class="tx-remove" data-holidayremoveperson="${escapeHtml(person.id)}">remove</button>
+        </div>
+        ${fraction === null ? "" : `<div class="bar-track" style="margin-top:6px;height:4px"><div class="bar-fill" style="width:${fraction*100}%;background:${over ? "var(--red)" : "var(--sage)"}"></div></div>`}
+      </div>
+    </div>`;
+  }
+
+  /** Rows that belong to no one — deliberately, or because their person was
+   * removed. Its own section, because it is not a person and must not be
+   * counted under "People". */
+  function renderHolidayUnassigned() {
+    const current = season();
+    const tally = Holiday.recipientTally(current, null);
+    if (tally.rows === 0) return "";
+    return `<div class="tx-header">Not assigned to a person <span style="color:var(--text4);font-weight:400">${tally.rows}</span></div>
+      <div class="tx-item">
+        <div class="tx-emoji">🎁</div>
+        <div class="tx-body">
+          <div class="tx-top">
+            <span class="tx-name">${escapeHtml(Holiday.UNASSIGNED_LABEL)}</span>
+            <span class="tx-amount">${holidayMoney(tally.spentCents)}</span>
+          </div>
+          <div class="tx-bottom">
+            <span class="tx-meta">${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}${tally.returns > 0 ? ` · ${tally.returns} return${tally.returns === 1 ? "" : "s"}` : ""}</span>
+            <button class="tx-remove" data-holidayopen="">open</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function holidayGiftMatches(purchase, query) {
+    const current = season();
+    const person = Holiday.findRecipient(current, purchase.recipientID);
+    const name = person ? person.name : Holiday.UNASSIGNED_LABEL;
+    const needle = query.toLowerCase();
+    return purchase.name.toLowerCase().includes(needle)
+      || purchase.note.toLowerCase().includes(needle)
+      || name.toLowerCase().includes(needle);
+  }
+
+  function renderHolidayGifts() {
+    const current = season();
+    const all = Holiday.purchasesNewestFirst(current);
+    // Same rule as the transactions list: the field appears at five or more
+    // rows and the filter is inert whenever its control is off screen.
+    const searchable = all.length >= 5;
+    const query = searchable ? state.holidaySearch.trim() : "";
+    const rows = query ? all.filter(row => holidayGiftMatches(row, query)) : all;
+
+    let h = `<div class="tx-header">All gifts <span style="color:var(--text4);font-weight:400">${query ? `${rows.length} of ${all.length}` : all.length}</span></div>`;
+    if (searchable) {
+      h += `<div class="form-row" style="margin-bottom:10px"><input type="text" id="holidaySearch" placeholder="Search gifts or people" value="${escapeHtml(state.holidaySearch)}"></div>`;
+    }
+    if (all.length === 0) {
+      return h + `<div class="tx-empty">No gifts logged yet. Everything you add here counts against your holiday budget and nothing else.</div>`;
+    }
+    if (rows.length === 0) {
+      return h + `<div class="tx-empty">No gifts match “${escapeHtml(query)}”</div>`;
+    }
+    rows.forEach(row => { h += renderHolidayGiftRow(row, true); });
+    return h;
+  }
+
+  function renderHolidayGiftRow(purchase, showPerson) {
+    const current = season();
+    const person = Holiday.findRecipient(current, purchase.recipientID);
+    const who = person ? person.name : Holiday.UNASSIGNED_LABEL;
+    const meta = [];
+    if (showPerson) meta.push(escapeHtml(who));
+    meta.push(fmtDate(holidayDayValue(purchase.date)));
+    if (purchase.isReturn) meta.push('<span class="payment-tag">returned</span>');
+    if (purchase.note) meta.push(escapeHtml(purchase.note));
+    return `<div class="tx-item">
+      <div class="tx-emoji">${purchase.isReturn ? "↩️" : escapeHtml(person ? person.emoji : "🎁")}</div>
+      <div class="tx-body">
+        <div class="tx-top">
+          <span class="tx-name">${escapeHtml(purchase.name)}</span>
+          <span class="tx-amount" style="${purchase.isReturn ? "color:var(--green)" : ""}">${purchase.isReturn ? "+" : "−"}${holidayMoney(purchase.amount)}</span>
+        </div>
+        <div class="tx-bottom">
+          <span class="tx-meta">${meta.join(" · ")}</span>
+          <button class="tx-remove" data-holidayeditgift="${escapeHtml(purchase.id)}">edit</button>
+          <button class="tx-remove" data-holidayremovegift="${escapeHtml(purchase.id)}">remove</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /** Everything bought for one person, or the gifts that belong to nobody.
+   * Reads from the id so a rename or a deletion is reflected immediately. */
+  function renderHolidayDetail() {
+    const current = season();
+    const id = state.holidayDetailId;
+    const person = Holiday.findRecipient(current, id);
+    // The person can be removed from this very view; fall back to the list
+    // rather than showing an empty screen for someone who is gone.
+    if (id !== null && !person) { state.holidayDetailId = undefined; return renderHolidayBody(); }
+    const tally = Holiday.recipientTally(current, id);
+    const rows = Holiday.purchasesFor(current, id);
+    const planned = person?.plannedAmount;
+
+    let h = `<div class="form-actions" style="margin-bottom:12px"><button class="btn-cancel" id="holidayBack">← All people</button></div>
+      <div class="summary-card">
+        <div class="settings-help" style="margin:0 0 6px">${escapeHtml(person ? person.emoji + " " + person.name : "🎁 " + Holiday.UNASSIGNED_LABEL)}</div>
+        <div class="remaining-display">
+          <div class="remaining-amount ${tally.spentCents < 0 ? 'negative' : ''}">${holidayMoney(tally.spentCents)}</div>
+          <div class="remaining-label">spent</div>
+        </div>`;
+    if (planned != null) {
+      const left = planned - tally.spentCents;
+      const fraction = Holiday.recipientProgress(current, person) ?? 0;
+      h += `<div class="bar-track"><div class="bar-fill" style="width:${fraction*100}%;background:${left < 0 ? "var(--red)" : "var(--sage)"}"></div></div>
+        <div class="settings-help">${left < 0
+          ? `${holidayMoney(-left)} over the ${holidayMoney(planned)} planned`
+          : `${holidayMoney(left)} left of the ${holidayMoney(planned)} planned`}</div>`;
+    } else {
+      const parts = [`${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}`];
+      if (tally.returns > 0) parts.push(`${tally.returns} return${tally.returns === 1 ? "" : "s"}`);
+      h += `<div class="settings-help">${tally.rows === 0 ? "No gifts yet." : parts.join(" · ") + " · no per-person target set"}</div>`;
+    }
+    h += `</div>`;
+
+    if (!state.holidayForm) {
+      h += `<div class="form-actions" style="margin:14px 0">
+        <button class="btn-cancel" id="holidayAddGift">＋ ${person ? "Add gift for " + escapeHtml(person.name) : "Add gift"}</button>
+        <button class="btn-cancel" id="holidayAddReturn">↩ Record a return</button>
+        ${person ? `<button class="btn-cancel" data-holidayeditperson="${escapeHtml(person.id)}">Edit person</button>
+        <button class="btn-cancel" data-holidayremoveperson="${escapeHtml(person.id)}">Remove person</button>` : ""}
+      </div>`;
+    }
+    h += renderHolidayForm();
+
+    h += `<div class="tx-header">Gifts <span style="color:var(--text4);font-weight:400">${rows.length}</span></div>`;
+    if (rows.length === 0) h += `<div class="tx-empty">Nothing logged here yet.</div>`;
+    // The heading already names who this list is for.
+    else rows.forEach(row => { h += renderHolidayGiftRow(row, false); });
+    return h;
+  }
+
+  function renderHolidaySeasonsModal() {
+    const history = state.holidaySeasonHistory;
+    let h = `<div class="modal-overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="Past holiday seasons">
+      <div class="modal-title">Past seasons</div>`;
+    if (history.length === 0) {
+      h += `<div class="modal-text">When you start a new holiday season, Sprout keeps the one you closed here for reference.</div>`;
+    } else {
+      h += `<div class="modal-text">A past season can be opened or deleted, but not edited. Sprout keeps your ${Holiday.HISTORY_LIMIT} most recent.</div>`;
+      history.forEach(past => {
+        const spent = Holiday.seasonSpentCents(past);
+        const gifts = Holiday.giftCount(past);
+        const people = past.recipients.length;
+        h += `<div class="tx-item"><div class="tx-emoji">🎁</div><div class="tx-body">
+          <div class="tx-top"><span class="tx-name">${escapeHtml(past.label)}</span><span class="tx-amount">${holidayMoney(spent)}</span></div>
+          <div class="tx-bottom">
+            <span class="tx-meta">${gifts} gift${gifts === 1 ? "" : "s"}${people > 0 ? ` for ${people} ${people === 1 ? "person" : "people"}` : " saved"}${Holiday.seasonHasBudget(past) ? ` · of ${holidayMoney(past.budget)}` : " · no budget set"}</span>
+            <button class="tx-remove" data-holidayremoveseason="${escapeHtml(past.id)}">delete</button>
+          </div>
+          ${renderHolidaySeasonBreakdown(past)}
+        </div></div>`;
+      });
+    }
+    h += `<div class="modal-actions"><button class="modal-btn keep" id="holidaySeasonsClose">Done</button></div>
+      </div></div>`;
+    return h;
+  }
+
+  /** The row above promises "N gifts for M people", and seeing what each person
+   * cost is most of why a season is kept at all. */
+  function renderHolidaySeasonBreakdown(past) {
+    const people = Holiday.recipientsInDisplayOrder(past);
+    const unassigned = Holiday.recipientTally(past, null);
+    if (people.length === 0 && unassigned.rows === 0) return "";
+    let h = `<div class="settings-help" style="margin-top:6px">`;
+    people.forEach(person => {
+      h += `${escapeHtml(person.emoji)} ${escapeHtml(person.name)} · ${holidayMoney(Holiday.recipientTally(past, person.id).spentCents)}<br>`;
+    });
+    if (unassigned.rows > 0) h += `🎁 ${escapeHtml(Holiday.UNASSIGNED_LABEL)} · ${holidayMoney(unassigned.spentCents)}`;
+    return h + `</div>`;
+  }
+
+  function renderHolidayDeleteModal() {
+    const pending = state.pendingHolidayDelete;
+    const current = season();
+    let title = "Remove this?";
+    let text = "";
+    if (pending.kind === "gift") {
+      const row = current.purchases.find(p => p.id === pending.id);
+      if (!row) return "";
+      title = row.isReturn ? "Remove return?" : "Remove gift?";
+      text = `This ${row.isReturn ? "return" : "gift"}, ${row.name} (${holidayMoney(row.amount)}), will be removed from your holiday spending.`;
+    } else if (pending.kind === "person") {
+      const person = Holiday.findRecipient(current, pending.id);
+      if (!person) return "";
+      const tally = Holiday.recipientTally(current, person.id);
+      title = "Remove person?";
+      if (tally.rows === 0) {
+        text = `${person.name} will be removed from your holiday list.`;
+      } else {
+        const items = [`${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}`];
+        if (tally.returns > 0) items.push(`${tally.returns} return${tally.returns === 1 ? "" : "s"}`);
+        // Quotes the same tally the dashboard shows, so what the user is told
+        // they are losing is exactly what leaves the total.
+        text = `${person.name}, ${items.join(" and ")} totalling ${holidayMoney(tally.spentCents)}, will be removed from your holiday spending.`;
+      }
+    } else {
+      const past = state.holidaySeasonHistory.find(h => h.id === pending.id);
+      if (!past) return "";
+      const gifts = Holiday.giftCount(past);
+      title = "Delete this season?";
+      text = `${past.label} and its ${gifts} gift${gifts === 1 ? "" : "s"} will be removed. This can't be undone.`;
+    }
+    return `<div class="modal-overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <div class="modal-title">${escapeHtml(title)}</div>
+      <div class="modal-text">${escapeHtml(text)}</div>
+      <div class="modal-actions">
+        <button class="modal-btn keep" id="holidayDeleteCancel">Cancel</button>
+        <button class="modal-btn reset" id="holidayDeleteConfirm">Remove</button>
+      </div></div></div>`;
   }
 
   function renderAddForm(isPayment, cat) {
@@ -1737,19 +2519,123 @@
       if (e.target.id === "emojiGridOverlay") { state.emojiPickerForIndex = null; render(); }
     });
 
+    // ── Holiday ──
+    document.getElementById("holidayBudgetEdit")?.addEventListener("click", () => {
+      state.editingBudget = true;
+      state.budgetInput = editableAmount(fromCents(season().budget));
+      state.budgetError = ""; render();
+    });
+    document.getElementById("holidayBudgetCancel")?.addEventListener("click", () => { state.editingBudget = false; render(); });
+    document.getElementById("holidayBudgetInput")?.addEventListener("input", e => { state.budgetInput = e.target.value; });
+    document.getElementById("holidayBudgetInput")?.addEventListener("keydown", e => {
+      if (e.key === "Enter") document.getElementById("holidayBudgetSave")?.click();
+    });
+    document.getElementById("holidayBudgetSave")?.addEventListener("click", () => {
+      if (!canEdit()) return;
+      const cents = parseHolidayCents(document.getElementById("holidayBudgetInput").value);
+      if (cents === null || cents < 0) { state.budgetError = "Enter a valid amount from $0 to $999,999.99."; render(); return; }
+      state.budgetError = "";
+      state.editingBudget = false;
+      commitSeason({ ...season(), budget: cents });
+      render();
+    });
+
+    document.getElementById("holidayAddGift")?.addEventListener("click", () => {
+      startHolidayGiftForm({ recipientID: state.holidayDetailId });
+    });
+    document.getElementById("holidayAddReturn")?.addEventListener("click", () => {
+      startHolidayGiftForm({ recipientID: state.holidayDetailId, isReturn: true });
+    });
+    document.getElementById("holidayAddPerson")?.addEventListener("click", () => startHolidayPersonForm());
+    document.getElementById("holidayNewSeason")?.addEventListener("click", () => {
+      state.holidayFormError = "";
+      state.holidayForm = { kind: "season", label: "", carry: season().recipients.length > 0 };
+      render();
+    });
+    document.getElementById("holidayPastSeasons")?.addEventListener("click", () => { state.showHolidaySeasons = true; render(); });
+    document.getElementById("holidaySeasonsClose")?.addEventListener("click", () => { state.showHolidaySeasons = false; render(); });
+    document.getElementById("holidayFormCancel")?.addEventListener("click", () => {
+      state.holidayForm = null; state.holidayFormError = ""; render();
+    });
+    document.getElementById("holidayBack")?.addEventListener("click", () => {
+      state.holidayDetailId = undefined; state.holidayForm = null; state.holidayFormError = ""; render();
+    });
+
+    document.getElementById("holidayGiftName")?.addEventListener("input", e => { state.holidayForm.name = e.target.value; });
+    document.getElementById("holidayGiftAmount")?.addEventListener("input", e => { state.holidayForm.amount = e.target.value; });
+    document.getElementById("holidayGiftNote")?.addEventListener("input", e => { state.holidayForm.note = e.target.value; });
+    document.getElementById("holidayGiftDate")?.addEventListener("input", e => { state.holidayForm.date = e.target.value; });
+    document.getElementById("holidayGiftSave")?.addEventListener("click", saveHolidayGift);
+    document.querySelectorAll("[data-holidaypick]").forEach(btn => btn.addEventListener("click", () => {
+      state.holidayForm.recipientID = btn.dataset.holidaypick || null;
+      state.holidayForm.recipientChosen = true;
+      render();
+    }));
+
+    document.getElementById("holidayPersonName")?.addEventListener("input", e => { state.holidayForm.name = e.target.value; });
+    document.getElementById("holidayPersonPlanned")?.addEventListener("input", e => { state.holidayForm.planned = e.target.value; });
+    document.getElementById("holidayPersonSave")?.addEventListener("click", saveHolidayPerson);
+    document.querySelectorAll("[data-holidayemoji]").forEach(btn => btn.addEventListener("click", () => {
+      state.holidayForm.emoji = btn.dataset.holidayemoji; render();
+    }));
+
+    document.getElementById("holidaySeasonName")?.addEventListener("input", e => { state.holidayForm.label = e.target.value; });
+    document.getElementById("holidayCarry")?.addEventListener("change", e => { state.holidayForm.carry = e.target.checked; });
+    document.getElementById("holidaySeasonSave")?.addEventListener("click", saveHolidayNewSeason);
+
+    document.getElementById("holidaySearch")?.addEventListener("input", e => {
+      state.holidaySearch = e.target.value; render();
+    });
+    document.getElementById("txSearch")?.addEventListener("input", e => {
+      state.txSearch = e.target.value; render();
+    });
+
+    document.querySelectorAll("[data-holidayopen]").forEach(btn => btn.addEventListener("click", () => {
+      state.holidayDetailId = btn.dataset.holidayopen || null;
+      state.holidayForm = null; state.holidayFormError = ""; render();
+    }));
+    document.querySelectorAll("[data-holidayeditperson]").forEach(btn => btn.addEventListener("click", () => {
+      if (!canEdit()) return;
+      startHolidayPersonForm(btn.dataset.holidayeditperson);
+    }));
+    document.querySelectorAll("[data-holidayeditgift]").forEach(btn => btn.addEventListener("click", () => {
+      if (!canEdit()) return;
+      startHolidayGiftForm({ id: btn.dataset.holidayeditgift });
+    }));
+    document.querySelectorAll("[data-holidayremoveperson]").forEach(btn => btn.addEventListener("click", () => {
+      if (!canEdit()) return;
+      state.pendingHolidayDelete = { kind: "person", id: btn.dataset.holidayremoveperson }; render();
+    }));
+    document.querySelectorAll("[data-holidayremovegift]").forEach(btn => btn.addEventListener("click", () => {
+      if (!canEdit()) return;
+      state.pendingHolidayDelete = { kind: "gift", id: btn.dataset.holidayremovegift }; render();
+    }));
+    document.querySelectorAll("[data-holidayremoveseason]").forEach(btn => btn.addEventListener("click", () => {
+      if (!canEdit()) return;
+      state.pendingHolidayDelete = { kind: "season", id: btn.dataset.holidayremoveseason }; render();
+    }));
+    document.getElementById("holidayDeleteCancel")?.addEventListener("click", () => { state.pendingHolidayDelete = null; render(); });
+    document.getElementById("holidayDeleteConfirm")?.addEventListener("click", confirmHolidayDelete);
+
     // Tabs
     document.querySelectorAll("[data-tab]").forEach(btn => {
       btn.addEventListener("click", () => {
-        state.activeTab = btn.dataset.tab;
+        state.activeSection = btn.dataset.tab;
         state.showCalendar = false; state.showForm = null; state.editingTransactionId = null;
         state.selectedCalDay = null; state.editingBudget = false;
-        state.formEmoji = state.activeTab === "personal" ? (state.personalCategories[0]?.emoji || "🛍️") : "🛒";
+        // Leaving a section closes what belonged to it. A holiday form left
+        // open behind the Personal tab would reopen on a screen that has no
+        // place for it, and a stale per-person view would survive the switch.
+        state.holidayForm = null; state.holidayFormError = "";
+        state.holidayDetailId = undefined; state.holidaySearch = "";
+        state.txSearch = "";
+        state.formEmoji = budgetCat() === "personal" ? (state.personalCategories[0]?.emoji || "🛍️") : "🛒";
         render();
       });
     });
 
     // Budget setter
-    document.getElementById("budgetEdit")?.addEventListener("click", () => { state.editingBudget = true; state.budgetInput = editableAmount(getBaseBudget(state.activeTab)); state.budgetError = ""; render(); });
+    document.getElementById("budgetEdit")?.addEventListener("click", () => { state.editingBudget = true; state.budgetInput = editableAmount(getBaseBudget(budgetCat())); state.budgetError = ""; render(); });
     document.getElementById("budgetSave")?.addEventListener("click", () => {
       if (!canEdit()) return;
       const v = parseAmount(document.getElementById("budgetInput").value, navigator.language || "en-US");
@@ -1761,7 +2647,7 @@
         // one-month adjustment permanently moved the monthly budget, and anything
         // below the carryover set the base to zero forever while deleting the
         // difference. Matches Sprout-iOS `BudgetStore.setBudget`.
-        if (state.activeTab === "grocery") {
+        if (budgetCat() === "grocery") {
           state.groceryBudget = v;
         } else {
           state.personalBudget = v;

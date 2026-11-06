@@ -44,7 +44,17 @@ test('schema version determines whether integers mean cents or dollars', () => {
   assert.equal(normalizeSnapshot({ groceryBudget: 400 }).snapshot.groceryBudget, 400);
   assert.equal(normalizeSnapshot({ schemaVersion: 2, groceryBudget: 400 }).snapshot.groceryBudget, 4);
   assert.throws(() => normalizeSnapshot({ schemaVersion: 3 }), /version/);
-  assert.throws(() => normalizeSnapshot({ schemaVersion: '2' }), /version/);
+  // A quoted version is read, not rejected. Treating "2" as "no version, so
+  // v1" multiplied every amount by 100 and wrote the inflated figures back,
+  // which is a worse outcome than accepting a hand-edited file.
+  assert.equal(normalizeSnapshot({ schemaVersion: '2', groceryBudget: 400 }).snapshot.groceryBudget, 4);
+  assert.equal(normalizeSnapshot({ schemaVersion: ' 1 ', groceryBudget: 400 }).snapshot.groceryBudget, 400);
+  for (const version of ['two', '', 2.5, true, {}]) {
+    assert.throws(() => normalizeSnapshot({ schemaVersion: version }), /version/, String(version));
+  }
+  // v1 stays the default for a version-less payload: the web cache and every
+  // legacy Firebase document are version-less dollars.
+  assert.equal(normalizeSnapshot({ groceryBudget: 400, holidaySeason: null }).snapshot.groceryBudget, 400);
 });
 
 test('missing legacy fields get defaults without inventing freshness', () => {
@@ -121,17 +131,36 @@ test('normalization leaves the original object intact and retains every archived
   assert.equal(snapshot.updatedAt, '2026-09-29T17:00:00.123Z', 'cache freshness retains millisecond precision');
 });
 
-test('iOS holiday data survives a web import/export round trip', () => {
-  const holidaySeason = {
-    id: 'A1B2C3D4-0000-0000-0000-000000000001', label: 'Holiday 2026', budget: 60000,
-    startedAt: '2026-10-31T12:00:00Z', closedAt: null,
-    recipients: [{ id: 'A1B2C3D4-0000-0000-0000-000000000002', name: 'Mom', emoji: '🎁', plannedAmount: 20000, createdAt: '2026-10-31T12:00:00Z' }],
-    purchases: [{ id: 'A1B2C3D4-0000-0000-0000-000000000003', recipientID: 'A1B2C3D4-0000-0000-0000-000000000002', name: 'Scarf', amount: 4000, note: '', date: '2026-11-02T12:00:00Z' }],
-  };
-  const holidaySeasonHistory = [{ ...holidaySeason, id: 'A1B2C3D4-0000-0000-0000-000000000004', label: 'Holiday 2025', closedAt: '2026-01-02T12:00:00Z' }];
+const holidayFixture = () => ({
+  id: 'a1b2c3d4-0000-0000-0000-000000000001', label: 'Holiday 2026', budget: 60000,
+  startedAt: '2026-10-31T12:00:00.000Z', closedAt: null,
+  recipients: [{ id: 'a1b2c3d4-0000-0000-0000-000000000002', name: 'Mom', emoji: '🎁', plannedAmount: 20000, createdAt: '2026-10-31T12:00:00.000Z' }],
+  purchases: [{ id: 'a1b2c3d4-0000-0000-0000-000000000003', recipientID: 'a1b2c3d4-0000-0000-0000-000000000002', name: 'Scarf', amount: 4000, note: '', date: '2026-11-02T12:00:00.000Z', isReturn: false }],
+});
 
-  // The web app has no Holiday tab, so dropping these on import would make an
-  // iOS -> web -> iOS round trip erase every gift the user logged.
+test('holiday amounts are cents at every version and are never rescaled', () => {
+  const holidaySeason = holidayFixture();
+  // v1 is the web cache's own version, where MONTHLY amounts are dollars.
+  // Holiday amounts are cents even there, because that is the only way they
+  // have ever been written; scaling them would read $40 as $4,000.
+  for (const schemaVersion of [1, 2]) {
+    const input = schemaVersion === 2
+      ? { ...fixture(), schemaVersion, personalBudget: 20000, groceryBudget: 40000, personalCarryover: -1223, groceryCarryover: 3142,
+          transactions: [], recurringRules: [], monthHistory: [], holidaySeason }
+      : { ...fixture(), holidaySeason };
+    const { snapshot } = normalizeSnapshot(input, { strict: true });
+    assert.equal(snapshot.holidaySeason.budget, 60000);
+    assert.equal(snapshot.holidaySeason.purchases[0].amount, 4000);
+    assert.equal(snapshot.holidaySeason.recipients[0].plannedAmount, 20000);
+  }
+});
+
+test('iOS holiday data survives a web import/export round trip', () => {
+  const holidaySeason = holidayFixture();
+  const holidaySeasonHistory = [{ ...holidayFixture(), id: 'a1b2c3d4-0000-0000-0000-000000000004', label: 'Holiday 2025', closedAt: '2026-01-02T12:00:00.000Z' }];
+
+  // The web app renders holiday data now, but it must still come back out in
+  // the shape iOS wrote it: an iOS -> web -> iOS round trip cannot lose gifts.
   const { snapshot } = normalizeSnapshot({ ...fixture(), holidaySeason, holidaySeasonHistory }, { strict: true });
   assert.deepEqual(snapshot.holidaySeason, holidaySeason);
   assert.deepEqual(snapshot.holidaySeasonHistory, holidaySeasonHistory);
@@ -139,9 +168,10 @@ test('iOS holiday data survives a web import/export round trip', () => {
   const portable = exportBackup({ ...fixture(), holidaySeason, holidaySeasonHistory });
   assert.deepEqual(portable.holidaySeason, holidaySeason);
   assert.deepEqual(portable.holidaySeasonHistory, holidaySeasonHistory);
-  // Carried verbatim: cents stay cents and are never re-scaled as dollars.
+  // Cents stay cents even though every monthly amount beside them is rescaled.
+  assert.equal(portable.schemaVersion, 2);
+  assert.equal(portable.personalBudget, 20000);
   assert.equal(portable.holidaySeason.budget, 60000);
-  assert.equal(portable.holidaySeason.purchases[0].amount, 4000);
 });
 
 test('an absent holiday section normalizes to null so it clears on sign-out', () => {
@@ -154,9 +184,34 @@ test('an absent holiday section normalizes to null so it clears on sign-out', ()
   assert.ok('holidaySeasonHistory' in snapshot);
 });
 
-test('a malformed holiday section is dropped rather than failing the whole import', () => {
-  const circular = { label: 'bad' };
-  circular.self = circular;
-  const { snapshot } = normalizeSnapshot({ ...fixture(), holidaySeason: circular }, { strict: true });
+test('a strict import rejects a damaged holiday section instead of half-replacing data', () => {
+  for (const holidaySeason of ['wiped', 42, { budget: 'lots' }, { purchases: { nope: true } }, { purchases: [{ name: 'x', amount: 1.5 }] }]) {
+    assert.throws(() => normalizeSnapshot({ ...fixture(), holidaySeason }, { strict: true }), /holidaySeason/);
+  }
+});
+
+test('a lenient load warns about a damaged holiday section and keeps the ledger', () => {
+  const { snapshot, warnings } = normalizeSnapshot({ ...fixture(), holidaySeason: 'wiped' });
   assert.equal(snapshot.holidaySeason, null);
+  assert.ok(warnings.some(w => w.startsWith('holidaySeason')));
+  // The monthly ledger is untouched by a holiday problem.
+  assert.equal(snapshot.transactions.length, 2);
+  assert.equal(snapshot.personalBudget, 200);
+});
+
+test('a holiday row is renamed and re-homed rather than dropped', () => {
+  const { snapshot } = normalizeSnapshot({
+    ...fixture(),
+    holidaySeason: {
+      id: 's', label: '  ', budget: 0, startedAt: '2026-10-31T12:00:00.000Z',
+      recipients: [{ id: 'p', name: '   ', emoji: '' }],
+      purchases: [{ id: 'g', recipientID: 'ghost', name: '  ', amount: 1000, date: '2026-11-02T12:00:00.000Z' }],
+    },
+  }, { strict: true });
+
+  assert.equal(snapshot.holidaySeason.recipients[0].name, 'Someone');
+  assert.equal(snapshot.holidaySeason.purchases[0].name, 'Gift');
+  // Still counted, so it has to be reachable somewhere.
+  assert.equal(snapshot.holidaySeason.purchases[0].recipientID, null);
+  assert.equal(snapshot.holidaySeason.purchases[0].amount, 1000);
 });

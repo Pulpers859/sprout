@@ -1,4 +1,6 @@
 // The web cache uses dollars (v1); portable backups use iOS integer cents (v2).
+import { normalizeSeason, normalizeHistory } from './holiday.mjs';
+
 const MAX_CENTS = 100_000_000_000_000;
 const DEFAULT_CATEGORIES = [
   ['🛍️', 'Shopping'], ['🎁', 'Gifts'], ['💄', 'Beauty'], ['🍕', 'Dining'], ['🚗', 'Gas'],
@@ -44,30 +46,80 @@ function uuid(value) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20)}`;
 }
 
-// Holiday spending is iOS-only today. The web app neither reads nor writes it,
-// but an importer that rebuilds the snapshot from a fixed key list silently
-// drops it — which turns an iOS -> web -> iOS backup round trip into total loss
-// of the user's holiday budget, people and gifts. It is carried through
-// verbatim instead: checked only for being JSON-safe, never interpreted.
-//
-// `null` rather than omitted when absent, so `Object.assign(state, snapshot)`
-// on sign-out clears it like every other field. An omitted key would leave the
-// previous account's holiday data in place.
-function passthrough(value) {
-  if (value == null) return null;
-  try {
-    const clone = JSON.parse(JSON.stringify(value));
-    return clone == null ? null : clone;
-  } catch {
-    return null;
+// Holiday amounts are integer CENTS, at every version, and are never rescaled
+// by `money()` the way monthly amounts are. See the header of holiday.mjs: the
+// data has only ever been written by iOS in cents, and web snapshots already on
+// disk carry it that way under `schemaVersion: 1` because the previous build
+// passed it through uninterpreted. Scaling it by version would read every
+// stored $40 gift as $4,000 and write it back that way.
+function holidayCents(value, path) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${path}: invalid amount`);
+  if (!Number.isInteger(value)) throw new Error(`${path}: amount has fractional cents`);
+  if (Math.abs(value) > MAX_CENTS) throw new Error(`${path}: amount outside supported range`);
+  return value;
+}
+
+/** Shape check only; `normalizeSeason` does the renaming, re-homing and
+ * de-duplication, exactly as it does for the live ledger. Throwing here lets a
+ * strict import reject a damaged holiday section rather than partially replace
+ * the user's data, which is how this importer already treats every other row. */
+function checkSeasonShape(value, path) {
+  if (!object(value)) throw new Error(`${path}: expected an object`);
+  holidayCents(value.budget ?? 0, `${path}.budget`);
+  for (const key of ['recipients', 'purchases']) {
+    const rows = value[key];
+    if (rows === undefined || rows === null) continue;
+    if (!Array.isArray(rows)) throw new Error(`${path}.${key}: expected a list`);
+    rows.forEach((row, index) => {
+      if (!object(row)) throw new Error(`${path}.${key}[${index}]: expected an object`);
+      if (key === 'purchases') holidayCents(row.amount, `${path}.${key}[${index}].amount`);
+      if (key === 'recipients' && row.plannedAmount != null) {
+        holidayCents(row.plannedAmount, `${path}.${key}[${index}].plannedAmount`);
+      }
+    });
   }
+  return value;
+}
+
+/**
+ * The payload's schema version, matching `BudgetStore.schemaVersion(in:)`.
+ *
+ * A quoted `"2"` from a hand-edited or third-party file used to read as "no
+ * version, so v1", which multiplied every monthly amount by 100 and wrote the
+ * inflated figures back.
+ *
+ * iOS additionally infers v2 from the presence of holiday data, and that rule
+ * deliberately is NOT ported. It is safe there because iOS has never written
+ * anything but v2, so "no version" can only mean a foreign file. Here v1 is the
+ * native format: the web cache and every legacy Firebase document are
+ * version-less dollars, so inferring v2 from holiday data would read a $200
+ * monthly budget as $2.00. Holiday amounts are cents at every version anyway
+ * (see holiday.mjs), so they are not at risk either way.
+ */
+export function schemaVersionOf(input) {
+  const raw = input?.schemaVersion;
+  if (Number.isInteger(raw)) return raw;
+  if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) return Number(raw.trim());
+  if (raw != null) return NaN;
+  return 1;
+}
+
+/** Whether the payload carries a holiday section at all. The normalized
+ * snapshot cannot answer this: an absent section becomes an empty season,
+ * which looks identical to a real season nobody has shopped for yet. */
+export function containsHolidayData(input) {
+  return input?.holidaySeason != null || input?.holidaySeasonHistory != null;
 }
 
 export function normalizeSnapshot(input, { strict = false } = {}) {
   if (!object(input)) throw new Error('This file is not a Sprout backup.');
-  const version = input.schemaVersion ?? 1;
+  const version = schemaVersionOf(input);
   if (!Number.isInteger(version) || version < 0 || version > 2) throw new Error('Unsupported Sprout backup version.');
-  if (strict && !['groceryBudget', 'personalBudget', 'transactions', 'recurringRules', 'monthHistory', 'currentMonth', 'personalCategories']
+  // Holiday keys count as a signature, as they do on iOS: a file carrying only
+  // holiday data is still a Sprout export, and rejecting it here while iOS
+  // accepts it is the kind of asymmetry that costs someone their gifts.
+  if (strict && !['groceryBudget', 'personalBudget', 'transactions', 'recurringRules', 'monthHistory', 'currentMonth', 'personalCategories',
+    'holidaySeason', 'holidaySeasonHistory']
     .some(key => Object.hasOwn(input, key) && input[key] != null)) throw new Error('This file is not a Sprout backup.');
   const warnings = [];
   const recover = (path, fn, fallback) => {
@@ -157,8 +209,16 @@ export function normalizeSnapshot(input, { strict = false } = {}) {
     })).sort((a, b) => b.monthKey.localeCompare(a.monthKey)),
     currentMonth: recover('currentMonth', () => input.currentMonth == null ? localDay(new Date()).slice(0, 7) : month(input.currentMonth), localDay(new Date()).slice(0, 7)),
     personalCategories: categories.length ? categories : defaultCategories,
-    holidaySeason: passthrough(input.holidaySeason),
-    holidaySeasonHistory: passthrough(input.holidaySeasonHistory),
+    // `null` rather than omitted when absent, so `Object.assign(state, snapshot)`
+    // on sign-out clears it like every other field. An omitted key would leave
+    // the previous account's holiday data in place.
+    holidaySeason: input.holidaySeason == null ? null : recover('holidaySeason', () =>
+      normalizeSeason(checkSeasonShape(input.holidaySeason, 'holidaySeason')), null),
+    holidaySeasonHistory: input.holidaySeasonHistory == null ? null : recover('holidaySeasonHistory', () => {
+      if (!Array.isArray(input.holidaySeasonHistory)) throw new Error('expected a list');
+      input.holidaySeasonHistory.forEach((row, index) => checkSeasonShape(row, `holidaySeasonHistory[${index}]`));
+      return normalizeHistory(input.holidaySeasonHistory);
+    }, null),
     updatedAt: recover('updatedAt', () => input.updatedAt == null ? '1970-01-01T00:00:00Z' : timestamp(input.updatedAt), '1970-01-01T00:00:00Z'),
   };
   return { snapshot, warnings };
