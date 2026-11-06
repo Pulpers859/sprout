@@ -631,6 +631,100 @@ struct BudgetStoreTests {
         #expect(store.transactions(for: .personal).first?.name == "Good")
     }
 
+    /// A file that parses but loses rows never reached the quarantine path, so the
+    /// dropped rows existed only in bytes the next save was about to overwrite.
+    @Test func aSalvagedLoadKeepsTheOriginalFileBeforeOverwritingIt() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let json = Self.ledgerWithOneUnreadableRow()
+        try Data(json.utf8).write(to: saveURL)
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(store.persistenceAlert?.kind == .droppedUnreadableRows(count: 1))
+
+        let directory = saveURL.deletingLastPathComponent()
+        let kept = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix("budget-data.partial-") && $0.hasSuffix(".json") }
+        let keptName = try #require(kept.first)
+        #expect(kept.count == 1)
+
+        // The alert has to say where it is, or a copy nobody can find is no better
+        // than no copy at all.
+        #expect(store.persistenceAlert?.message.contains(keptName) == true)
+
+        // An edit is what destroys the evidence, so prove the copy survives one.
+        let draft = TransactionDraft(name: "After", amountText: "5", selectedEmoji: "☕")
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        let liveText = try String(contentsOf: saveURL, encoding: .utf8)
+        #expect(!liveText.contains("Broken"))
+        let keptText = try String(contentsOf: directory.appendingPathComponent(keptName), encoding: .utf8)
+        #expect(keptText == json)
+    }
+
+    /// Nothing rewrites a damaged-but-readable file until the user edits, so every
+    /// launch re-reads the same bytes. One copy per launch would push the earlier
+    /// ones past the prune limit and throw the evidence away.
+    @Test func relaunchingOnTheSameDamagedFileKeepsOneCopy() throws {
+        let saveURL = Self.makeTempSaveURL()
+        try Data(Self.ledgerWithOneUnreadableRow().utf8).write(to: saveURL)
+
+        for _ in 0..<4 {
+            let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+            #expect(store.persistenceAlert?.kind == .droppedUnreadableRows(count: 1))
+        }
+
+        let kept = try FileManager.default.contentsOfDirectory(
+            atPath: saveURL.deletingLastPathComponent().path
+        ).filter { $0.hasPrefix("budget-data.partial-") }
+        #expect(kept.count == 1)
+    }
+
+    /// A clean file must not leave litter beside the ledger.
+    @Test func aCleanLoadKeepsNoSalvageCopy() throws {
+        let saveURL = Self.makeTempSaveURL()
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        let draft = TransactionDraft(name: "Fine", amountText: "10", selectedEmoji: "☕")
+        _ = store.addTransaction(mode: .expense, draft: draft, tab: .personal)
+
+        let reopened = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(reopened.persistenceAlert == nil)
+
+        let kept = try FileManager.default.contentsOfDirectory(
+            atPath: saveURL.deletingLastPathComponent().path
+        ).filter { $0.hasPrefix("budget-data.partial-") }
+        #expect(kept.isEmpty)
+    }
+
+    private static func ledgerWithOneUnreadableRow() -> String {
+        """
+        {
+          "schemaVersion": 2,
+          "groceryBudget": 40000,
+          "personalBudget": 20000,
+          "groceryCarryover": 0,
+          "personalCarryover": 0,
+          "currentMonth": "\(SproutDate.currentMonthKey())",
+          "personalCategories": [],
+          "recurringRules": [],
+          "monthHistory": [],
+          "updatedAt": "2026-07-01T12:00:00Z",
+          "transactions": [
+            {
+              "id": "\(UUID().uuidString)",
+              "name": "Good",
+              "amount": 1250,
+              "note": "",
+              "emoji": "\u{2615}",
+              "date": "2026-07-01T12:00:00Z",
+              "tab": "personal",
+              "isRefund": false
+            },
+            { "name": "Broken", "amount": "not-a-number" }
+          ]
+        }
+        """
+    }
+
     @Test func missingFileStartsCleanWithoutAlert() {
         let store = makeStore()
         #expect(store.persistenceAlert == nil)

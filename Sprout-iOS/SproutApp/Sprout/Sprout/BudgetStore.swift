@@ -1446,7 +1446,18 @@ final class BudgetStore: ObservableObject {
             let fileVersion = Self.peekSchemaVersion(from: data)
             let result = try decodeSnapshot(from: data)
             snapshot = result.snapshot
-            persistenceAlert = Self.alert(for: result.issues, context: .liveFile)
+            // A file that parses but loses rows never reaches the `catch` below, so
+            // nothing quarantines it — and the `persist()` below, or the user's very
+            // next edit, writes over the only copy that still holds those rows. Keep
+            // the bytes exactly as they were read, before anything can overwrite them.
+            let keptCopy = result.issues.hasIssues
+                ? preserveSalvagedSaveFile(originalData: data)?.lastPathComponent
+                : nil
+            persistenceAlert = Self.alert(
+                for: result.issues,
+                context: .liveFile,
+                keptFileName: keptCopy
+            )
             // Upgrade an older on-disk schema forward so money is migrated to cents
             // once, not re-parsed as dollars on every launch, and the file on disk
             // matches the current format.
@@ -1489,7 +1500,11 @@ final class BudgetStore: ObservableObject {
         case backupImport
     }
 
-    private static func alert(for issues: SproutDecodeIssueRecorder, context: DecodeContext) -> PersistenceAlert? {
+    private static func alert(
+        for issues: SproutDecodeIssueRecorder,
+        context: DecodeContext,
+        keptFileName: String? = nil
+    ) -> PersistenceAlert? {
         guard issues.hasIssues else { return nil }
 
         // Everything lost is named in one message. Reporting only the most severe
@@ -1563,8 +1578,17 @@ final class BudgetStore: ObservableObject {
         let message: String
         switch context {
         case .liveFile:
-            message = "\(subject.prefix(1).uppercased())\(subject.dropFirst()) couldn't be read and could not be restored. "
-                + "Everything else was recovered — restoring a backup in Settings may bring the rest back."
+            let opening = "\(subject.prefix(1).uppercased())\(subject.dropFirst()) couldn't be read."
+            if let keptFileName {
+                // Saying "could not be restored" was only ever true because nothing
+                // kept the damaged bytes. Now that a copy exists, say where it is.
+                message = opening
+                    + " Everything else was recovered, and a copy of the file as it was saved was kept at "
+                    + "\(keptFileName) — so the part that couldn't be read is still there to recover from."
+            } else {
+                message = opening + " It could not be restored. "
+                    + "Everything else was recovered — restoring a backup in Settings may bring the rest back."
+            }
         case .backupImport:
             message = "Restored from backup, but \(subject) couldn't be read and had to be skipped."
         }
@@ -1627,18 +1651,59 @@ final class BudgetStore: ObservableObject {
         return (decoded, recorder)
     }
 
-    @discardableResult
-    private func quarantineCorruptSaveFile() -> URL? {
+    /// A file Sprout could not parse at all.
+    private static let corruptFilePrefix = "budget-data.corrupt-"
+    /// A file Sprout could parse, but only by dropping rows out of it.
+    private static let salvagedFilePrefix = "budget-data.partial-"
+
+    private func timestampedFileName(prefix: String) -> String {
         let stamp = ISO8601DateFormatter().string(from: now())
             .replacingOccurrences(of: ":", with: "-")
+        return "\(prefix)\(stamp).json"
+    }
+
+    /// Keeps the bytes of a file that loaded only by dropping rows.
+    ///
+    /// `quarantineCorruptSaveFile` covers the file that would not parse; this covers
+    /// the one that parsed badly, which is the more dangerous case precisely because
+    /// the app carries on as normal and the next save destroys the evidence.
+    /// Returns where the copy is, or `nil` if the write failed.
+    private func preserveSalvagedSaveFile(originalData: Data) -> URL? {
+        let directory = saveURL.deletingLastPathComponent()
+
+        // Nothing rewrites a damaged-but-readable file until the user edits, so every
+        // launch until then reads the same bytes. Without this, each one would leave
+        // another identical copy and pruning would throw away the older evidence.
+        let alreadyKept = keptFiles(withPrefix: Self.salvagedFilePrefix).first { url in
+            (try? Data(contentsOf: url)) == originalData
+        }
+        if let alreadyKept {
+            return alreadyKept
+        }
+
+        let destination = directory
+            .appendingPathComponent(timestampedFileName(prefix: Self.salvagedFilePrefix))
+
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try originalData.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
+            pruneKeptFiles(withPrefix: Self.salvagedFilePrefix, keeping: 3)
+            return destination
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func quarantineCorruptSaveFile() -> URL? {
         let destination = saveURL
             .deletingLastPathComponent()
-            .appendingPathComponent("budget-data.corrupt-\(stamp).json")
+            .appendingPathComponent(timestampedFileName(prefix: Self.corruptFilePrefix))
 
         do {
             try? fileManager.removeItem(at: destination)
             try fileManager.moveItem(at: saveURL, to: destination)
-            pruneQuarantinedFiles(keeping: 3)
+            pruneKeptFiles(withPrefix: Self.corruptFilePrefix, keeping: 3)
             return destination
         } catch {
             // The corrupt bytes are still sitting at saveURL. Rotating them into the
@@ -1649,10 +1714,9 @@ final class BudgetStore: ObservableObject {
         }
     }
 
-    /// Each quarantined copy is a full copy of the user's ledger and nothing ever
-    /// removed them, so repeated corruption grew the app's storage without bound.
-    /// Only files this method itself names are ever considered for deletion.
-    private func pruneQuarantinedFiles(keeping limit: Int) {
+    /// Kept copies of a given kind, newest first. Only files Sprout itself named
+    /// this way are ever listed, so nothing else in the directory can be returned.
+    private func keptFiles(withPrefix prefix: String) -> [URL] {
         let directory = saveURL.deletingLastPathComponent()
         guard
             let contents = try? fileManager.contentsOfDirectory(
@@ -1661,19 +1725,25 @@ final class BudgetStore: ObservableObject {
                 options: [.skipsHiddenFiles]
             )
         else {
-            return
+            return []
         }
 
-        let quarantined = contents
-            .filter { $0.lastPathComponent.hasPrefix("budget-data.corrupt-") && $0.pathExtension == "json" }
+        return contents
+            .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "json" }
             .sorted { lhs, rhs in
                 let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 if lhsDate == rhsDate { return lhs.lastPathComponent > rhs.lastPathComponent }
                 return lhsDate > rhsDate
             }
+    }
 
-        for url in quarantined.dropFirst(limit) {
+    /// Each kept copy is a full copy of the user's ledger and nothing ever removed
+    /// them, so repeated damage grew the app's storage without bound. Each kind is
+    /// pruned against its own limit: a run of partial saves must not evict the
+    /// unparseable file that is the only record of a worse failure.
+    private func pruneKeptFiles(withPrefix prefix: String, keeping limit: Int) {
+        for url in keptFiles(withPrefix: prefix).dropFirst(limit) {
             try? fileManager.removeItem(at: url)
         }
     }

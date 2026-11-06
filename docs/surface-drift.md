@@ -136,15 +136,34 @@ Holiday differences that remain:
 Found by an independent audit on 2026-11-06 and not yet closed. Listed here
 rather than described as aligned.
 
-- **Web is ahead of iOS in four places.** Web can convert an expense to a
+- **Web is ahead of iOS in three places.** Web can convert an expense to a
   payment while editing (iOS forces delete-and-re-enter); web mints stable
   recurring-occurrence ids (`recurring:<ruleId>:<date>`) deduped against the
   live ledger and every archive, where iOS mints a fresh UUID per occurrence and
-  relies on the rule cursor alone; web blocks writes while saved data is
-  unreadable and offers to export the recovered and original copies, where iOS
-  alerts and keeps writing; web validates grouping placement when parsing an
-  amount, rejecting a mistyped `1,2` that iOS reads as 12. None of these is
-  fixed on iOS.
+  relies on the rule cursor alone; web validates grouping placement when parsing
+  an amount, rejecting a mistyped `1,2` that iOS reads as 12.
+
+  On the recurring ids: this is belt-and-braces on web rather than a live iOS
+  bug, and the earlier wording here overstated it. iOS persists rules and
+  transactions in one snapshot file, written atomically, so the cursor cannot
+  drift behind the rows it posted. Web's stable ids guard a case iOS does not
+  have. The difference still matters in one direction — a row iOS drops on a
+  lossy load is never reposted, because the cursor stayed ahead of it, where
+  web's dedupe would notice the gap and fill it.
+
+- **Resolved 2026-11-06: iOS writing over a partially-recovered ledger.** iOS
+  quarantined a save file it could not parse at all, but not one that parsed
+  only by dropping rows — the more dangerous case, because the app carries on
+  as normal and the next save destroys the evidence. The alert even said the
+  loss "could not be restored", which was true only because nothing had kept a
+  copy. `load()` now writes the bytes as they were read to
+  `budget-data.partial-<stamp>.json` before anything can overwrite them, names
+  that file in the alert, keeps one copy per distinct damaged file rather than
+  one per launch, and prunes each kind of kept copy against its own limit so a
+  run of partial saves cannot evict an unparseable one. This is the iOS-native
+  answer to the same risk; web's answer (block writes until an import resolves
+  it) stays as it is, because blocking writes on the primary surface would make
+  the app unusable.
 - The 12-month archive cap is applied on web only when archiving, not on
   import, so importing a 20-month backup leaves 20 archived months on web and
   12 on iOS. Web deliberately keeps everything an import carries.
