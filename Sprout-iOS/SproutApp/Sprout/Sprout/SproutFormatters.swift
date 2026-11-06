@@ -71,14 +71,18 @@ enum SproutMoneyText {
     }
 
     /// Splits well-formed amount text into its integer and fraction digits, or
-    /// returns `nil` if the text is not well formed. Expects Latin digits and the
-    /// locale's own separators; the caller screens anything else out first.
+    /// returns `nil` if the text is not well formed. Accepts only Latin digits and
+    /// the locale's own separators. `evaluate` screens non-Latin digits out before
+    /// calling and routes them to `NumberFormatter`; `isZeroAmount` does not, so a
+    /// zero written in native digits reads as "not zero" there. That predates this
+    /// and is recorded in `docs/surface-drift.md`, not fixed here.
     ///
     /// Grouping is **validated**, not stripped. Stripping it read a fat-fingered
     /// `"1,2"` as `12` — a silent tenfold mis-entry on the one field in the app
-    /// where the user is typing money, and the same permissiveness that stripping
-    /// every space turned `"1 2"` into `12`. Web has rejected malformed grouping
-    /// since its parser was written; iOS had not.
+    /// where the user is typing money. `stripped(_:locale:)` feeds this the
+    /// locale's own separator even where that separator is a space, so the check
+    /// applies in fr_FR and the like too rather than only where it is punctuation.
+    /// Web has rejected malformed grouping since its parser was written.
     private static func latinDigits(of candidate: String, locale: Locale) -> (whole: String, fraction: String)? {
         let decimalSeparator = locale.decimalSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? "."
         let groupingSeparator = locale.groupingSeparator.flatMap { $0.isEmpty ? nil : $0 } ?? ","
@@ -120,17 +124,26 @@ enum SproutMoneyText {
         for symbol in [locale.currencySymbol, locale.currency?.identifier].compactMap({ $0 }) where !symbol.isEmpty {
             candidate = candidate.replacingOccurrences(of: symbol, with: "")
         }
-        // Non-breaking spaces are never typed deliberately, so they always go.
-        var result = candidate
-            .replacingOccurrences(of: "\u{00A0}", with: "")
-            .replacingOccurrences(of: "\u{202F}", with: "")
-
-        // A plain space is only noise in locales that actually group with one.
-        // Stripping it everywhere turned a fat-fingered "1 2" into $12 instead of
-        // a validation error.
         let grouping = locale.groupingSeparator ?? ""
+        var result = candidate
+
         if !grouping.isEmpty, grouping.allSatisfy(\.isWhitespace) {
-            result = result.replacingOccurrences(of: " ", with: "")
+            // fr_FR and a dozen others group with U+202F or U+00A0. Deleting those
+            // left `latinDigits` nothing to validate, so "1 2" still read as $12 in
+            // every one of them — the exact mis-entry the grouping check exists to
+            // catch, silently exempt in the locales whose separator *is* a space.
+            // Rewrite each kind of space to the locale's own separator and let the
+            // placement check judge it, which is what web's `parseAmount` does.
+            for space in [" ", "\u{00A0}", "\u{202F}"] where space != grouping {
+                result = result.replacingOccurrences(of: space, with: grouping)
+            }
+        } else {
+            // Nothing groups with a space here, so a non-breaking one is stray
+            // decoration and goes. A plain space stays, so a fat-fingered "1 2"
+            // fails the strict scan rather than becoming $12.
+            result = result
+                .replacingOccurrences(of: "\u{00A0}", with: "")
+                .replacingOccurrences(of: "\u{202F}", with: "")
         }
 
         return result.trimmingCharacters(in: .whitespacesAndNewlines)

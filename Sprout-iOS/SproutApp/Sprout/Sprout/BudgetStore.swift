@@ -11,6 +11,7 @@ struct PersistenceAlert: Identifiable, Equatable {
         case droppedHistoryOrRules
         case unreadableTransactionList
         case startedFreshAfterCorruption
+        case saveFileCouldNotBeOpened
     }
 
     let id = UUID()
@@ -31,6 +32,8 @@ struct PersistenceAlert: Identifiable, Equatable {
             "Transactions couldn't be read"
         case .startedFreshAfterCorruption:
             "Started with a fresh budget"
+        case .saveFileCouldNotBeOpened:
+            "Couldn't open your budget"
         }
     }
 }
@@ -61,6 +64,10 @@ final class BudgetStore: ObservableObject {
     private let calendar: Calendar
     private let now: () -> Date
     private var corruptFileLeftInPlace = false
+    /// The save file exists but this launch could not read it. Every write is
+    /// blocked while this holds: the in-memory snapshot is empty, not the user's
+    /// ledger, so saving it would destroy a healthy file.
+    private var saveFileUnreadable = false
 
     /// `transactions(for:)` is read many times per view pass — the summary card
     /// alone asks for spent, remaining, progress, pace, and daily allowance — and
@@ -1388,6 +1395,13 @@ final class BudgetStore: ObservableObject {
 
         let result = try decodeSnapshot(from: data)
         snapshot = result.snapshot
+        // The undo is the one path that destroys its own source: it overwrites
+        // `saveURL`, pushes the imported file into the previous generation, and then
+        // deletes the pre-import copy. If that copy was itself only partly readable,
+        // the rows it lost would have no remaining home anywhere on disk.
+        if result.issues.hasIssues {
+            preserveSalvagedSaveFile(originalData: data)
+        }
         persistenceAlert = Self.alert(for: result.issues, context: .backupImport) ?? persistenceAlert
         selectedCalendarDate = nil
         refreshForCurrentDate(referenceDate: now())
@@ -1424,7 +1438,21 @@ final class BudgetStore: ObservableObject {
     func importBackupData(_ data: Data) throws {
         guard Self.looksLikeBackup(data) else { throw BackupNotRecognizedError() }
         let result = try decodeSnapshot(from: data)
-        writePreImportSafetyCopy()
+
+        if saveFileUnreadable {
+            // Writes are blocked because this launch could not read the save file,
+            // and the in-memory snapshot is empty rather than the user's ledger.
+            // An import is the one write that is still safe and is the only way out
+            // of that state, so it lifts the block — but it deliberately leaves no
+            // undo point, because the snapshot it would capture is the empty one,
+            // and offering "Undo Import" that restores an empty budget would be
+            // worse than offering nothing.
+            try? fileManager.removeItem(at: preImportSaveURL)
+            saveFileUnreadable = false
+        } else {
+            writePreImportSafetyCopy()
+        }
+
         snapshot = result.snapshot
         // Never clear a pending save failure just because the import itself was clean.
         persistenceAlert = Self.alert(for: result.issues, context: .backupImport) ?? persistenceAlert
@@ -1441,8 +1469,30 @@ final class BudgetStore: ObservableObject {
             return
         }
 
+        let data: Data
         do {
-            let data = try Data(contentsOf: saveURL)
+            data = try Data(contentsOf: saveURL)
+        } catch {
+            // A file that exists but cannot be *read* is not a corrupt file, and
+            // treating it as one is destructive: the save is written
+            // `.completeFileProtectionUnlessOpen`, so a launch while the device is
+            // locked fails here with a perfectly healthy ledger on disk. The old
+            // code shared one `catch` with decode failure, so it quarantined that
+            // healthy file — moving it aside — and started the user fresh. Leave
+            // the file untouched, report it, and block writes so the empty
+            // snapshot below cannot be saved over it by the next edit.
+            saveFileUnreadable = true
+            snapshot = .makeEmpty(now: now(), calendar: calendar)
+            persistenceAlert = PersistenceAlert(
+                kind: .saveFileCouldNotBeOpened,
+                message: "Sprout couldn't open your budget file on this launch, so nothing is shown here. "
+                    + "Your data is still on the device and has not been changed — close Sprout and open it "
+                    + "again with the phone unlocked. Nothing will be saved until it loads."
+            )
+            return
+        }
+
+        do {
             let fileVersion = Self.peekSchemaVersion(from: data)
             let result = try decodeSnapshot(from: data)
             snapshot = result.snapshot
@@ -1578,17 +1628,24 @@ final class BudgetStore: ObservableObject {
         let message: String
         switch context {
         case .liveFile:
-            let opening = "\(subject.prefix(1).uppercased())\(subject.dropFirst()) couldn't be read."
-            if let keptFileName {
-                // Saying "could not be restored" was only ever true because nothing
-                // kept the damaged bytes. Now that a copy exists, say where it is.
-                message = opening
-                    + " Everything else was recovered, and a copy of the file as it was saved was kept at "
-                    + "\(keptFileName) — so the part that couldn't be read is still there to recover from."
-            } else {
-                message = opening + " It could not be restored. "
-                    + "Everything else was recovered — restoring a backup in Settings may bring the rest back."
+            // Restoring a backup is the only step the user can actually take, so it
+            // belongs in this message whether or not a copy was kept. An earlier
+            // version of this moved it into the no-copy branch — i.e. showed the one
+            // actionable instruction only on the rarer path where it helps least.
+            var sentences = [
+                "\(subject.prefix(1).uppercased())\(subject.dropFirst()) couldn't be read.",
+                "Everything else was recovered — restoring a backup in Settings may bring the rest back."
+            ]
+            if keptFileName != nil {
+                // Deliberately does not name the file or tell the user to open it.
+                // The save lives in Application Support and the app ships without
+                // `UIFileSharingEnabled`, so the Files app cannot see it and the
+                // only importer is a document picker that cannot reach the
+                // container. What the copy is actually for is a device backup and
+                // a future build that can offer it, so promise only that it exists.
+                sentences.append("The file as it was saved was kept on this device, so nothing is gone for good.")
             }
+            message = sentences.joined(separator: " ")
         case .backupImport:
             message = "Restored from backup, but \(subject) couldn't be read and had to be skipped."
         }
@@ -1667,22 +1724,49 @@ final class BudgetStore: ObservableObject {
     /// `quarantineCorruptSaveFile` covers the file that would not parse; this covers
     /// the one that parsed badly, which is the more dangerous case precisely because
     /// the app carries on as normal and the next save destroys the evidence.
-    /// Returns where the copy is, or `nil` if the write failed.
+    /// Returns where the copy is, or `nil` if no free name was available or the
+    /// write failed.
+    @discardableResult
     private func preserveSalvagedSaveFile(originalData: Data) -> URL? {
         let directory = saveURL.deletingLastPathComponent()
 
         // Nothing rewrites a damaged-but-readable file until the user edits, so every
         // launch until then reads the same bytes. Without this, each one would leave
         // another identical copy and pruning would throw away the older evidence.
-        let alreadyKept = keptFiles(withPrefix: Self.salvagedFilePrefix).first { url in
-            (try? Data(contentsOf: url)) == originalData
+        let existing = keptFiles(withPrefix: Self.salvagedFilePrefix)
+        let alreadyKept = existing.first { url in
+            // Compare sizes before reading. These are whole-ledger files and this
+            // runs inside `init` on every launch while the live file stays damaged,
+            // so the common answer — "different file" — must not cost a full read.
+            guard
+                let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                size == originalData.count
+            else {
+                return false
+            }
+            return (try? Data(contentsOf: url)) == originalData
         }
         if let alreadyKept {
+            // Prune here too. Doing it only after a successful write left a
+            // directory that already held too many copies untrimmed on exactly the
+            // launches that take this path.
+            pruneKeptFiles(withPrefix: Self.salvagedFilePrefix, keeping: 3)
             return alreadyKept
         }
 
-        let destination = directory
-            .appendingPathComponent(timestampedFileName(prefix: Self.salvagedFilePrefix))
+        // The stamp is only second-resolution, and `.atomic` *replaces* whatever is
+        // at the path — so two damaged files preserved inside one second would leave
+        // one copy. Certain, not merely unlikely, under an injected frozen clock.
+        let taken = Set(existing.map(\.lastPathComponent))
+        guard
+            let destination = uniqueDestination(
+                in: directory,
+                prefix: Self.salvagedFilePrefix,
+                avoiding: taken
+            )
+        else {
+            return nil
+        }
 
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1694,14 +1778,38 @@ final class BudgetStore: ObservableObject {
         }
     }
 
+    /// A free path for a kept copy. The timestamp alone collides whenever two are
+    /// written in the same second, which a frozen test clock guarantees.
+    private func uniqueDestination(in directory: URL, prefix: String, avoiding taken: Set<String>) -> URL? {
+        let base = timestampedFileName(prefix: prefix)
+        let stem = (base as NSString).deletingPathExtension
+        for suffix in 0 ... 99 {
+            let name = suffix == 0 ? base : "\(stem)-\(suffix).json"
+            let candidate = directory.appendingPathComponent(name)
+            if !taken.contains(name), !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
     @discardableResult
     private func quarantineCorruptSaveFile() -> URL? {
-        let destination = saveURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(timestampedFileName(prefix: Self.corruptFilePrefix))
+        let directory = saveURL.deletingLastPathComponent()
+        // Was `removeItem` then `moveItem` at a second-resolution path, which threw
+        // away the earlier copy when two quarantines landed in the same second.
+        guard
+            let destination = uniqueDestination(
+                in: directory,
+                prefix: Self.corruptFilePrefix,
+                avoiding: Set(keptFiles(withPrefix: Self.corruptFilePrefix).map(\.lastPathComponent))
+            )
+        else {
+            corruptFileLeftInPlace = true
+            return nil
+        }
 
         do {
-            try? fileManager.removeItem(at: destination)
             try fileManager.moveItem(at: saveURL, to: destination)
             pruneKeptFiles(withPrefix: Self.corruptFilePrefix, keeping: 3)
             return destination
@@ -1749,6 +1857,9 @@ final class BudgetStore: ObservableObject {
     }
 
     private func persist() {
+        // See `saveFileUnreadable`: the ledger on disk is intact and the one in
+        // memory is empty, so this write would be a deletion.
+        guard !saveFileUnreadable else { return }
         snapshot.personalCategories = normalizedCategories(snapshot.personalCategories)
         snapshot.monthHistory = normalizedMonthHistory(snapshot.monthHistory)
         snapshot.holidaySeason = normalizedHolidaySeason(snapshot.holidaySeason)

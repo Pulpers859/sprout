@@ -644,8 +644,8 @@ struct BudgetStoreTests {
         let directory = saveURL.deletingLastPathComponent()
         let kept = try FileManager.default.contentsOfDirectory(atPath: directory.path)
             .filter { $0.hasPrefix("budget-data.partial-") && $0.hasSuffix(".json") }
-        let keptName = try #require(kept.first)
         #expect(kept.count == 1)
+        let keptName = try #require(kept.first)
 
         // The alert has to say where it is, or a copy nobody can find is no better
         // than no copy at all.
@@ -1541,18 +1541,23 @@ struct BudgetStoreTests {
     @Test func zeroIsRecognisedThroughTheSharedNormalization() {
         // The budget editor's own copy of this check choked on decoration the
         // shared parser strips, so a zero budget could not be entered as "$0".
+        // Pinned to en_US rather than left on `Locale.current`: the workflow sets no
+        // locale, and "0.00" is correctly *not* zero in a "."-grouping locale like
+        // de_DE, so this would pass or fail depending on the runner's region.
+        let enUS = Locale(identifier: "en_US")
         for text in ["0", "0.00", "00", "$0", "$0.00", " 0 "] {
-            #expect(SproutMoneyText.isZeroAmount(text), "expected \(text) to read as zero")
+            #expect(SproutMoneyText.isZeroAmount(text, locale: enUS), "expected \(text) to read as zero")
         }
         for text in ["", "   ", "1", "0.01", "abc"] {
-            #expect(!SproutMoneyText.isZeroAmount(text), "expected \(text) not to read as zero")
+            #expect(!SproutMoneyText.isZeroAmount(text, locale: enUS), "expected \(text) not to read as zero")
         }
     }
 
     @Test func amountsSurviveCurrencyDecorationAndPlainSpaces() {
-        #expect(SproutMoneyText.parse("$12.50")?.cents == 1250)
-        #expect(SproutMoneyText.parse("  12.50  ")?.cents == 1250)
-        #expect(SproutMoneyText.parse("$1,234.56")?.cents == 123_456)
+        let enUS = Locale(identifier: "en_US")
+        #expect(SproutMoneyText.parse("$12.50", locale: enUS)?.cents == 1250)
+        #expect(SproutMoneyText.parse("  12.50  ", locale: enUS)?.cents == 1250)
+        #expect(SproutMoneyText.parse("$1,234.56", locale: enUS)?.cents == 123_456)
     }
 
     @Test func moneyStaysInsideItsRangeUnderArithmetic() {
@@ -1725,6 +1730,70 @@ struct BudgetStoreTests {
         #expect(SproutMoneyText.isZeroAmount("0", locale: enUS))
         #expect(SproutMoneyText.isZeroAmount("0.00", locale: enUS))
         #expect(SproutMoneyText.isZeroAmount("0,000", locale: enUS))
+    }
+
+    /// Grouping with a space used to exempt a whole set of locales from the
+    /// placement check, because the separator was deleted before anything could
+    /// look at it.
+    @Test func whitespaceGroupingLocalesValidateGroupingToo() {
+        let french = Locale(identifier: "fr_FR")
+        let narrow = "\u{202F}"
+
+        // The mis-entry, in all three shapes a keyboard can produce it.
+        #expect(SproutMoneyText.parse("1 2", locale: french) == nil)
+        #expect(SproutMoneyText.parse("1\u{00A0}2", locale: french) == nil)
+        #expect(SproutMoneyText.parse("1\(narrow)2", locale: french) == nil)
+
+        // Correctly grouped French input still reads, whichever space was typed.
+        #expect(SproutMoneyText.parse("1 234,50", locale: french)?.cents == 123_450)
+        #expect(SproutMoneyText.parse("1\(narrow)234,50", locale: french)?.cents == 123_450)
+        #expect(SproutMoneyText.parse("123456,78", locale: french)?.cents == 12_345_678)
+    }
+
+    /// The save is written `.completeFileProtectionUnlessOpen`, so a launch while
+    /// the device is locked fails to *read* a perfectly healthy file. That shared
+    /// one `catch` with decode failure, so it quarantined the good ledger — moved
+    /// it aside — and started the user fresh.
+    @Test func anUnreadableSaveFileIsLeftAloneRatherThanQuarantined() throws {
+        let saveURL = Self.makeTempSaveURL()
+
+        let store = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        let draft = TransactionDraft(name: "Rent", amountText: "1200", selectedEmoji: "🏠")
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        let healthyBytes = try Data(contentsOf: saveURL)
+
+        // Stand in for the locked-device read failure: a file the process cannot
+        // open, which is what `Data(contentsOf:)` throws on.
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: saveURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: saveURL.path) }
+
+        // Confirm the premise before asserting anything about it: the file has to be
+        // genuinely unreadable in-process for this test to mean what it says.
+        #expect((try? Data(contentsOf: saveURL)) == nil)
+
+        let blocked = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(blocked.persistenceAlert?.kind == .saveFileCouldNotBeOpened)
+
+        // Not quarantined: the file is still exactly where it was.
+        #expect(FileManager.default.fileExists(atPath: saveURL.path))
+        let siblings = try FileManager.default.contentsOfDirectory(
+            atPath: saveURL.deletingLastPathComponent().path
+        )
+        #expect(!siblings.contains(where: { $0.hasPrefix("budget-data.corrupt-") }))
+
+        // And an edit in this state must not save the empty snapshot over it.
+        let afterwards = TransactionDraft(name: "Oops", amountText: "5", selectedEmoji: "☕")
+        _ = blocked.addTransaction(mode: .expense, draft: afterwards, tab: .personal)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: saveURL.path)
+        let bytesNow = try Data(contentsOf: saveURL)
+        #expect(bytesNow == healthyBytes)
+
+        // Reopening once it is readable again brings the real ledger back.
+        let recovered = BudgetStore(fileManager: .default, calendar: .current, saveURL: saveURL)
+        #expect(recovered.persistenceAlert == nil)
+        #expect(recovered.transactions(for: .personal).contains { $0.name == "Rent" })
+        #expect(!recovered.transactions(for: .personal).contains { $0.name == "Oops" })
     }
 
     // MARK: - Ledger invariants under random month sequences

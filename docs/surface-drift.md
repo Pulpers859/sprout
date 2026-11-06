@@ -160,14 +160,29 @@ rather than described as aligned.
   consequence is deliberate: `"12.50"` in de_DE is now rejected rather than read
   as €1,250, which is what web already did.
 
-  Two gaps remain, both narrower than the one closed. `stripped()` deletes
-  U+00A0 and U+202F before parsing, and deletes plain spaces in locales that
-  group with whitespace, so in fr_FR and the like the grouping separator is gone
-  before there is anything to validate and `"1 2"` is still read as 12. Web
-  instead rewrites whitespace *to* the grouping separator and then validates. And
-  the non-Latin-digit path still hands the whole string to `NumberFormatter`
-  without a grouping check, where web transliterates the digits first and checks.
-  Neither affects the en_US surface this app ships on.
+  The first version of this fix did not apply in any locale whose grouping
+  separator *is* a space. `stripped()` deleted U+00A0 and U+202F outright, and
+  deleted plain spaces wherever the locale grouped with one, so by the time the
+  placement check ran there was no separator left to look at and `"1 2"` still
+  read as 12 in fr_FR, sv, fi, nb, pl, cs, ru and a dozen more — the exact
+  mis-entry the check exists to catch, silently exempt in a third of the
+  locale set. `stripped()` now rewrites each kind of space *to* the locale's own
+  separator and lets the check judge the placement, which is what web's
+  `parseAmount` does. In locales that group with punctuation a non-breaking space
+  is still stray decoration and is still removed, and a plain space is still left
+  in place so `"1 2"` fails the strict character scan.
+
+  One gap remains: the non-Latin-digit path hands the whole string to
+  `NumberFormatter` without a grouping check, where web transliterates the digits
+  first and then checks. A related consequence, unchanged by this work, is that
+  `isZeroAmount` only accepts Latin digits, so a zero budget cannot be entered as
+  `"٠"`.
+
+  A visible side effect worth stating: validation is computed from the live text
+  on every keystroke, so typing `1,234` in en_US now passes through `"1,"` and
+  `"1,2"`, each of which is invalid, and the error line appears and Save disables
+  until the final digit lands. Previously `"1,2"` parsed as $12 so nothing
+  flashed. Web behaves the same way.
 
 - **Resolved 2026-11-06: iOS writing over a partially-recovered ledger.** iOS
   quarantined a save file it could not parse at all, but not one that parsed
@@ -175,13 +190,47 @@ rather than described as aligned.
   as normal and the next save destroys the evidence. The alert even said the
   loss "could not be restored", which was true only because nothing had kept a
   copy. `load()` now writes the bytes as they were read to
-  `budget-data.partial-<stamp>.json` before anything can overwrite them, names
-  that file in the alert, keeps one copy per distinct damaged file rather than
-  one per launch, and prunes each kind of kept copy against its own limit so a
-  run of partial saves cannot evict an unparseable one. This is the iOS-native
-  answer to the same risk; web's answer (block writes until an import resolves
-  it) stays as it is, because blocking writes on the primary surface would make
-  the app unusable.
+  `budget-data.partial-<stamp>.json` before anything can overwrite them, keeps
+  one copy per distinct damaged file rather than one per launch, and prunes each
+  kind of kept copy against its own limit so a run of partial saves cannot evict
+  an unparseable one. `undoImport()` preserves too, because it is the one path
+  that destroys its own source: it overwrites the save, pushes the imported file
+  into the previous generation, and then deletes the pre-import copy. This is the
+  iOS-native answer to the same risk; web's answer (block writes until an import
+  resolves it) stays as it is, because blocking writes on the primary surface
+  would make the app unusable.
+
+  **The copy is not reachable by the user.** The save lives in Application
+  Support and the app ships without `UIFileSharingEnabled` or
+  `LSSupportsOpeningDocumentsInPlace`, so the Files app cannot see it, and the
+  only import path is a document picker that cannot reach the app container. The
+  copy is therefore worth exactly one thing today — it rides along in an
+  encrypted device backup, and a later build could offer it — so the alert says
+  only that the file was kept, and does not name it or suggest opening it. The
+  alert also still tells the user to restore a backup in Settings, which is the
+  one step they can actually take; an earlier draft of this change moved that
+  sentence into the branch where no copy was written, i.e. showed the only
+  actionable instruction on the rarer path.
+
+  One claim made while landing this was wrong and is corrected here: a
+  damaged-but-readable file *is* usually rewritten on the first load, because
+  `finishLoad()` processes recurring rules and persists whenever one was due. The
+  content dedupe therefore only does work for a user with no rule due that day.
+  The copy is still written before any of it.
+
+- **Resolved 2026-11-06: a save file that could not be *read* was treated as
+  corrupt.** `load()` shared one `catch` between "could not open the file" and
+  "could not decode the file". The save is written
+  `.completeFileProtectionUnlessOpen`, so a launch while the device is locked
+  fails on the read with a perfectly healthy ledger on disk — and the shared
+  handler quarantined it, moving the user's real file aside and starting them
+  fresh or from the previous generation. The read is now separate: the file is
+  left exactly where it is, a distinct alert explains that the data is unchanged
+  and to reopen unlocked, and every write is blocked while that state holds so
+  the empty in-memory snapshot cannot be saved over the real one by the next
+  edit. An explicit backup import lifts the block, since it is the only way out
+  if the file is permanently unreadable, and deliberately leaves no undo point
+  because the snapshot it would capture is the empty one.
 - The 12-month archive cap is applied on web only when archiving, not on
   import, so importing a 20-month backup leaves 20 archived months on web and
   12 on iOS. Web deliberately keeps everything an import carries.
