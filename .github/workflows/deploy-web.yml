@@ -34,11 +34,21 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Pinned by commit SHA, matching automation-xcode.yml. A tag can be moved;
+      # a SHA cannot.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+      # No setup-node: the runner already ships a current Node, and the suite
+      # only needs `node --test`. One less action in the supply chain, and one
+      # less thing to deprecate. Checked rather than assumed.
+      - name: Check the runner's Node
+        run: |
+          node --version
+          major="$(node -p 'process.versions.node.split(".")[0]')"
+          if [ "$major" -lt 20 ]; then
+            echo "Node 20 or newer is required for the test runner; found $(node --version)." >&2
+            exit 1
+          fi
 
       # Runs the web test suite first and fails here on a red suite, so the
       # deploy step below never runs against a broken build.
