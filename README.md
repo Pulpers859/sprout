@@ -45,33 +45,47 @@ Runtime-critical work is concentrated in the two app folders above. Everything e
 
 ## Deploying the web app
 
-The Netlify site rebuilds from `main` on every push. `netlify.toml` points at
-`tools/netlify-build.sh`, which runs the web test suite and then writes
-`Sprout-html/sprout-firebase-config.js` from the site's environment variables.
-A failing test fails the build, so a red suite cannot reach the live site.
+`.github/workflows/deploy-web.yml` publishes `Sprout-html/` to
+https://sprout-budgeting.netlify.app/ on every push to `main` that touches the
+web app. It runs `tools/netlify-build.sh` first, which runs the web test suite
+and then writes `Sprout-html/sprout-firebase-config.js` from the environment.
+A red suite fails the job before the deploy step, so it cannot reach the live
+site.
 
 **A push to `main` is a deploy.** There is no separate publish step.
 
-One-time setup in the Netlify UI, if the site is not already wired this way:
+Required repository secrets (Settings -> Secrets and variables -> Actions):
 
-1. **Site configuration -> Build & deploy -> Continuous deployment**: link the
-   site to this GitHub repo, production branch `main`. Leave the build command
-   and publish directory blank so `netlify.toml` supplies them.
-2. **Site configuration -> Environment variables**: add the six values from
-   `Sprout-html/sprout-firebase-config.example.js`, named
-   `SPROUT_FIREBASE_API_KEY`, `SPROUT_FIREBASE_AUTH_DOMAIN`,
-   `SPROUT_FIREBASE_PROJECT_ID`, `SPROUT_FIREBASE_STORAGE_BUCKET`,
-   `SPROUT_FIREBASE_MESSAGING_SENDER_ID`, `SPROUT_FIREBASE_APP_ID`. The build
-   fails with the missing names listed rather than publishing a site that
-   cannot sign in.
-3. **Firebase console -> Authentication -> Settings -> Authorized domains**:
-   the Netlify domain has to be listed or Google sign-in is rejected there,
-   not here.
+| Secret | What |
+| --- | --- |
+| `NETLIFY_AUTH_TOKEN` | Netlify personal access token (User settings -> Applications) |
+| `NETLIFY_SITE_ID` | the site's API ID (Site configuration -> General) |
+| `SPROUT_FIREBASE_CONFIG_JSON` | the whole Firebase web config as one JSON object |
 
-The config file stays untracked and is generated at build time, so live values
-never enter git and the secret-scanning hook still applies. Local development
-is unchanged: keep using `sprout-firebase-config.local.js`, which the deployed
-site does not have (its 404 in the console is expected and harmless).
+`SPROUT_FIREBASE_CONFIG_JSON` is the contents of
+`sprout-firebase-config.local.js` as JSON — the six keys from
+`sprout-firebase-config.example.js`, no `window.SPROUT_FIREBASE =` wrapper and
+no trailing semicolon:
+
+```json
+{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}
+```
+
+The six `SPROUT_FIREBASE_*` variables are accepted individually instead, and
+win if both are set. Either way the build fails and names what is missing
+rather than publishing a site that loads and then cannot sign in.
+
+The config file stays untracked and is generated at deploy time, so live
+values never enter git and the secret-scanning hook still applies. Local
+development is unchanged: keep using `sprout-firebase-config.local.js`.
+
+`netlify.toml` covers the other direction — if the site is ever linked to the
+repo in the Netlify UI, Netlify's own build uses the same script, and the six
+values go in Netlify's environment variables instead.
+
+Note for whoever wires this up: **Firebase console -> Authentication ->
+Settings -> Authorized domains** must list the Netlify domain, or Google
+sign-in is rejected there rather than here. This is already in place.
 
 To run the same build locally before pushing:
 

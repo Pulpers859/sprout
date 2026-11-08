@@ -1,0 +1,79 @@
+# Publishes Sprout-html to Netlify on every push to main.
+#
+# Replaces deploying by hand from the owner's machine. Before this, the live
+# site tracked whatever was last uploaded from that machine — it sat 17 commits
+# behind for five weeks, without the Holiday tab, and nothing reported it.
+#
+# Repository secrets required (Settings -> Secrets and variables -> Actions):
+#   NETLIFY_AUTH_TOKEN         Netlify personal access token
+#   NETLIFY_SITE_ID            the site's API ID
+#   SPROUT_FIREBASE_CONFIG_JSON  the whole Firebase web config as one JSON
+#                                object, or set the six SPROUT_FIREBASE_*
+#                                variables individually instead
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Sprout-html/**'
+      - 'netlify.toml'
+      - 'tools/netlify-build.sh'
+      - '.github/workflows/deploy-web.yml'
+  # So a deploy can be re-run without an empty commit, and so the first run can
+  # be started by hand once the secrets exist.
+  workflow_dispatch:
+
+# Never let two deploys race. Queue rather than cancel: a cancelled deploy
+# could leave the live site on the older of two pushes.
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Runs the web test suite first and fails here on a red suite, so the
+      # deploy step below never runs against a broken build.
+      - name: Test and generate the Firebase config
+        env:
+          SPROUT_FIREBASE_CONFIG_JSON: ${{ secrets.SPROUT_FIREBASE_CONFIG_JSON }}
+          SPROUT_FIREBASE_API_KEY: ${{ secrets.SPROUT_FIREBASE_API_KEY }}
+          SPROUT_FIREBASE_AUTH_DOMAIN: ${{ secrets.SPROUT_FIREBASE_AUTH_DOMAIN }}
+          SPROUT_FIREBASE_PROJECT_ID: ${{ secrets.SPROUT_FIREBASE_PROJECT_ID }}
+          SPROUT_FIREBASE_STORAGE_BUCKET: ${{ secrets.SPROUT_FIREBASE_STORAGE_BUCKET }}
+          SPROUT_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.SPROUT_FIREBASE_MESSAGING_SENDER_ID }}
+          SPROUT_FIREBASE_APP_ID: ${{ secrets.SPROUT_FIREBASE_APP_ID }}
+        run: bash tools/netlify-build.sh
+
+      # Fail with a clear message rather than letting the CLI report something
+      # obscure about an unauthenticated request.
+      - name: Check the Netlify secrets exist
+        env:
+          TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$SITE" ]; then
+            echo "NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID must both be set as repository secrets." >&2
+            exit 1
+          fi
+
+      # `deploy` without `--build` uploads the directory as it stands, which is
+      # what the step above just prepared. The generated config is gitignored,
+      # so it exists only in this runner and is uploaded, never committed.
+      - name: Deploy to Netlify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@27.16.2 deploy \
+            --prod \
+            --dir=Sprout-html \
+            --message "${GITHUB_SHA:0:7} ${GITHUB_REF_NAME}: $(git log -1 --pretty=%s | head -c 80)"
