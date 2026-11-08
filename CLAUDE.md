@@ -34,3 +34,9 @@ Claude-local workflow helpers:
 - Use `@.claude/skills/sprout-parallel-audit/SKILL.md` for broad reviews or release checks that span multiple high-risk areas.
 - For focused bugs, use the narrow skills first: `budget-invariants`, `month-rollover-check`, `backup-persistence-check`, `quick-entry-path-check`, and `surface-drift-check`.
 - Launching Claude through `tools/Launch-Sprout-Claude.ps1` opens directly in `C:\Dev\Sprout` and detects the repo-local commands and skills.
+
+Reporting style (owner's standing preference):
+
+- Keep chat summaries short. Lead with what changed and what is broken; skip the narration.
+- No side tangents, no re-explaining work already reported, no repeating open questions every turn.
+- Detail belongs in the commit message and `docs/`, not in chat.
