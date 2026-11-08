@@ -1,0 +1,24 @@
+# Auto-deploy for the Sprout web app.
+#
+# Netlify builds this repo on every push to `main` once the site is linked to
+# it. `tools/netlify-build.sh` runs the web test suite first, so a red suite
+# fails the deploy instead of publishing, then writes the Firebase config from
+# the site's environment variables.
+[build]
+  publish = "Sprout-html"
+  command = "bash tools/netlify-build.sh"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Only `main` publishes. A branch build still runs the tests and produces a
+# preview URL, which is a useful check, but never replaces the live site.
+[context.production]
+  command = "bash tools/netlify-build.sh"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"

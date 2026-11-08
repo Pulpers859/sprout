@@ -48,7 +48,14 @@ Optimize work around these risks first:
 - Keep fixes small and explicit.
 - After making code or documentation changes, commit them and push them to GitHub before handing off unless I explicitly tell you not to.
 - Do not hide Git mutation: tell me what you committed and pushed.
-- Do not auto-deploy or add silent mutating hooks.
+- Do not add silent mutating hooks.
+- Do not set up a new deploy path, or deploy by hand, without being asked.
+  One exception, authorized by the owner on 2026-11-08: the Netlify site
+  rebuilds from `main` on every push, via `netlify.toml` and
+  `tools/netlify-build.sh`. It is not silent — the build runs the web test
+  suite first and fails the deploy on a red suite — but it does mean **a push
+  to `main` changes the live site**. Treat a web change as shipped the moment
+  it is pushed.
 - `.githooks/pre-commit` scans staged files for live credentials, but Git ignores it until `git config core.hooksPath .githooks` has been run in the clone. Verify that before relying on it.
 - Do not introduce broad background automation.
 - Do not assume the current folder is the source of truth without checking; normal work should happen in `C:\Dev\Sprout`.

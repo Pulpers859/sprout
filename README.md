@@ -43,6 +43,45 @@ Runtime-critical work is concentrated in the two app folders above. Everything e
 - Treat `.netlify/` as generated local output.
 - Treat old Desktop/OneDrive copies as stale if they reappear; this repo is the active working copy.
 
+## Deploying the web app
+
+The Netlify site rebuilds from `main` on every push. `netlify.toml` points at
+`tools/netlify-build.sh`, which runs the web test suite and then writes
+`Sprout-html/sprout-firebase-config.js` from the site's environment variables.
+A failing test fails the build, so a red suite cannot reach the live site.
+
+**A push to `main` is a deploy.** There is no separate publish step.
+
+One-time setup in the Netlify UI, if the site is not already wired this way:
+
+1. **Site configuration -> Build & deploy -> Continuous deployment**: link the
+   site to this GitHub repo, production branch `main`. Leave the build command
+   and publish directory blank so `netlify.toml` supplies them.
+2. **Site configuration -> Environment variables**: add the six values from
+   `Sprout-html/sprout-firebase-config.example.js`, named
+   `SPROUT_FIREBASE_API_KEY`, `SPROUT_FIREBASE_AUTH_DOMAIN`,
+   `SPROUT_FIREBASE_PROJECT_ID`, `SPROUT_FIREBASE_STORAGE_BUCKET`,
+   `SPROUT_FIREBASE_MESSAGING_SENDER_ID`, `SPROUT_FIREBASE_APP_ID`. The build
+   fails with the missing names listed rather than publishing a site that
+   cannot sign in.
+3. **Firebase console -> Authentication -> Settings -> Authorized domains**:
+   the Netlify domain has to be listed or Google sign-in is rejected there,
+   not here.
+
+The config file stays untracked and is generated at build time, so live values
+never enter git and the secret-scanning hook still applies. Local development
+is unchanged: keep using `sprout-firebase-config.local.js`, which the deployed
+site does not have (its 404 in the console is expected and harmless).
+
+To run the same build locally before pushing:
+
+```
+SPROUT_FIREBASE_API_KEY=... SPROUT_FIREBASE_AUTH_DOMAIN=... \
+SPROUT_FIREBASE_PROJECT_ID=... SPROUT_FIREBASE_STORAGE_BUCKET=... \
+SPROUT_FIREBASE_MESSAGING_SENDER_ID=... SPROUT_FIREBASE_APP_ID=... \
+bash tools/netlify-build.sh
+```
+
 ## Secret scanning
 
 `.githooks/pre-commit` blocks a commit that would introduce a live API key or
