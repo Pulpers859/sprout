@@ -38,16 +38,54 @@ const FIELDS = [
   ['appId', 'SPROUT_FIREBASE_APP_ID'],
 ];
 
+/**
+ * Accepts either strict JSON or the contents of `sprout-firebase-config.js`
+ * pasted verbatim — `window.SPROUT_FIREBASE = { apiKey: "...", ... };`.
+ *
+ * That file is JavaScript, not JSON: its keys are unquoted. Requiring someone
+ * to hand-convert it, on a phone, into a single-line JSON string is a good way
+ * to get a deploy that fails on a typo. So the wrapper and the comments are
+ * stripped and the known keys are quoted, then it is parsed as JSON.
+ *
+ * Deliberately not `eval` or `new Function`: this is a config value, and
+ * nothing here needs the ability to run code.
+ */
+function parseConfigInput(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Not strict JSON; fall through and try the JS-file shape.
+  }
+
+  const body = raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const open = body.indexOf('{');
+  const close = body.lastIndexOf('}');
+  if (open === -1 || close <= open) return null;
+
+  const quoted = body
+    .slice(open, close + 1)
+    // Quote only the keys this config actually has, so nothing else in the
+    // text can be reinterpreted as one.
+    .replace(/([{,]\s*)(apiKey|authDomain|projectId|storageBucket|messagingSenderId|appId)(\s*:)/g, '$1"$2"$3')
+    // A trailing comma is legal in JS and not in JSON.
+    .replace(/,(\s*})/g, '$1');
+
+  try {
+    return JSON.parse(quoted);
+  } catch {
+    return null;
+  }
+}
+
 let fromJson = {};
 if (process.env.SPROUT_FIREBASE_CONFIG_JSON) {
-  try {
-    fromJson = JSON.parse(process.env.SPROUT_FIREBASE_CONFIG_JSON);
-  } catch {
-    console.error('SPROUT_FIREBASE_CONFIG_JSON is set but is not valid JSON.');
-    process.exit(1);
-  }
+  fromJson = parseConfigInput(process.env.SPROUT_FIREBASE_CONFIG_JSON);
   if (fromJson === null || typeof fromJson !== 'object' || Array.isArray(fromJson)) {
-    console.error('SPROUT_FIREBASE_CONFIG_JSON must be a JSON object.');
+    console.error('SPROUT_FIREBASE_CONFIG_JSON could not be read.');
+    console.error('Paste either a JSON object, or the whole contents of');
+    console.error('sprout-firebase-config.js including the window.SPROUT_FIREBASE wrapper.');
     process.exit(1);
   }
 }
