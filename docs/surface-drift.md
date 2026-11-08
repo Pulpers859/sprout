@@ -40,7 +40,13 @@ mismatch that had been latent.
   `iso()` has always stripped milliseconds from the monthly fields on export.
   `holiday.mjs` now produces that form at the point of authoring, so the device
   cache, the Firestore document and the exported file all agree, and anything
-  already stored in another shape is converted on the next load.
+  already stored in another shape is converted on the next load. This was true
+  of the holiday fields and the export from the start, and *not* of
+  `monthHistory[].archivedAt` or `updatedAt`, which kept their milliseconds in
+  the cache and the Firestore document until an audit on 2026-11-08 caught it.
+  Both are whole seconds now, and a test asserts that none of the three sinks
+  carries a fractional stamp — previously only the export was ever checked,
+  which is exactly why it went unnoticed.
 - **iOS decoding accepts fractional seconds as well.** `.iso8601` is
   `ISO8601DateFormatter` with `.withInternetDateTime` and *not*
   `.withFractionalSeconds`, so `…T12:00:00.000Z` failed to decode — and failed
@@ -74,8 +80,16 @@ budget, the people being bought for, gifts, returns, and seasons.
   `schemaVersion: 1` because an earlier web build passed it through
   uninterpreted. Rescaling it by version would read every stored $40 gift as
   $4,000. `holiday.mjs` names every money helper `...Cents` for that reason.
-- `normalizeSeason` writes a complete, fixed key set and preserves keys it does
-  not model. Both matter: Firestore writes use `{merge: true}`, which
+- `normalizeSeason` writes a complete key set for every key it models, and
+  preserves keys it does not. Those two rules are in tension and the merge
+  resolves it in favour of stale data: `startNewSeason` builds a literal with
+  only the modelled keys, so an unmodelled key stored on the previous season is
+  not in the write and survives under `{merge:true}` onto the new one. Latent
+  today — iOS's `HolidaySeason` has exactly the modelled keys — but it fires the
+  first time iOS adds a field, which is the stated reason the spread exists.
+  Recorded, not fixed. The recipient/purchase case cannot occur for a reason
+  the original note missed: those are arrays, which Firestore replaces whole
+  rather than merging element-wise. Both matter: Firestore writes use `{merge: true}`, which
   deep-merges nested maps, so an active season written without `closedAt` would
   inherit the closed stamp of the season it replaced; and dropping unmodelled
   keys would make an iOS -> web -> iOS round trip lossy for any field iOS adds
@@ -83,7 +97,15 @@ budget, the people being bought for, gifts, returns, and seasons.
 - A damaged holiday row costs that row on both surfaces, not the section. Web
   validates per row like its own `list()` does for transactions and archives,
   and `normalizeSeason` drops a row whose amount is unreadable rather than
-  coercing it to zero — matching iOS, where `amount` is a required decode. An
+  coercing it to zero — matching iOS, where `amount` is a required decode. Two
+  shapes escaped that until 2026-11-08 and are now aligned: a **fractional**
+  amount (web truncated it, so a stored `plannedAmount: 1.5` became a real
+  $0.01 target that switched on the planning line and painted the bar red,
+  where iOS read no target at all), and a row with **no `name`** (web renamed
+  it "Someone"/"Gift" and kept its money with no warning, where iOS drops it,
+  because `name` is a required decode there for both row types). Web now drops
+  both — and the importer reports the nameless one, since a row that vanishes
+  with its money and says nothing is worse than one that was never dropped. An
   unreadable per-person target is no target rather than a target of zero, which
   is the distinction `plannedAmount` exists to carry.
 - The import confirmation names holiday data on both sides on both surfaces:
@@ -120,6 +142,11 @@ Holiday differences that remain:
   backups are the portable recovery path; failed imports preserve the live ledger.
 - Web strict import rejects malformed rows instead of partially replacing data;
   cache recovery can salvage rows but pauses saves until a valid import resolves it.
+  Undo Import used to be a second, unintended way out: it cleared the pause
+  unconditionally, so the salvaged ledger went live and saved freely, and the
+  preserved original became unreachable because its download button was gated
+  on the pause. The pause is now restored with the data it belongs to, and the
+  download button follows the copy rather than the pause.
 - Web parsing additionally checks grouping placement. Currency remains USD while
   input separators follow the browser locale; this is not multi-currency support.
 - iOS timestamps are absolute. Moving a backup across time zones may change a
@@ -148,7 +175,10 @@ rather than described as aligned.
   drift behind the rows it posted. Web's stable ids guard a case iOS does not
   have. The difference still matters in one direction — a row iOS drops on a
   lossy load is never reposted, because the cursor stayed ahead of it, where
-  web's dedupe would notice the gap and fill it.
+  web's dedupe would notice the gap and fill it. **That claim was wrong** and
+  is withdrawn: `processRecurring` only ever iterates forward from
+  `nextOccurrenceDate`, so a gap behind the cursor is never revisited on web
+  either. The stable ids guard a double-post, not a missing post.
 
 - **Resolved 2026-11-06: iOS accepting a mistyped amount.** iOS stripped the
   locale's grouping separators before parsing, so `1,2` read as `$12` — a silent
@@ -233,7 +263,37 @@ rather than described as aligned.
   because the snapshot it would capture is the empty one.
 - The 12-month archive cap is applied on web only when archiving, not on
   import, so importing a 20-month backup leaves 20 archived months on web and
-  12 on iOS. Web deliberately keeps everything an import carries.
+  12 on iOS. Web deliberately keeps everything an import carries. Holiday
+  history did **not** follow that rule until 2026-11-08 — a strict import ran
+  the six-season cap and silently discarded the rest with zero warnings, and
+  `holidayImportSummary` counted the already-trimmed list so the confirmation
+  under-reported what the file held. `normalizeHistory` now takes
+  `limit: false`, which the importer uses.
+- **Resolved 2026-11-08, from an adversarial audit of the web surface.** Four
+  more, all web-only: `exportBackup` ran the stable recurring-occurrence id
+  `recurring:<ruleId>:<date>` through its UUID coercion, which hashes anything
+  that is not already a UUID — so after one export/import round trip the
+  occurrence id could no longer be derived from the rule id and the dedupe that
+  prevents a double charge was silently dead; only the embedded rule id is
+  rewritten now, so the two still match. Holiday ids rode out of the export
+  verbatim while every monthly id was coerced, and on iOS a non-UUID
+  `recipientID` decodes to nil, so **every gift would lose its person** while
+  keeping its money — reachable whenever `crypto.randomUUID` is absent or the
+  file was hand-edited. The gift form did no date validation, so a cleared date
+  field while editing silently overwrote a gift's real date with the save time,
+  where the monthly form has always refused it. And the import-confirmation
+  summary was the one unescaped interpolation left; its inputs are numeric
+  today, but it sits beside the one that carries the season label and was
+  already a stored-XSS once.
+
+- Known and accepted on web, from the same audit: `exportBackup` anchors dates
+  at noon, which covers ±12h, so a backup moved between a +13 zone and a
+  negative one can shift an entry out of its month and change that month's
+  total; a pre-2000 `startedAt` on an archived season is rewritten to "now" on
+  first normalize, which can sort it above genuinely recent seasons; and
+  `saveLocalCache` validates the rotation target before the primary write, so a
+  rotation failure loses the save rather than the backup copy.
+
 - iOS has a month-ending banner that closes the month out when tapped; web has
   only a passive notice and the header Reset button.
 - iOS shows success toasts and haptics after a save; web just closes the form.

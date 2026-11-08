@@ -306,10 +306,122 @@ test('import and destructive-action confirmations replace the settings overlay',
 // Back-to-back edits must not tie the timestamp used for cloud reconciliation.
 test('save timestamps advance even when the clock has not caught up with the previous save', async () => {
   const h = harness(); await h.login();
-  h.run("state.updatedAt = '2090-01-01T00:00:00.000Z'; scheduleSave()");
-  assert.equal(h.value('state.updatedAt'), '2090-01-01T00:00:00.001Z');
+  // A full second, not a millisecond: stamps are written to whole seconds, so a
+  // millisecond bump would round back to the same value and stop advancing.
+  h.run("state.updatedAt = '2090-01-01T00:00:00Z'; scheduleSave()");
+  assert.equal(h.value('state.updatedAt'), '2090-01-01T00:00:01Z');
   h.run('scheduleSave()');
-  assert.equal(h.value('state.updatedAt'), '2090-01-01T00:00:00.002Z');
+  assert.equal(h.value('state.updatedAt'), '2090-01-01T00:00:02Z');
+});
+
+test('undoing an import does not un-pause a salvaged ledger', async () => {
+  // There were tests for the block, for the import and for the undo, and none
+  // that composed them. Undo cleared `writeBlocked` unconditionally, so the
+  // lossy ledger went live and saved freely, and the preserved original became
+  // unreachable because its download button was gated on the pause.
+  const h = harness();
+  const key = h.value(`cacheKeyForUser('alice')`);
+  const damaged = { ...h.value('stateSnapshot()'), holidaySeason: {
+    id: 's', label: 'Holiday 2026', budget: 50000, startedAt: '2026-11-01T12:00:00Z', closedAt: null,
+    recipients: [], purchases: [
+      { id: 'g1', recipientID: null, name: 'Good', amount: 4000, date: '2026-11-02T12:00:00Z', isReturn: false },
+      { id: 'g2', recipientID: null, name: 'Broken', amount: '1500', date: '2026-11-02T12:00:00Z', isReturn: false },
+    ],
+  } };
+  h.storage.set(key, JSON.stringify(damaged));
+  await h.login();
+  assert.equal(h.value('state.writeBlocked'), true);
+
+  // A valid import resolves it, which is the one legitimate way out.
+  const clean = backup.exportBackup({ ...h.value('stateSnapshot()'), holidaySeason: null, holidaySeasonHistory: null });
+  await h.run('previewImport')({ size: 500, text: async () => JSON.stringify(clean) });
+  h.run('confirmImport()');
+  assert.equal(h.value('state.writeBlocked'), false);
+
+  // Undo puts the salvaged ledger back, so the pause has to come back with it.
+  h.run('undoImport()');
+  assert.equal(h.value('state.writeBlocked'), true);
+  assert.match(h.value('state.statusMessage'), /still paused/);
+
+  // And the original bytes are still reachable.
+  assert.ok(h.storage.get(`${key}:recovery`));
+  assert.equal(h.value('state.hasRecoveryCopy'), true);
+});
+
+test('a recurring occurrence survives an export round trip without re-posting', async () => {
+  // `exportBackup` ran `recurring:<ruleId>:<date>` through `uuid()`, which
+  // hashes anything that is not already a UUID — so after a round trip the
+  // occurrence id could no longer be derived from the rule id and the dedupe
+  // that exists to stop a double charge was silently dead.
+  // Build the state directly: the occurrence ids under test are minted by
+  // `processRecurring`, not by entering a transaction.
+  const base = { id: 'R4', name: 'Gym', amount: 30, type: 'personal', emoji: '🏋️',
+    note: '', frequency: 'monthly', nextOccurrenceDate: '2026-11-01', anchorDay: 1 };
+  const before = {
+    personalBudget: 200, groceryBudget: 400, personalCarryover: 0, groceryCarryover: 0,
+    currentMonth: '2026-11', updatedAt: '2026-11-01T00:00:00Z',
+    personalCategories: [{ emoji: '🍕', label: 'Dining' }], monthHistory: [],
+    recurringRules: [base], transactions: [],
+  };
+  // `processRecurring` mutates in place and returns whether it changed anything.
+  const posted = structuredClone(before);
+  ledger.processRecurring(posted, '2026-11-08');
+  const occurrence = posted.transactions.find(t => String(t.id).startsWith('recurring:'));
+  assert.ok(occurrence, 'processRecurring mints a derivable occurrence id');
+  assert.equal(occurrence.id, 'recurring:R4:2026-11-01');
+
+  // Round trip it, then reprocess with the cursor rolled back onto that date.
+  const { snapshot: reimported } = backup.normalizeSnapshot(backup.exportBackup(posted), { strict: true });
+  const rule = reimported.recurringRules[0];
+  const roundTripped = reimported.transactions.find(t => String(t.id).startsWith('recurring:'));
+  assert.ok(roundTripped, 'the occurrence id is still derivable after a round trip');
+  assert.equal(roundTripped.id, `recurring:${rule.id}:2026-11-01`);
+
+  const again = { ...reimported, recurringRules: [{ ...rule, nextOccurrenceDate: '2026-11-01' }] };
+  ledger.processRecurring(again, '2026-11-08');
+  assert.equal(again.transactions.filter(t => t.name === 'Gym').length, 1,
+    'the dedupe still recognises the occurrence it already posted');
+});
+
+test('an import keeps every past holiday season the file carries', async () => {
+  // The six-season cap belongs to the live ledger when it archives. Applying it
+  // on decode discarded seasons out of the user's own backup, and the
+  // confirmation counted the already-trimmed list so it under-reported too.
+  const seasons = Array.from({ length: 10 }, (_, i) => ({
+    id: `s${i}`, label: `Holiday 20${10 + i}`, budget: 10000,
+    startedAt: `20${10 + i}-11-01T12:00:00Z`, closedAt: `20${10 + i}-12-31T12:00:00Z`,
+    recipients: [], purchases: [],
+  }));
+  const h = harness();
+  const { snapshot, warnings } = backup.normalizeSnapshot(
+    { ...h.value('stateSnapshot()'), holidaySeasonHistory: seasons }, { strict: true });
+  assert.equal(warnings.length, 0);
+  assert.equal(snapshot.holidaySeasonHistory.length, 10);
+});
+
+test('nothing persisted or synced carries fractional seconds', async () => {
+  // The export always stripped them; the cache and the Firestore document did
+  // not, so the three did not agree. Only the export was ever asserted, which
+  // is why that went unnoticed.
+  const h = harness(); await h.login();
+  h.run(`state.formName = 'Coffee'; state.formAmount = '30'; addTransaction(false)`);
+  h.run(`state.currentMonth = '2026-09'; resetMonth(true)`);
+  addPerson(h, 'Mom', '200');
+  addGift(h, { name: 'Scarf', amount: '40' });
+  await h.run('cloudWriteQueue');
+
+  const fractional = payload => {
+    const found = [];
+    JSON.stringify(payload, (key, value) => {
+      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T.*\.\d+Z$/.test(value)) found.push(`${key}=${value}`);
+      return value;
+    });
+    return found;
+  };
+
+  assert.deepEqual(fractional(h.value('stateSnapshot()')), []);
+  assert.deepEqual(fractional(JSON.parse(h.storage.get(h.value(`cacheKeyForUser('alice')`)))), []);
+  assert.deepEqual(fractional(h.cloudSnapshot()), []);
 });
 
 // ── Holiday ──

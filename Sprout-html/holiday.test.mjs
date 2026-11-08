@@ -146,23 +146,48 @@ test('gifts list newest first with a stable tie-break', () => {
   assert.deepEqual(purchasesFor(s, null).map(r => r.id), ['new', 'mid', 'old']);
 });
 
-test('normalization renames rather than deletes, and re-homes orphans', () => {
+test('a label is renamed, an emoji is defaulted, and an orphan gift is re-homed', () => {
   const s = normalizeSeason({
     id: 'x', label: '   ', budget: -500, startedAt: '2026-11-01T12:00:00.000Z',
-    recipients: [{ id: 'p1', name: '  ', emoji: '' }],
+    recipients: [{ id: 'p1', name: 'Mom', emoji: '' }],
     purchases: [
-      { id: 'g1', recipientID: 'ghost', name: '  ', amount: 1000, date: '2026-11-02T12:00:00.000Z' },
+      { id: 'g1', recipientID: 'ghost', name: 'Scarf', amount: 1000, date: '2026-11-02T12:00:00.000Z' },
     ],
   }, at('2026-11-06T12:00:00Z'));
 
   assert.equal(s.label, 'Holiday 2026');
   assert.equal(s.budget, 0);
-  assert.equal(s.recipients[0].name, 'Someone');
   assert.equal(s.recipients[0].emoji, '🎁');
-  assert.equal(s.purchases[0].name, 'Gift');
   // Still counted, and reachable from the unassigned bucket.
   assert.equal(s.purchases[0].recipientID, null);
   assert.equal(seasonSpentCents(s), 1000);
+});
+
+test('a row iOS could not decode is dropped here too, rather than invented', () => {
+  // `name` is a required decode on iOS for both row types and `amount` is an
+  // Int, so each of these rows is absent there. Web used to rename the nameless
+  // ones and truncate the fractional ones, so the two surfaces disagreed about
+  // the season total with nothing saying so.
+  const s = normalizeSeason({
+    id: 'x', label: 'Holiday 2026', budget: 50000, startedAt: '2026-11-01T12:00:00Z',
+    recipients: [
+      { id: 'p1', name: 'Mom', plannedAmount: 20000 },
+      { id: 'p2', name: '  ', plannedAmount: 10000 },
+      { id: 'p3', name: 'Dad', plannedAmount: 1.5 },
+    ],
+    purchases: [
+      { id: 'g1', recipientID: 'p1', name: 'Scarf', amount: 4000, date: '2026-11-02T12:00:00Z' },
+      { id: 'g2', recipientID: 'p1', name: '   ', amount: 1500, date: '2026-11-02T12:00:00Z' },
+      { id: 'g3', recipientID: 'p1', name: 'Mug', amount: 4000.75, date: '2026-11-02T12:00:00Z' },
+    ],
+  }, at('2026-11-06T12:00:00Z'));
+
+  assert.deepEqual(s.recipients.map(r => r.name), ['Mom', 'Dad']);
+  assert.deepEqual(s.purchases.map(g => g.name), ['Scarf']);
+  // A fractional target is no target, not a $0.01 one that turns on the whole
+  // planning line and paints the bar red.
+  assert.equal(s.recipients.find(r => r.name === 'Dad').plannedAmount, null);
+  assert.equal(seasonSpentCents(s), 4000);
 });
 
 test('a row sharing an id is re-identified when it differs and dropped when identical', () => {

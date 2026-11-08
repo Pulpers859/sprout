@@ -88,6 +88,20 @@ function clampCents(value) {
   return Math.min(MAX_CENTS, Math.max(-MAX_CENTS, Math.trunc(value)));
 }
 
+/**
+ * Whether a stored money value is one iOS could read back.
+ *
+ * Holiday money is integer cents and iOS decodes it with `decode(Int.self)`, so
+ * a fractional value is unreadable there. Web used to accept it and truncate:
+ * a stored `plannedAmount: 1.5` became a real **$0.01 target**, which switched
+ * on the whole "Left to plan" line and painted the person's bar fully red,
+ * where iOS read no target at all. Truncating invents a figure the user never
+ * entered, and `backup.mjs` already singles this shape out as damage.
+ */
+function isStorableCents(value) {
+  return typeof value === 'number' && Number.isInteger(value);
+}
+
 export function defaultSeasonLabel(now = new Date()) {
   const date = now instanceof Date ? now : new Date(now);
   const year = Number.isFinite(date.getTime()) ? date.getFullYear() : new Date().getFullYear();
@@ -299,15 +313,20 @@ export function normalizeSeason(season, now = new Date()) {
   const recipients = [];
   for (const raw of Array.isArray(source.recipients) ? source.recipients : []) {
     if (!isObject(raw)) continue;
-    const name = String(raw.name ?? '').trim();
+    // `name` is a required decode on iOS for both holiday row types, so a row
+    // without one drops there. Renaming it to "Someone" here kept the row *and
+    // its money* on web only, with no warning — the two surfaces then disagreed
+    // about the season total and nothing said so.
+    if (typeof raw.name !== 'string' || raw.name.trim() === '') continue;
+    const name = raw.name.trim();
     const emoji = String(raw.emoji ?? '').trim();
-    const planned = typeof raw.plannedAmount === 'number' && Number.isFinite(raw.plannedAmount)
+    const planned = isStorableCents(raw.plannedAmount)
       ? Math.max(clampCents(raw.plannedAmount), 0)
       : null;
     const person = {
       ...raw,
       id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
-      name: name || 'Someone',
+      name,
       emoji: emoji || DEFAULT_RECIPIENT_EMOJI,
       plannedAmount: planned,
       // A person with no usable stamp is treated as having joined when the
@@ -330,8 +349,9 @@ export function normalizeSeason(season, now = new Date()) {
     // iOS makes `amount` a required decode precisely so an unreadable one
     // drops and reports the row. Coercing it to zero here would have turned a
     // damaged gift into a free one.
-    if (typeof raw.amount !== 'number' || !Number.isFinite(raw.amount)) continue;
-    const name = String(raw.name ?? '').trim();
+    if (!isStorableCents(raw.amount)) continue;
+    if (typeof raw.name !== 'string' || raw.name.trim() === '') continue;
+    const name = raw.name.trim();
     const referenced = raw.recipientID == null ? null : String(raw.recipientID);
     const gift = {
       ...raw,
@@ -340,7 +360,7 @@ export function normalizeSeason(season, now = new Date()) {
       // unassigned rather than left dangling: it still counts toward the
       // season total, so it has to appear in a list somewhere.
       recipientID: referenced != null && byRecipientId.has(referenced) ? referenced : null,
-      name: name || 'Gift',
+      name,
       amount: clampCents(raw.amount),
       note: String(raw.note ?? '').trim(),
       date: isoSeconds(raw.date) ?? startedAt,
@@ -393,7 +413,15 @@ function newestCloseStamp(history) {
   }, -Infinity);
 }
 
-export function normalizeHistory(history, now = new Date()) {
+/**
+ * `limit: false` keeps every season instead of applying the six-season cap.
+ *
+ * Importing uses it. The cap belongs to the live ledger, which applies it when
+ * it archives; trimming on decode silently discarded past seasons out of the
+ * user's own backup file, which is the opposite of what an import is for and
+ * what the monthly archives already avoid.
+ */
+export function normalizeHistory(history, now = new Date(), { limit = true } = {}) {
   const seen = new Set();
   const ordered = (Array.isArray(history) ? history : [])
     .filter(isObject)
@@ -409,7 +437,7 @@ export function normalizeHistory(history, now = new Date()) {
     });
   // Only seasons that held something are ever archived, so trimming by recency
   // cannot evict a meaningful season in favour of a placeholder.
-  return ordered.slice(0, HISTORY_LIMIT);
+  return limit ? ordered.slice(0, HISTORY_LIMIT) : ordered;
 }
 
 /** Two archived seasons both called "Holiday 2026" make the history list

@@ -98,7 +98,7 @@ function closeMonth(snapshot, carry, force, today) {
   const archived = { monthKey: snapshot.currentMonth, personalBudget: snapshot.personalBudget,
     groceryBudget: snapshot.groceryBudget, personalCarryover: existing?.personalCarryover ?? snapshot.personalCarryover ?? 0,
     groceryCarryover: existing?.groceryCarryover ?? snapshot.groceryCarryover ?? 0,
-    transactions: [...merged.values()], archivedAt: `${today}T12:00:00.000Z` };
+    transactions: [...merged.values()], archivedAt: `${today}T12:00:00Z` };
   if (force || existing || closing.length || archived.personalCarryover > 0 || archived.groceryCarryover > 0) {
     snapshot.monthHistory = trimHistory([...history.filter(m => m.monthKey !== snapshot.currentMonth), archived]);
   }

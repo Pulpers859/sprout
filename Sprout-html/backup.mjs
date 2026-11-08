@@ -90,13 +90,22 @@ function seasonRowIssues(value, path) {
     try { holidayCents(amount, where); } catch (error) { issues.push(error.message); }
   };
   check(value.budget ?? 0, `${path}.budget`);
+  // `name` is a required decode on iOS for both holiday row types, so a row
+  // without one does not survive there. `normalizeSeason` drops it here to
+  // match; this reports it, because a row that silently disappears along with
+  // its money is worse than one that was never dropped.
+  const named = (row, where) => {
+    if (typeof row.name !== 'string' || row.name.trim() === '') issues.push(`${where}: name is missing`);
+  };
   (Array.isArray(value.purchases) ? value.purchases : []).forEach((row, index) => {
     if (!object(row)) { issues.push(`${path}.purchases[${index}]: expected an object`); return; }
     check(row.amount, `${path}.purchases[${index}].amount`);
+    named(row, `${path}.purchases[${index}]`);
   });
   (Array.isArray(value.recipients) ? value.recipients : []).forEach((row, index) => {
     if (!object(row)) { issues.push(`${path}.recipients[${index}]: expected an object`); return; }
     if (row.plannedAmount != null) check(row.plannedAmount, `${path}.recipients[${index}].plannedAmount`);
+    named(row, `${path}.recipients[${index}]`);
   });
   return issues;
 }
@@ -251,7 +260,13 @@ export function normalizeSnapshot(input, { strict = false } = {}) {
           throw new Error('skipped');
         }, null));
       });
-      return normalizeHistory(input.holidaySeasonHistory);
+      // `limit: false` on purpose. The six-season cap belongs to the live
+      // ledger, which applies it when it archives. Capping on decode silently
+      // discarded past seasons out of the user's own backup — and
+      // `holidayImportSummary` counts this list, so the confirmation then
+      // under-reported what the file held. The monthly archives two stanzas
+      // above already keep everything; this now matches them.
+      return normalizeHistory(input.holidaySeasonHistory, undefined, { limit: false });
     }, null),
     updatedAt: recover('updatedAt', () => input.updatedAt == null ? '1970-01-01T00:00:00Z' : timestamp(input.updatedAt), '1970-01-01T00:00:00Z'),
   };
@@ -262,10 +277,41 @@ export function exportBackup(input) {
   const { snapshot } = normalizeSnapshot(input, { strict: true });
   const budgets = row => Object.fromEntries(MONEY_KEYS.map(key => [key, Math.round(row[key] * 100)]));
   const date = value => iso(new Date(`${value}T12:00:00`));
+  // `processRecurring` mints `recurring:<ruleId>:<date>` for each occurrence and
+  // dedupes every later pass against it, across the live ledger AND every
+  // archive. Running the whole string through `uuid()` hashed it into something
+  // the rule id can no longer produce, so after one export/import round trip
+  // that dedupe was silently dead and a cursor that moved backwards would
+  // repost a charge already in the ledger. Rewriting only the embedded rule id,
+  // the same way the rule's own id is rewritten, keeps the two matching while
+  // still handing iOS a UUID where it expects one.
+  const occurrenceId = value => {
+    const match = /^recurring:(.*):(\d{4}-\d{2}-\d{2})$/.exec(String(value));
+    return match ? `recurring:${uuid(match[1])}:${match[2]}` : uuid(value);
+  };
   const entry = (row, recurring = false) => {
     const { type, date: entryDate, nextOccurrenceDate, ...rest } = row;
-    return { ...rest, id: uuid(row.id), amount: Math.round(row.amount * 100), tab: type,
+    return { ...rest, id: recurring ? uuid(row.id) : occurrenceId(row.id),
+      amount: Math.round(row.amount * 100), tab: type,
       ...(recurring ? { nextOccurrenceDate: date(nextOccurrenceDate) } : { date: date(entryDate) }) };
+  };
+  // Holiday ids rode out verbatim on the `...snapshot` spread while every
+  // monthly id went through `uuid()`. On iOS `GiftPurchase.recipientID` is
+  // `(try? decodeIfPresent(UUID.self)) ?? nil`, so a non-UUID id does not fail
+  // the import — it silently becomes **nil, and every gift loses its person**
+  // while keeping its money. Reachable whenever `crypto.randomUUID` is absent
+  // (a non-secure-context page, an older browser) or the file was hand-edited.
+  // Recipient ids and the `recipientID` that points at them must be mapped with
+  // the same function, or the link breaks in a different way.
+  const season = value => value == null ? value : {
+    ...value,
+    id: uuid(value.id),
+    recipients: (value.recipients ?? []).map(person => ({ ...person, id: uuid(person.id) })),
+    purchases: (value.purchases ?? []).map(gift => ({
+      ...gift,
+      id: uuid(gift.id),
+      recipientID: gift.recipientID == null ? null : uuid(gift.recipientID),
+    })),
   };
   return {
     ...snapshot, schemaVersion: 2, ...budgets(snapshot), updatedAt: iso(new Date(snapshot.updatedAt)),
@@ -273,5 +319,7 @@ export function exportBackup(input) {
     recurringRules: snapshot.recurringRules.map(row => entry(row, true)),
     monthHistory: snapshot.monthHistory.map(row => ({ ...row, ...budgets(row), archivedAt: iso(new Date(row.archivedAt)), transactions: row.transactions.map(item => entry(item)) })),
     personalCategories: snapshot.personalCategories.map(row => ({ ...row, id: uuid(row.id) })),
+    holidaySeason: season(snapshot.holidaySeason),
+    holidaySeasonHistory: snapshot.holidaySeasonHistory == null ? null : snapshot.holidaySeasonHistory.map(season),
   };
 }

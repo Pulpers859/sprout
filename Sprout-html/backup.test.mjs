@@ -228,19 +228,40 @@ test('a lenient load warns about a damaged holiday section and keeps the ledger'
   assert.equal(snapshot.personalBudget, 200);
 });
 
-test('a holiday row is renamed and re-homed rather than dropped', () => {
+test('a holiday label is renamed and an orphan gift is re-homed, not dropped', () => {
   const { snapshot } = normalizeSnapshot({
     ...fixture(),
     holidaySeason: {
       id: 's', label: '  ', budget: 0, startedAt: '2026-10-31T12:00:00.000Z',
-      recipients: [{ id: 'p', name: '   ', emoji: '' }],
-      purchases: [{ id: 'g', recipientID: 'ghost', name: '  ', amount: 1000, date: '2026-11-02T12:00:00.000Z' }],
+      recipients: [{ id: 'p', name: 'Mom', emoji: '' }],
+      purchases: [{ id: 'g', recipientID: 'ghost', name: 'Scarf', amount: 1000, date: '2026-11-02T12:00:00.000Z' }],
     },
   }, { strict: true });
 
-  assert.equal(snapshot.holidaySeason.recipients[0].name, 'Someone');
-  assert.equal(snapshot.holidaySeason.purchases[0].name, 'Gift');
   // Still counted, so it has to be reachable somewhere.
   assert.equal(snapshot.holidaySeason.purchases[0].recipientID, null);
   assert.equal(snapshot.holidaySeason.purchases[0].amount, 1000);
+});
+
+test('a nameless holiday row is reported, not silently dropped with its money', () => {
+  // `normalizeSeason` drops it, because iOS cannot decode it either. A row that
+  // vanishes along with its money without a word is worse than one that stays.
+  assert.throws(() => normalizeSnapshot({
+    ...fixture(),
+    holidaySeason: {
+      id: 's', label: 'Holiday 2026', budget: 50000, startedAt: '2026-10-31T12:00:00Z',
+      recipients: [{ id: 'p', name: 'Mom' }],
+      purchases: [{ id: 'g', recipientID: 'p', name: '   ', amount: 1000, date: '2026-11-02T12:00:00Z' }],
+    },
+  }, { strict: true }));
+
+  const { warnings } = normalizeSnapshot({
+    ...fixture(),
+    holidaySeason: {
+      id: 's', label: 'Holiday 2026', budget: 50000, startedAt: '2026-10-31T12:00:00Z',
+      recipients: [{ id: 'p', name: 'Mom' }],
+      purchases: [{ id: 'g', recipientID: 'p', name: '   ', amount: 1000, date: '2026-11-02T12:00:00Z' }],
+    },
+  });
+  assert.ok(warnings.some(w => /name is missing/.test(w)), warnings.join(' | '));
 });

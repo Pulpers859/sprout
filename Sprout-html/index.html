@@ -507,6 +507,10 @@
     user: null,
     dataReady: false,
     writeBlocked: false,
+    // Whether a preserved original is on this device. Kept separate from
+    // `writeBlocked`: the download button used to be gated on the pause, so
+    // anything that lifted the pause hid the only route to those bytes.
+    hasRecoveryCopy: false,
     statusMessage: "",
     updatedAt: null,
     editingTransactionId: null,
@@ -706,7 +710,7 @@
       // Cents, deliberately — see the header of holiday.mjs.
       holidaySeason: state.holidaySeason ?? null,
       holidaySeasonHistory: state.holidaySeasonHistory ?? null,
-      updatedAt: state.updatedAt || new Date().toISOString()
+      updatedAt: state.updatedAt || isoSeconds(new Date())
     };
   }
 
@@ -742,6 +746,7 @@
     // Keep the original bytes; never replace an existing recovery copy on load.
     const key = `${cacheKeyForUser(uid)}:recovery`;
     if (!localStorage.getItem(key)) localStorage.setItem(key, raw);
+    state.hasRecoveryCopy = true;
   }
   function loadLocalCache(uid) {
     if (!uid) return null;
@@ -795,7 +800,20 @@
     return Number.isFinite(t) ? t : 0;
   }
   function nextUpdateTimestamp() {
-    return new Date(Math.max(Date.now(), persistedTimestamp(state) + 1)).toISOString();
+    return isoSeconds(new Date(Math.max(Date.now(), persistedTimestamp(state) + 1000)));
+  }
+
+  /** Whole seconds, the only shape every Sprout surface reads.
+   *
+   * The export has always stripped milliseconds, but the device cache and the
+   * Firestore document kept them, so "the cache, the document and the export
+   * all agree" was not true. They are compared with `Date.parse`, so this was
+   * latent rather than broken — but one shape everywhere is the whole point.
+   * The bump above is a full second rather than a millisecond, because at
+   * second resolution a millisecond bump rounds back to the same stamp and the
+   * timestamp would stop advancing. */
+  function isoSeconds(date) {
+    return date.toISOString().replace(/\.\d{3}Z$/, "Z");
   }
   function scheduleSave() {
     if (!state.user || !state.dataReady || state.writeBlocked) return;
@@ -831,6 +849,7 @@
     const local = loadLocalCache(uid);
     applyPersistedData(local || {});
     try { state.canUndoImport = Boolean(localStorage.getItem(`${cacheKeyForUser(uid)}:before-import`)); } catch {}
+    try { state.hasRecoveryCopy = Boolean(localStorage.getItem(`${cacheKeyForUser(uid)}:recovery`)); } catch {}
     try {
       const ref = doc(db, "budgets", uid);
       const snap = await getDoc(ref);
@@ -1052,6 +1071,14 @@
     }
     if (!form.recipientChosen && current.recipients.length > 0) {
       state.holidayFormError = `Choose who this ${form.isReturn ? "return" : "gift"} is for, or “${Holiday.UNASSIGNED_LABEL}”.`;
+      render(); return;
+    }
+    // The monthly form has always required this. Without it `holidayDateToIso`
+    // falls through to "now", so clearing the date field while editing an
+    // existing gift silently overwrote its real date with the save time, and a
+    // date like 2026-02-30 did the same on a new one.
+    if (!validDate(form.date)) {
+      state.holidayFormError = "Pick a valid date.";
       render(); return;
     }
     const row = {
@@ -1345,6 +1372,11 @@
       if (state.writeBlocked && raw) preserveRecovery(pending.uid, raw);
       // Complete both durable writes before changing live state or scheduling cloud writes.
       localStorage.setItem(`${key}:before-import`, JSON.stringify(stateSnapshot()));
+      // Undo has to restore the *pause* as well as the data. What goes into the
+      // safety copy is the already-salvaged ledger, which re-normalizes without
+      // a single warning, so nothing in the restored data can tell `undoImport`
+      // that rows were lost and saving was paused.
+      try { localStorage.setItem(`${key}:before-import-blocked`, state.writeBlocked ? "1" : ""); } catch {}
       localStorage.setItem(key, JSON.stringify(replacement));
       clearTimeout(saveTimer);
       authGeneration++;
@@ -1365,13 +1397,25 @@
       const raw = localStorage.getItem(`${key}:before-import`);
       if (!raw) throw new Error("The safety copy is unavailable.");
       const {snapshot} = normalizeSnapshot(JSON.parse(raw), {strict:true});
+      let wasBlocked = false;
+      try { wasBlocked = localStorage.getItem(`${key}:before-import-blocked`) === "1"; } catch {}
       snapshot.updatedAt = nextUpdateTimestamp();
       localStorage.setItem(key, JSON.stringify(snapshot));
       clearTimeout(saveTimer); authGeneration++; state.writeBlocked = false;
       applyPersistedData(snapshot);
-      try { localStorage.removeItem(`${key}:before-import`); } catch {}
+      // Undo is not a resolution. Clearing the pause unconditionally let the
+      // salvaged ledger save freely — the dropped rows then went for good — and
+      // hid the "Download original device save" button, which was gated on the
+      // pause, so the preserved bytes became unreachable from the app.
+      if (wasBlocked) state.writeBlocked = true;
+      try {
+        localStorage.removeItem(`${key}:before-import`);
+        localStorage.removeItem(`${key}:before-import-blocked`);
+      } catch {}
       state.canUndoImport = Boolean(localStorage.getItem(`${key}:before-import`));
-      state.statusMessage = "Restored the data from before the import.";
+      state.statusMessage = wasBlocked
+        ? "Restored the data from before the import. Saving is still paused: that ledger had rows that could not be read. Export the recovered data, or import a valid backup."
+        : "Restored the data from before the import.";
       scheduleSave();
     } catch (error) { state.statusMessage = `Could not undo import: ${error.message}`; }
     render();
@@ -1449,7 +1493,7 @@
         <div class="modal-title">Replace your account's data?</div>
         <div class="modal-text">${escapeHtml(fmtMonthKey(preview.currentMonth))} · ${preview.transactions.length} transactions · ${preview.recurringRules.length} recurring entries · ${preview.monthHistory.length} archived months.</div>
         <div class="modal-text">Personal budget ${fmtCurrency(preview.personalBudget)} · Grocery budget ${fmtCurrency(preview.groceryBudget)}.</div>
-        <div class="modal-text">${holidayImportSummary(state.pendingImport)}</div>
+        <div class="modal-text">${escapeHtml(holidayImportSummary(state.pendingImport))}</div>
         <div class="modal-text">This replaces budgets, transactions, categories, history and holiday seasons on this device and in your signed-in cloud account.${escapeHtml(holidayReplacementWarning())} A device copy of the current data will be kept for undo.</div>
         <div class="modal-actions"><button class="modal-btn keep" id="importCancel">Cancel</button><button class="modal-btn reset" id="importConfirm">Replace data</button></div>
       </div></div>`;
@@ -1535,7 +1579,13 @@
     // Content
     html += `<div class="content"><div>`;
     if (state.statusMessage) html += `<div class="notice" role="status">${escapeHtml(state.statusMessage)}</div>`;
-    if (state.writeBlocked) html += `<div class="notice"><button class="btn-cancel" id="recoveryExport">Export recovered data</button><button class="btn-cancel" id="recoveryOriginal">Download original device save</button><div>Import a valid backup in Settings to resume saving.</div></div>`;
+    if (state.writeBlocked || state.hasRecoveryCopy) {
+      html += `<div class="notice">`;
+      if (state.writeBlocked) html += `<button class="btn-cancel" id="recoveryExport">Export recovered data</button>`;
+      html += `<button class="btn-cancel" id="recoveryOriginal">Download original device save</button>`;
+      if (state.writeBlocked) html += `<div>Import a valid backup in Settings to resume saving.</div>`;
+      html += `</div>`;
+    }
     // Only on a budget tab: the Reset button it points at is hidden on Holiday,
     // so saying "use Reset" there would name a control that is not on screen.
     if (!onHoliday && state.currentMonth !== getCurrentMonth()) html += `<div class="notice">Showing ${escapeHtml(fmtMonthYear())}. Use Reset to choose what to do with this ledger.</div>`;
