@@ -75,9 +75,11 @@ jobs:
             exit 1
           fi
 
-      # `deploy` without `--build` uploads the directory as it stands, which is
-      # what the step above just prepared. The generated config is gitignored,
-      # so it exists only in this runner and is uploaded, never committed.
+      # `--no-build` is load-bearing. The CLI picks up `[build] command` from
+      # netlify.toml and runs it again, in a child environment that does not
+      # carry this job's secrets — so the second run failed on a missing
+      # Firebase config even though the step above had just written one. The
+      # build has already happened; this step only uploads what it produced.
       - name: Deploy to Netlify
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -85,5 +87,6 @@ jobs:
         run: |
           npx --yes netlify-cli@27.16.2 deploy \
             --prod \
+            --no-build \
             --dir=Sprout-html \
             --message "${GITHUB_SHA:0:7} ${GITHUB_REF_NAME}: $(git log -1 --pretty=%s | head -c 80)"
