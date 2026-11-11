@@ -57,7 +57,7 @@ struct ContentView: View {
                         tab: request.tab,
                         mode: request.mode,
                         initialDraft: request.draft
-                    ) { draft in
+                    ) { draft, _ in
                         saveNewTransaction(request: request, draft: draft)
                     }
                 case .quickCapture:
@@ -105,8 +105,7 @@ struct ContentView: View {
                 // here only ever silently discarded the user's choice.
                 isEditing: true,
                 initialDraft: store.makeEditDraft(for: entry)
-            ) { draft in
-                let mode: TransactionMode = entry.isRefund ? .payment : .expense
+            ) { draft, mode in
                 guard store.updateTransaction(entry, with: draft, mode: mode) else { return false }
                 HapticFeedback.success()
                 editingTransaction = nil

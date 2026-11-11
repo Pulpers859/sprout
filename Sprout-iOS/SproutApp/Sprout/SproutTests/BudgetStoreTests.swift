@@ -1020,6 +1020,29 @@ struct BudgetStoreTests {
         #expect(store.transactions(for: .personal).first?.amount.cents == 1250)
     }
 
+    @Test func editingCanTurnAnExpenseIntoAPaymentAndBack() {
+        let store = makeStore()
+        let draft = TransactionDraft(name: "Shoes", amountText: "40.00", selectedEmoji: "👟")
+        #expect(store.addTransaction(mode: .expense, draft: draft, tab: .personal))
+        let expense = try! #require(store.transactions(for: .personal).first)
+
+        #expect(store.updateTransaction(expense, with: store.makeEditDraft(for: expense), mode: .payment))
+        let payment = try! #require(store.transactions(for: .personal).first)
+        #expect(payment.id == expense.id)
+        #expect(payment.isRefund)
+        #expect(payment.emoji == TransactionMode.paymentEmoji)
+        #expect(payment.amount.cents == 4000)
+
+        // Back to an expense: it must not keep the payment's icon.
+        #expect(store.updateTransaction(payment, with: store.makeEditDraft(for: payment), mode: .expense))
+        let restored = try! #require(store.transactions(for: .personal).first)
+        let firstCategory = try! #require(store.categories(for: .personal).first)
+        #expect(restored.id == expense.id)
+        #expect(!restored.isRefund)
+        #expect(restored.emoji == firstCategory.emoji)
+        #expect(store.transactions(for: .personal).count == 1)
+    }
+
     @Test func editDraftRestoresTheCategorySelection() {
         let store = makeStore()
         let category = try! #require(store.categories(for: .personal).first)

@@ -433,6 +433,25 @@
   .login-loading { font-size: 17px; color: var(--text3); }
   .inline-error { max-width: 420px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 14px; background: var(--red-light); border: 1px solid var(--red); color: var(--text1); font-size: 14px; line-height: 1.45; }
 
+  /* ── Save confirmation, as on iOS. Lives outside #app so a re-render
+     neither replays nor removes it. ── */
+  .toast {
+    position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 18px); z-index: 1300;
+    max-width: calc(100vw - 32px); padding: 12px 20px; border-radius: 999px;
+    background: var(--sage-dark); color: #fff; font-size: 15px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18); pointer-events: none;
+    opacity: 0; transform: translate(-50%, -24px); transition: opacity .25s ease, transform .3s ease;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast::before { content: "✓"; margin-right: 8px; font-weight: 700; }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: opacity .2s ease; transform: translate(-50%, 0); } }
+  .emoji-custom { display: flex; gap: 8px; margin-top: 14px; }
+  .emoji-custom input { flex: none; width: 64px; height: 44px; text-align: center; font-size: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--card-soft); color: var(--text1); }
+  .emoji-custom .btn { flex: 1; }
+  .emoji-grid-help { font-size: 13px; color: var(--text3); margin-top: 14px; text-align: center; }
+  .rule-group-label { font-size: 13px; font-weight: 600; color: var(--text3); margin: 10px 0 6px; }
+
   /* ── Dialogs ── */
   .modal-overlay, .emoji-grid-overlay {
     position: fixed; inset: 0; background: var(--scrim); z-index: 1000;
@@ -527,6 +546,7 @@
 <body>
 
 <div id="app"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="./sprout-firebase-config.js"></script>
 <script src="./sprout-firebase-config.local.js"></script>
@@ -628,6 +648,7 @@
     groceryCarryover: 0,
     // Emoji picker state for settings
     emojiPickerForIndex: null, // index of category being edited
+    lastToast: null,
     // ── Holiday ──
     // Amounts inside these two are integer CENTS, not dollars. See the header
     // of holiday.mjs for why; every read goes through a `...Cents` helper.
@@ -1169,6 +1190,7 @@
     state.holidayFormError = "";
     commitSeason({ ...current, purchases });
     render();
+    showToast(`${row.isReturn ? "Return" : "Gift"} ${form.id ? "updated" : "saved"}`);
   }
 
   function saveHolidayPerson() {
@@ -1205,6 +1227,7 @@
     state.holidayFormError = "";
     commitSeason({ ...current, recipients });
     render();
+    showToast(form.id ? "Person updated" : "Person added");
   }
 
   function saveHolidayNewSeason() {
@@ -1226,6 +1249,7 @@
       ? "New holiday season started. The one you closed is under Past seasons."
       : "New holiday season started.";
     render();
+    showToast("New season started");
   }
 
   function saveHolidayRename() {
@@ -1236,6 +1260,7 @@
     state.holidayFormError = "";
     commitSeason({ ...season(), label });
     render();
+    showToast("Season renamed");
   }
 
   function confirmHolidayDelete() {
@@ -1308,6 +1333,52 @@
   }
 
   function canEdit() { return state.dataReady && !state.writeBlocked; }
+  // iOS confirms every save with a toast; without one the only sign an edit
+  // landed on web was the form closing.
+  let toastTimer = null;
+  function showToast(message) {
+    state.lastToast = message;
+    const el = document.getElementById("toast");
+    if (!el) return;
+    el.textContent = message;
+    el.classList?.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList?.remove("show"), 1800);
+  }
+  // One user-perceived character, the same rule iOS applies (`String.first`),
+  // so a flag or a skin-toned emoji is not cut in half.
+  function firstGrapheme(text) {
+    const trimmed = String(text ?? "").trim();
+    if (!trimmed) return "";
+    if (typeof Intl !== "undefined" && Intl.Segmenter) {
+      for (const part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(trimmed)) return part.segment;
+    }
+    return Array.from(trimmed)[0];
+  }
+  function setCategoryEmoji(index, raw) {
+    const emoji = firstGrapheme(raw);
+    if (!emoji || !canEdit() || !state.personalCategories[index]) return false;
+    state.personalCategories[index].emoji = emoji;
+    state.emojiPickerForIndex = null;
+    scheduleSave(); render();
+    return true;
+  }
+  // Grouped by tab and ordered by next date then name, as iOS lists them.
+  function sortedRecurringRules(type) {
+    return state.recurringRules.filter(rule => rule.type === type).sort((a, b) =>
+      a.nextOccurrenceDate === b.nextOccurrenceDate
+        ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        : (a.nextOccurrenceDate < b.nextOccurrenceDate ? -1 : 1));
+  }
+  // A payment carries the 💸 icon. Turned back into a personal expense it
+  // needs a real category, or it would keep the payment's icon.
+  function setFormMode(mode) {
+    state.showForm = mode;
+    if (mode === "expense" && state.formEmoji === "💸") {
+      state.formEmoji = state.personalCategories[0]?.emoji || "🛍️";
+    }
+    render();
+  }
   function startForm(mode, seed = null, edit = false) {
     state.showForm = mode;
     state.editingTransactionId = edit ? seed.id : null;
@@ -1353,9 +1424,11 @@
           anchorDay:state.formNextDate === defaultNext ? day : Number(state.formNextDate.slice(-2))});
       }
     }
+    const wasEditing = Boolean(state.editingTransactionId);
     state.showForm = null; state.editingTransactionId = null;
     processDisplayedRecurring();
     scheduleSave(); render();
+    showToast(wasEditing ? "Transaction updated" : isRefund ? "Payment saved" : "Expense saved");
   }
   function deleteTransaction(id) {
     if (!canEdit()) return;
@@ -2480,7 +2553,11 @@
         ${state.canUndoImport ? `<button class="btn" id="undoImport">Undo last import</button>` : ""}
         <div class="settings-section-label">Recurring transactions</div>
         <div class="settings-help">Runs when Sprout is open. Removing a rule stops future entries; existing transactions stay.</div>
-        ${state.recurringRules.length ? state.recurringRules.map(rule => `<div class="rule-card"><strong>${escapeHtml(rule.emoji)} ${escapeHtml(rule.name)}</strong><div class="settings-help">${rule.type === "grocery" ? "Grocery" : "Personal"} · ${rule.isRefund ? "Payment" : "Expense"} ${fmtCurrency(rule.amount)} · ${escapeHtml(rule.frequency)} · Next ${fmtDate(rule.nextOccurrenceDate)}</div><button class="btn btn-small" data-removerule="${escapeHtml(rule.id)}">Stop repeating</button></div>`).join("") : `<div class="history-empty">No recurring entries. Add one from the transaction form.</div>`}
+        ${state.recurringRules.length ? ["personal", "grocery"].map(type => {
+          const rules = sortedRecurringRules(type);
+          if (!rules.length) return "";
+          return `<div class="rule-group-label">${type === "grocery" ? "Grocery" : "Personal"}</div>` + rules.map(rule => `<div class="rule-card"><strong>${escapeHtml(rule.emoji)} ${escapeHtml(rule.name)}</strong><div class="settings-help">${rule.isRefund ? "Payment" : "Expense"} ${fmtCurrency(rule.amount)} · ${escapeHtml(rule.frequency)} · Next ${fmtDate(rule.nextOccurrenceDate)}</div><button class="btn btn-small" data-removerule="${escapeHtml(rule.id)}">Stop repeating</button></div>`).join("");
+        }).join("") : `<div class="history-empty">No recurring entries. Add one from the transaction form.</div>`}
         <div class="settings-section-label">Recent months</div>
         <div class="settings-help">Reference your recent closed months without mixing them into your current budget.</div>`;
 
@@ -2607,7 +2684,13 @@
     EMOJI_OPTIONS.forEach(em => {
       h += `<button data-pickemoji="${em}">${em}</button>`;
     });
-    h += `</div></div></div>`;
+    h += `</div>
+        <div class="emoji-grid-help">Or type any emoji from your keyboard.</div>
+        <div class="emoji-custom">
+          <input type="text" id="emojiCustomInput" aria-label="Any emoji" maxlength="16" autocomplete="off">
+          <button class="btn btn-primary" id="emojiCustomUse">Use emoji</button>
+        </div>
+      </div></div>`;
     return h;
   }
 
@@ -2812,15 +2895,14 @@
     // Emoji grid picker
     document.querySelectorAll("[data-pickemoji]").forEach(btn => {
       btn.addEventListener("click", () => {
-        if (state.emojiPickerForIndex !== null && state.personalCategories[state.emojiPickerForIndex]) {
-          if (!canEdit()) return;
-          state.personalCategories[state.emojiPickerForIndex].emoji = btn.dataset.pickemoji;
-          scheduleSave();
-          state.emojiPickerForIndex = null;
-          render();
-        }
+        if (state.emojiPickerForIndex !== null) setCategoryEmoji(state.emojiPickerForIndex, btn.dataset.pickemoji);
       });
     });
+    const useCustomEmoji = () => {
+      if (state.emojiPickerForIndex !== null) setCategoryEmoji(state.emojiPickerForIndex, document.getElementById("emojiCustomInput")?.value);
+    };
+    document.getElementById("emojiCustomUse")?.addEventListener("click", useCustomEmoji);
+    document.getElementById("emojiCustomInput")?.addEventListener("keydown", e => { if (e.key === "Enter") useCustomEmoji(); });
     document.getElementById("emojiGridOverlay")?.addEventListener("click", (e) => {
       if (e.target.id === "emojiGridOverlay") { state.emojiPickerForIndex = null; render(); }
     });
@@ -3006,7 +3088,7 @@
       state.formNextDate = nextOccurrence(state.formDate, state.formFrequency, Number(state.formDate.slice(-2))); render();
     });
     document.getElementById("formNextDate")?.addEventListener("input", e => { state.formNextDate = e.target.value; });
-    document.getElementById("formMode")?.addEventListener("change", e => { state.showForm = e.target.value; render(); });
+    document.getElementById("formMode")?.addEventListener("change", e => setFormMode(e.target.value));
     document.querySelectorAll("[data-editid]").forEach(btn => btn.addEventListener("click", () => {
       const entry = state.transactions.find(t => t.id === btn.dataset.editid);
       if (entry) startForm(entry.isRefund ? "payment" : "expense", entry, true);

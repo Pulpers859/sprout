@@ -193,8 +193,13 @@ say so here when you do.
 Found by an independent audit on 2026-11-06 and not yet closed. Listed here
 rather than described as aligned.
 
-- **Web is ahead of iOS in two places.** Web can convert an expense to a
-  payment while editing (iOS forces delete-and-re-enter); web mints stable
+- **Resolved 2026-11-11: editing between expense and payment.** iOS forced
+  delete-and-re-enter; the edit sheet now has the same Type control web has.
+  Both surfaces also had the reverse case wrong in waiting: a payment turned
+  back into a personal expense kept the payment's 💸 icon. Each now falls back
+  to the first category.
+
+- **Web is ahead of iOS in one place.** Web mints stable
   recurring-occurrence ids (`recurring:<ruleId>:<date>`) deduped against the
   live ledger and every archive, where iOS mints a fresh UUID per occurrence and
   relies on the rule cursor alone.
@@ -327,10 +332,13 @@ rather than described as aligned.
 - Resolved 2026-11-10: web's month notice is now a tappable banner that opens
   the same close-out dialog, as on iOS. "Reset" itself moved into the header's
   "…" menu as "Start a new month".
-- iOS shows success toasts and haptics after a save; web just closes the form.
-- iOS lets a category use any emoji from the keyboard; web offers a fixed grid.
-- iOS groups the recurring list by tab and sorts by next date; web lists it in
-  array order.
+- Resolved 2026-11-11: web confirms each save with the same toast wording as
+  iOS. Haptics stay iOS-only — Safari on iPhone has no vibration API.
+- Resolved 2026-11-11: a web category takes any single emoji typed from the
+  keyboard, alongside the grid. Both surfaces keep the first user-perceived
+  character.
+- Resolved 2026-11-11: web lists recurring rules by tab, then next date, then
+  name, as iOS does.
 - iOS quarantines corrupt saves to timestamped files and prunes to three; web
   keeps one `:recovery` slot in browser storage.
 

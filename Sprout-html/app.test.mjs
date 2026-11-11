@@ -800,3 +800,57 @@ test('an active season written to the cloud always carries closedAt', async () =
   assert.deepEqual(Object.keys(written).sort(),
     ['budget','closedAt','id','label','purchases','recipients','startedAt']);
 });
+
+test('saves confirm with the same toast wording iOS uses', async () => {
+  const h = harness(); await h.login();
+  h.run(`startForm('expense'); state.formName='Coffee'; state.formAmount='3'; addTransaction(false)`);
+  assert.equal(h.value('state.lastToast'), 'Expense saved');
+  h.run(`startForm('payment'); state.formName='Refund'; state.formAmount='3'; addTransaction(true)`);
+  assert.equal(h.value('state.lastToast'), 'Payment saved');
+  h.run(`startForm('expense', state.transactions[0], true); addTransaction(false)`);
+  assert.equal(h.value('state.lastToast'), 'Transaction updated');
+  // A refused save says nothing.
+  h.run(`state.lastToast=null; startForm('expense'); state.formName=''; addTransaction(false)`);
+  assert.equal(h.value('state.lastToast'), null);
+});
+
+test('a payment edited back into a personal expense takes a real category icon', async () => {
+  const h = harness(); await h.login();
+  h.run(`startForm('payment'); state.formName='Refund'; state.formAmount='5'; addTransaction(true)`);
+  assert.equal(h.value('state.transactions[0].emoji'), '💸');
+  h.run(`startForm('payment', state.transactions[0], true); setFormMode('expense'); addTransaction(false)`);
+  assert.equal(h.value('state.transactions[0].isRefund'), false);
+  assert.equal(h.value('state.transactions[0].emoji'), h.value('state.personalCategories[0].emoji'));
+  // An expense keeps the icon it had when the type is toggled there and back.
+  h.run(`state.transactions[0].emoji='☕'; startForm('expense', state.transactions[0], true); setFormMode('payment'); setFormMode('expense'); addTransaction(false)`);
+  assert.equal(h.value('state.transactions[0].emoji'), '☕');
+});
+
+test('a category accepts any single emoji, not only the grid', async () => {
+  const h = harness(); await h.login();
+  h.run(`state.emojiPickerForIndex=0; setCategoryEmoji(0, ' 🦖🦕 ')`);
+  assert.equal(h.value('state.personalCategories[0].emoji'), '🦖');
+  assert.equal(h.value('state.emojiPickerForIndex'), null);
+  // A flag and a family are one character each, not their first code point.
+  assert.equal(h.value(`firstGrapheme('🇺🇸x')`), '🇺🇸');
+  assert.equal(h.value(`firstGrapheme('👨‍👩‍👧 home')`), '👨‍👩‍👧');
+  // Empty input changes nothing.
+  assert.equal(h.value(`setCategoryEmoji(0, '   ')`), false);
+  assert.equal(h.value('state.personalCategories[0].emoji'), '🦖');
+});
+
+test('recurring rules list by tab, then next date, then name', async () => {
+  const h = harness(); await h.login();
+  h.run(`state.recurringRules=[
+    {id:'a',name:'Zed',emoji:'x',type:'personal',amount:1,isRefund:false,frequency:'monthly',nextOccurrenceDate:'2027-03-01'},
+    {id:'b',name:'beta',emoji:'x',type:'personal',amount:1,isRefund:false,frequency:'monthly',nextOccurrenceDate:'2027-01-01'},
+    {id:'c',name:'Alpha',emoji:'x',type:'personal',amount:1,isRefund:false,frequency:'monthly',nextOccurrenceDate:'2027-01-01'},
+    {id:'d',name:'Milk',emoji:'x',type:'grocery',amount:1,isRefund:false,frequency:'weekly',nextOccurrenceDate:'2026-12-01'}]`);
+  assert.deepEqual(h.value(`sortedRecurringRules('personal').map(r => r.name)`), ['Alpha', 'beta', 'Zed']);
+  assert.deepEqual(h.value(`sortedRecurringRules('grocery').map(r => r.name)`), ['Milk']);
+  // Sorting is for display only; the stored order is untouched.
+  assert.deepEqual(h.value(`state.recurringRules.map(r => r.id)`), ['a', 'b', 'c', 'd']);
+  h.run(`state.showSettings=true; render()`);
+  const html = h.app.innerHTML;
+  assert.ok(html.indexOf('Alpha') < html.indexOf('beta') && html.indexOf('beta') < html.indexOf('Zed') && html.indexOf('Zed') < html.indexOf('Milk'));
+});

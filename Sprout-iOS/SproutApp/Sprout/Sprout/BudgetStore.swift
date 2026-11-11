@@ -544,6 +544,12 @@ final class BudgetStore: ObservableObject {
             emoji = "💸"
         } else if entry.tab == .grocery {
             emoji = BudgetTab.grocery.icon
+        } else if draft.selectedEmoji == TransactionMode.paymentEmoji,
+                  let first = snapshot.personalCategories.first {
+            // A payment edited into an expense arrives carrying the payment's
+            // icon. The sheet picks a category as the type changes; this keeps
+            // the stored row right for any caller that did not.
+            emoji = first.emoji
         } else {
             emoji = draft.selectedEmoji
         }

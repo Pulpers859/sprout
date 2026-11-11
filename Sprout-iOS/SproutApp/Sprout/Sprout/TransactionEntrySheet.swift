@@ -5,13 +5,16 @@ struct TransactionEntrySheet: View {
     @EnvironmentObject private var store: BudgetStore
 
     let tab: BudgetTab
-    let mode: TransactionMode
+    /// Fixed for a new entry. While editing it follows the Type control, so an
+    /// expense filed as a payment (or the reverse) can be corrected in place
+    /// instead of deleted and re-entered — which web has always allowed.
+    @State private var mode: TransactionMode
     /// Editing an existing entry: the sheet used to title itself "Add Expense"
     /// with a "Save expense" button, so the only sign the edit had landed was the
     /// toast afterwards. Editing also cannot create a recurring rule, so that
     /// section is hidden rather than shown and silently ignored.
     let isEditing: Bool
-    let onSubmit: (TransactionDraft) -> Bool
+    let onSubmit: (TransactionDraft, TransactionMode) -> Bool
 
     @FocusState private var focusedField: Field?
     /// Fixed point sizes ignore Dynamic Type; these scale with it and fall back
@@ -28,10 +31,10 @@ struct TransactionEntrySheet: View {
         mode: TransactionMode,
         isEditing: Bool = false,
         initialDraft: TransactionDraft,
-        onSubmit: @escaping (TransactionDraft) -> Bool
+        onSubmit: @escaping (TransactionDraft, TransactionMode) -> Bool
     ) {
         self.tab = tab
-        self.mode = mode
+        _mode = State(initialValue: mode)
         self.isEditing = isEditing
         self.onSubmit = onSubmit
         _draft = State(initialValue: initialDraft)
@@ -42,6 +45,11 @@ struct TransactionEntrySheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
                     amountField
+
+                    if isEditing {
+                        typePicker
+                    }
+
                     categoryPicker
                     composerFields
                     metadataRow
@@ -77,6 +85,16 @@ struct TransactionEntrySheet: View {
             .presentationDragIndicator(.visible)
             .onAppear {
                 focusedField = .amount
+            }
+            .onChange(of: mode) { _, newMode in
+                // A payment carries the 💸 icon and no category. Turned into a
+                // personal expense it needs a real one, or it would keep the
+                // payment's icon.
+                guard newMode == .expense, tab == .personal, draft.selectedCategoryID == nil,
+                      draft.selectedEmoji == TransactionMode.paymentEmoji,
+                      let first = store.categories(for: tab).first else { return }
+                draft.selectedCategoryID = first.id
+                draft.selectedEmoji = first.emoji
             }
             .onChange(of: draft.isRecurring) { _, isRecurring in
                 if isRecurring {
@@ -116,6 +134,15 @@ struct TransactionEntrySheet: View {
             .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 12)
+    }
+
+    private var typePicker: some View {
+        Picker("Type", selection: $mode) {
+            Text("Expense").tag(TransactionMode.expense)
+            Text("Payment").tag(TransactionMode.payment)
+        }
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Transaction type")
     }
 
     @ViewBuilder
@@ -329,7 +356,7 @@ struct TransactionEntrySheet: View {
         // that group with "." read back as a hundredfold larger amount.
         draft.amountText = SproutMoneyText.editable(amount)
 
-        guard onSubmit(draft) else {
+        guard onSubmit(draft, mode) else {
             isSubmitting = false
             validationMessage = "Sprout couldn't save this entry. Check the amount and try again."
             return

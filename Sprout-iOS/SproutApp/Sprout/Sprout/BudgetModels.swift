@@ -71,6 +71,9 @@ enum TransactionMode: String, Identifiable, CaseIterable, Codable {
     var isRefund: Bool {
         self == .payment
     }
+
+    /// The icon every payment is stored with.
+    static let paymentEmoji = "💸"
 }
 
 enum RecurrenceFrequency: String, Codable, CaseIterable, Identifiable {
