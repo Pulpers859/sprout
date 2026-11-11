@@ -15,7 +15,9 @@ Claude-specific repo assumptions:
 - Compare provided outside artifacts against local files, local Git history, and GitHub `main`, then classify every claimed change as present, missing, partially landed, or overwritten.
 - The buildable iOS project lives at `Sprout-iOS/SproutApp/Sprout/Sprout.xcodeproj`.
 - To put a build on the owner's iPhone (no Mac, no developer account), run `.github/workflows/build-sideload-ipa.yml` and hand over the `sideload-<N>/Sprout.ipa` release link for Signulous. See README, "Installing on the iPhone".
-- The web prototype in `Sprout-html/index.html` is still the behavior reference for shared flows.
+- **Two-Surface Rule (`AGENTS.md`): every change lands on both the iOS app and the web app in the same task, or the gap is recorded in `docs/surface-drift.md` in the same commit.** Check the other surface for the same bug before closing one. Hand off by saying where each surface stands.
+- A push to `main` deploys the web app (`.github/workflows/deploy-web.yml`). The iPhone only gets iOS changes from a new sideload build. Say which the owner actually has.
+- Where the surfaces disagree and nothing says which is right, iOS is the reference for behavior and design.
 
 Highest-risk areas:
 

@@ -40,14 +40,15 @@ Use this skill to rebuild the minimum correct context for Sprout before coding, 
 - Commit and push completed code, docs, or workflow changes to `origin/main` unless Patrick says not to.
 - Treat `Sprout-html/sprout-firebase-config.js` and `Sprout-html/sprout-firebase-config.local.js` as ignored local config.
 - Do not claim SwiftUI/Xcode runtime validation from Windows.
-- When shared behavior changes, compare the iOS logic against the web prototype before declaring the work done.
+- Two-Surface Rule: every change lands on both the iOS app and the web app in the same task, or the gap is recorded in `docs/surface-drift.md` in the same commit. Read the rule in `AGENTS.md` before editing either surface.
+- A push to `main` deploys the web app; the iPhone needs a new sideload build. Report which the owner actually has.
 
 ## Good Handoff Shape
 
 Include:
 
 1. repo root
-2. touched surface
+2. touched surface, and where the other surface stands (changed, not applicable, or deferred and recorded)
 3. branch and sync state
 4. stale-copy warning, if relevant
 5. selected focused skill or reason none was needed

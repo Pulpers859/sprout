@@ -13,7 +13,7 @@ There are two product surfaces in this workspace:
 - `Sprout-iOS/`
   Native SwiftUI migration scaffold with local JSON persistence, backup import/export, deep-link quick add, and App Intents scaffolding.
 
-The iOS app is the higher-value product surface. The web app still matters because it contains prior behavior that can drift from the native rewrite.
+Both are shipping surfaces the owner uses: the iOS app on his phone, the web app at https://sprout-budgeting.netlify.app/ on other devices. Neither is a prototype of the other any more, and neither may be left behind — see the Two-Surface Rule below.
 
 Practical constraints in this workspace:
 
@@ -34,7 +34,7 @@ Optimize work around these risks first:
 4. Quick-entry path breakage
    `sprout://quick-add`, App Intents, pending request storage, and sheet presentation all need consistent routing.
 5. Cross-surface behavior drift
-   The web prototype and iOS app share product logic but not infrastructure, so the behavior can diverge during migration.
+   The web app and the iOS app share product logic but not code, so every change made to only one of them is drift. This has already cost a week-long feature gap and a five-week stale deploy.
 
 ## Working Rules
 
@@ -64,7 +64,24 @@ Optimize work around these risks first:
 - If the repo is dirty or is not on `main`, fetch first and inspect rather than pulling blindly. Return to `main` without discarding unrelated work before making project changes.
 - Do not assume local Xcode/simulator validation is available from this Windows workspace.
 - If working on Swift from Windows, do not claim to have validated SwiftUI runtime behavior or Xcode-only behavior unless that validation actually happened on macOS/Xcode.
-- When a change touches shared product behavior, compare the iOS logic against the web prototype before declaring the work done.
+- Every change lands on both surfaces, or the gap is recorded in `docs/surface-drift.md` in the same commit. See the Two-Surface Rule.
+
+## Two-Surface Rule
+
+**A change is not done until both surfaces have it.** This is the owner's standing instruction (2026-11-11), and it applies to every agent and every session, in both directions: iOS work is carried to the web app, and web work is carried to the iOS app.
+
+It exists because of what happened without it. The Holiday tab shipped on iOS and the web app went without it for a week. The web app then sat five weeks and 17 commits behind its own repository because nothing deployed it. Each gap was invisible until the owner put the two side by side.
+
+What it requires, in the same task as the change:
+
+1. **Carry it across.** A new feature, a behavior change, a bug fix in shared logic (budget math, rollover, recurring, backup, holiday), a change to copy that explains money, or a change to the look — make the equivalent change on the other surface before handing off. Start by finding the counterpart: `BudgetStore.swift` and the SwiftUI views on one side; `index.html`, `ledger.mjs`, `money.mjs`, `backup.mjs`, `holiday.mjs` on the other.
+2. **A bug found on one surface is a question about the other.** Check whether the same defect exists there before closing it. Several of the worst bugs in this repo were found exactly this way, in both directions.
+3. **Test both.** Web: `cd Sprout-html && node --test *.test.mjs`. iOS: the `SproutTests` run in CI — it is the only compiler available off a Mac, so read its result rather than assuming it.
+4. **If it cannot be carried across, write it down in the same commit.** Some things are platform-only (App Intents, deep links, haptics, Google sign-in and cloud sync) and some cannot be validated from the tooling at hand. Record the gap, with the reason, under "Known remaining drift" in `docs/surface-drift.md`. A gap that is written down is a decision; one that is not is a regression waiting to be noticed.
+5. **Keep the look in step too.** The web app uses the iOS design — the colours in `Color+Sprout.swift`, the card and row layouts. A visual change to one is a visual change to both.
+6. **Say where each surface stands when you hand off.** For each surface: changed, not applicable, or deferred and why. And say what is actually in the owner's hands: a push to `main` deploys the web app within a minute or two, but the iPhone only gets iOS changes from a new sideload build (`.github/workflows/build-sideload-ipa.yml`). "It's on `main`" is not "it's on the phone".
+
+Where the two surfaces disagree and nothing says which is right, iOS is the reference for behavior and for design.
 
 ## Skill-First Workflow
 

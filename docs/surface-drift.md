@@ -185,6 +185,11 @@ The web app now uses the iOS app's design rather than its own.
 
 ## Known remaining drift
 
+This is the ledger the Two-Surface Rule in `AGENTS.md` points at. Anything
+changed on one surface and not the other belongs here, with the reason, in the
+same commit as the change. Close an entry by carrying the change across, and
+say so here when you do.
+
 Found by an independent audit on 2026-11-06 and not yet closed. Listed here
 rather than described as aligned.
 
