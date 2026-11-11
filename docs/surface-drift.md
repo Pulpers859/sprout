@@ -1,6 +1,6 @@
 # Web and iOS behavior alignment
 
-Updated 2026-11-06. iOS is the behavior reference for shared budget flows.
+Updated 2026-11-10. iOS is the behavior reference for shared budget flows.
 The web app now follows these behaviors without replacing its Firebase account
 and local-cache infrastructure.
 
@@ -130,6 +130,31 @@ Holiday differences that remain:
 - Web pauses saving when any stored row had to be salvaged, holiday rows
   included. iOS reports the loss and keeps saving. That is the pre-existing
   recovery difference below, not a holiday-specific one.
+
+## Presentation (web restyled 2026-11-10)
+
+The web app now uses the iOS app's design rather than its own.
+
+- Colours are the values in `Color+Sprout.swift`, light and dark, including the
+  three hero gradients and the berry holiday accent. Type is the system face
+  (`-apple-system`, with `ui-rounded` for titles and money), which on an iPhone
+  is the same San Francisco the app renders. The three Google web fonts are gone.
+- Layout follows the iOS dashboards: "Sprout" title with circular settings and
+  "…" buttons, a pill section picker under it, a gradient summary card with the
+  balance as its headline, two pill actions, then avatar rows with a trailing
+  amount. Secondary holiday actions (rename, new season, record a return, past
+  seasons) and sign-out live in the "…" menu, as they do on iOS.
+- The section picker is at the top, not along the bottom edge. That matches
+  iOS, and it keeps every control out of the bottom-right corner, where
+  Netlify's free plan pins a hosting badge that cannot be turned off.
+- Still different, on purpose: forms open in place as a card rather than as a
+  slide-up sheet. A bottom sheet under the iPhone keyboard is the classic
+  mobile-web failure and it cannot be tested from this repo's tooling. Row
+  options are a tap on "…" rather than a long-press, and there are no haptics,
+  toasts, or animated transitions between tabs — the page is rebuilt on every
+  change, so entry animations would replay on every tap.
+- Per-person edit and remove moved off each row and onto the person's own
+  screen, where iOS has them. The row itself opens the person.
 
 ## Deliberate differences and limits
 
@@ -294,8 +319,9 @@ rather than described as aligned.
   `saveLocalCache` validates the rotation target before the primary write, so a
   rotation failure loses the save rather than the backup copy.
 
-- iOS has a month-ending banner that closes the month out when tapped; web has
-  only a passive notice and the header Reset button.
+- Resolved 2026-11-10: web's month notice is now a tappable banner that opens
+  the same close-out dialog, as on iOS. "Reset" itself moved into the header's
+  "…" menu as "Start a new month".
 - iOS shows success toasts and haptics after a save; web just closes the form.
 - iOS lets a category use any emoji from the keyboard; web offers a fixed grid.
 - iOS groups the recurring list by tab and sorts by next date; web lists it in

@@ -713,17 +713,19 @@ test('transaction search filters by name and note, and goes inert when hidden', 
     h.run(`startForm('expense'); state.formName=${JSON.stringify(name)}; state.formNote=${JSON.stringify(note)}; state.formAmount='5'; addTransaction(false)`);
   }
   h.run(`state.txSearch='coff'; render()`);
-  assert.match(h.app.innerHTML, /Coffee/);
-  assert.ok(!h.app.innerHTML.includes('>Lunch<'));
+  // Asserted on the list rows specifically: the "Repeat" chips above the list
+  // name recent purchases too, and they are not search results.
+  assert.match(h.app.innerHTML, /class="row-title">Coffee</);
+  assert.ok(!h.app.innerHTML.includes('class="row-title">Lunch<'));
   // Matches the note too.
   h.run(`state.txSearch='gift'; render()`);
-  assert.match(h.app.innerHTML, /Books/);
-  assert.ok(!h.app.innerHTML.includes('>Coffee<'));
+  assert.match(h.app.innerHTML, /class="row-title">Books</);
+  assert.ok(!h.app.innerHTML.includes('class="row-title">Coffee<'));
   // Below five rows the field is gone, so the filter must stop applying or the
   // list reads "no match" with no box to clear.
   h.run(`state.txSearch='coff'; state.transactions = state.transactions.slice(0,3); render()`);
   assert.ok(!h.app.innerHTML.includes('id="txSearch"'));
-  assert.match(h.app.innerHTML, /Lunch/);
+  assert.match(h.app.innerHTML, /class="row-title">Lunch</);
   // And a query does not survive a tab change. The harness's querySelectorAll
   // returns [], so bindEvents binds nothing — invoke the handler's work the way
   // the click does, rather than assigning the expected value and asserting it.
@@ -742,7 +744,7 @@ test('a closed month shows its leftover, not the whole balance as a daily figure
   // The pre-fix bug: daysLeft is 1 for a past month, so the figure meant to say
   // what you may spend today said "spend all of it".
   assert.ok(!html.includes('$200.00/day'), 'must not offer the whole balance per day');
-  assert.match(html, /unspent in/);
+  assert.match(html, /Unspent in/);
 });
 
 test('the progress bar is coloured by spend, and pace is its own labelled signal', async () => {

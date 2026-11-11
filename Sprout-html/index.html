@@ -10,443 +10,518 @@
 <link rel="icon" type="image/png" sizes="180x180" href="icon-180.png">
   <!-- PWA Manifest -->
   <link rel="manifest" href="sprout.webmanifest">
-  <meta name="theme-color" content="#8fae8b">
-  <meta name="msapplication-TileColor" content="#8fae8b">
+  <meta name="theme-color" content="#f4f7f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141916" media="(prefers-color-scheme: dark)">
+  <meta name="msapplication-TileColor" content="#09564a">
 <title>Sprout</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* ── Design tokens ──
+     Values are the ones in Sprout-iOS `Color+Sprout.swift`, light and dark, so
+     the two surfaces are the same palette rather than two that resemble each
+     other. Type is the system face: on an iPhone that is San Francisco, and
+     `ui-rounded` is the SF Rounded the iOS app uses for titles and money. */
   :root {
-    --bg: #fdfbf8;
+    color-scheme: light dark;
+    --bg: rgb(244,247,245);
     --card: #ffffff;
-    --text1: #3d3630;
-    --text2: #8a7f74;
-    --text3: #a09788;
-    --text4: #c4b8ab;
-    --sage: #8fae8b;
-    --sage-dark: #7a9d76;
-    --sage-light: #eef4ed;
-    --green: #6a9e66;
-    --green-dark: #5a8c56;
-    --green-bg: #f0f6ef;
-    --green-border: #c5dcc3;
-    --amber: #d4a96a;
-    --red: #c97a7a;
-    --border: #ece7e0;
-    --input-border: #e0d9d0;
-    --chip: #f5f0ea;
-    --chip-hover: #ece7e0;
-    --divider: #f0ebe4;
-    --font-display: 'Fraunces', Georgia, serif;
-    --font-body: 'DM Sans', system-ui, sans-serif;
-    --font-mono: 'DM Mono', monospace;
+    --card-soft: rgb(236,241,237);
+    --text1: rgb(18,31,24);
+    --text2: rgb(66,85,74);
+    --text3: rgb(107,124,114);
+    --sage: rgb(26,148,117);
+    --sage-dark: rgb(9,86,73);
+    --sage-light: rgb(218,238,225);
+    --sage-mist: rgb(233,245,237);
+    --sage-text: rgb(9,86,73);
+    --blue: rgb(60,107,201);
+    --blue-dark: rgb(26,52,130);
+    --blue-light: rgb(223,234,247);
+    --blue-text: rgb(26,52,130);
+    --berry: rgb(161,44,79);
+    --berry-dark: rgb(107,22,53);
+    --berry-light: rgb(249,230,236);
+    --berry-text: rgb(107,22,53);
+    --amber: rgb(210,149,46);
+    --red: rgb(197,64,66);
+    --red-light: rgb(251,230,230);
+    --mint: rgb(110,241,188);
+    --amber-bright: rgb(255,194,73);
+    --red-bright: rgb(255,110,110);
+    --border: rgb(213,223,216);
+    --border-dark: rgb(176,193,181);
+    --chip: rgb(232,240,234);
+    --track: rgb(214,224,217);
+    --shadow: rgba(0,0,0,0.07);
+    --notice-bg: rgb(255,244,220);
+    --notice-text: rgb(98,69,31);
+    --notice-border: rgb(240,219,170);
+    --scrim: rgba(18,31,24,0.38);
+    --hero-personal: linear-gradient(135deg, rgb(7,94,81), rgb(12,121,101));
+    --hero-grocery: linear-gradient(135deg, rgb(28,60,144), rgb(55,93,190));
+    --hero-holiday: linear-gradient(135deg, rgb(83,14,40), rgb(143,34,71));
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    /* Older names still referenced from script. */
+    --green: var(--sage-text);
+    --text4: var(--text3);
+    --divider: var(--border);
+    --font-body: var(--font);
+    --font-mono: var(--font-round);
+    --font-display: var(--font-round);
   }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: rgb(20,25,22);
+      --card: rgb(32,38,34);
+      --card-soft: rgb(25,31,27);
+      --text1: rgb(232,238,234);
+      --text2: rgb(176,190,180);
+      --text3: rgb(134,150,140);
+      --sage: rgb(38,168,134);
+      --sage-dark: rgb(30,136,112);
+      --sage-light: rgb(20,42,31);
+      --sage-mist: rgb(17,34,25);
+      --sage-text: rgb(72,196,160);
+      --blue: rgb(86,132,224);
+      --blue-dark: rgb(70,113,208);
+      --blue-light: rgb(25,35,56);
+      --blue-text: rgb(140,174,242);
+      --berry: rgb(204,81,112);
+      --berry-dark: rgb(187,64,99);
+      --berry-light: rgb(50,20,29);
+      --berry-text: rgb(230,130,155);
+      --amber: rgb(227,168,70);
+      --red: rgb(226,104,106);
+      --red-light: rgb(51,25,25);
+      --mint: rgb(78,208,156);
+      --amber-bright: rgb(244,182,59);
+      --red-bright: rgb(244,99,99);
+      --border: rgb(45,54,48);
+      --border-dark: rgb(65,78,69);
+      --chip: rgb(30,39,33);
+      --track: rgb(45,54,48);
+      --shadow: rgba(0,0,0,0.30);
+      --notice-bg: rgb(52,42,20);
+      --notice-text: rgb(242,220,170);
+      --notice-border: rgb(84,68,32);
+      --scrim: rgba(0,0,0,0.55);
+    }
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; overflow: hidden; }
-  body { background: var(--bg); font-family: var(--font-body); color: var(--text1); }
-  input[type=number]::-webkit-inner-spin-button,
-  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  input[type=number] { -moz-appearance: textfield; }
-  button { font-family: var(--font-body); }
-  ::-webkit-scrollbar { width: 4px; }
+  body {
+    background: var(--bg); color: var(--text1);
+    font: 17px/1.35 var(--font);
+    -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  button:disabled, input:disabled { opacity: .45; cursor: not-allowed; }
+  /* The whole view is rebuilt on every change, so anything animated on entry
+     replays on every tap and keystroke. Pressed feedback is the one motion
+     that survives a rebuild honestly. */
+  button:not(:disabled):active, summary:active { opacity: .72; }
+  :focus-visible { outline: 2px solid var(--accent, var(--sage)); outline-offset: 2px; }
+  svg.ic { display: block; flex: none; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #d4cdc4; border-radius: 99px; }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  ::-webkit-scrollbar-thumb { background: var(--border-dark); border-radius: 99px; }
 
-  /* ── App Shell ── */
-  #app {
-    max-width: 440px; margin: 0 auto; height: 100vh; height: 100dvh;
+  /* ── Shell and per-section accent ── */
+  #app { height: 100vh; height: 100dvh; }
+  .shell {
+    --accent: var(--sage); --accent-dark: var(--sage-dark); --accent-light: var(--sage-light);
+    --accent-text: var(--sage-text); --hero: var(--hero-personal); --hero-glow: rgba(9,86,73,0.22);
+    max-width: 480px; margin: 0 auto; height: 100%;
     display: flex; flex-direction: column; position: relative;
   }
-  .header { padding: 24px 20px 0; animation: fadeIn 0.4s ease; flex-shrink: 0; }
-  .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-  .header h1 { font-family: var(--font-display); font-size: 26px; font-weight: 500; color: var(--text1); letter-spacing: -0.5px; }
-  .header-date { font-size: 13px; color: var(--text3); margin-bottom: 4px; }
-  .btn-reset {
-    background: var(--chip); border: 1px solid var(--border); border-radius: 10px;
-    padding: 7px 12px; cursor: pointer; font-size: 13px; color: var(--text2);
-    transition: all 0.15s ease; display: flex; align-items: center; gap: 4px;
+  .shell[data-section="grocery"] {
+    --accent: var(--blue); --accent-dark: var(--blue-dark); --accent-light: var(--blue-light);
+    --accent-text: var(--blue-text); --hero: var(--hero-grocery); --hero-glow: rgba(26,52,130,0.22);
   }
-  .btn-reset:hover { border-color: var(--red); color: var(--red); }
-
-  .content { flex: 1; padding: 12px 20px 0; overflow-y: auto; padding-bottom: 80px; }
-  .content > div { animation: slideUp 0.3s ease; }
-
-  /* ── Tab Bar ── */
-  .tab-bar {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    background: rgba(253,251,248,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid var(--border); display: flex; padding: 8px 16px 12px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-  }
-  .tab-btn {
-    flex: 1; background: none; border: none; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 6px 0; transition: all 0.15s ease;
-  }
-  .tab-btn .tab-icon { font-size: 20px; }
-  .tab-btn .tab-label { font-size: 11px; color: var(--text3); font-weight: 400; }
-  .tab-btn.active { opacity: 1; }
-  .tab-btn.active .tab-label { color: var(--sage); font-weight: 600; }
-  .tab-btn:not(.active) { opacity: 0.5; }
-
-  /* ── Summary Card ── */
-  .summary-card {
-    background: var(--card); border-radius: 18px; padding: 18px;
-    margin-bottom: 14px; border: 1px solid var(--border);
-    box-shadow: 0 2px 12px rgba(0,0,0,0.03);
-  }
-  .summary-top { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 10px; }
-  .budget-setter { display: flex; align-items: center; gap: 4px; background: none; border: none; cursor: pointer; font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--text2); }
-  .budget-setter .edit-icon { font-size: 10px; color: var(--text4); }
-  .budget-edit { display: flex; align-items: center; gap: 6px; }
-  .budget-edit-input {
-    width: 100px; padding: 5px 8px; border: 2px solid var(--sage); border-radius: 8px;
-    font-size: 16px; font-family: var(--font-mono); color: var(--text1); outline: none; background: #fff;
-  }
-  .budget-edit-save {
-    background: var(--sage); border: none; border-radius: 6px; padding: 5px 12px;
-    color: #fff; font-size: 12px; cursor: pointer; font-weight: 600;
-  }
-  .budget-edit-cancel { background: none; border: none; color: var(--text3); font-size: 14px; cursor: pointer; }
-  .carryover-note { margin-top: -2px; margin-bottom: 10px; text-align: right; font-size: 11px; color: var(--text3); }
-
-  /* ── Progress Bar ── */
-  .bar-labels { display: flex; justify-content: space-between; font-size: 13px; color: #7a7067; margin-bottom: 4px; }
-  .bar-remaining { font-weight: 600; }
-  .bar-remaining.positive { color: #5a6e58; }
-  .bar-remaining.negative { color: var(--red); }
-  .bar-track { position: relative; height: 10px; border-radius: 99px; background: #e8e2da; overflow: hidden; }
-  .bar-pace {
-    position: absolute; inset: 0 auto 0 0; height: 100%;
-    border-radius: 99px; background: #d3cdc5; transition: width 0.5s ease;
-  }
-  .bar-fill {
-    position: absolute; inset: 0 auto 0 0; height: 100%;
-    border-radius: 99px; transition: width 0.5s ease, background 0.4s ease;
+  .shell[data-section="holiday"] {
+    --accent: var(--berry); --accent-dark: var(--berry-dark); --accent-light: var(--berry-light);
+    --accent-text: var(--berry-text); --hero: var(--hero-holiday); --hero-glow: rgba(107,22,53,0.24);
   }
 
-  .remaining-display { text-align: center; padding: 10px 0 4px; border-top: 1px solid var(--divider); margin-top: 10px; }
-  .remaining-amount { font-family: var(--font-mono); font-size: 28px; font-weight: 600; }
-  .remaining-amount.negative { color: var(--red); }
-  .remaining-label { font-size: 12px; color: var(--text3); margin-top: 2px; }
+  /* ── Header ── */
+  .header {
+    flex-shrink: 0;
+    padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
+  }
+  .header-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  .header h1 {
+    flex: 1; min-width: 0; font: 800 34px/1.1 var(--font-round); letter-spacing: -0.4px; color: var(--text1);
+  }
+  .icon-btn {
+    width: 44px; height: 44px; flex: none; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--card); color: var(--text1); border: 1px solid var(--border-dark);
+    box-shadow: 0 3px 6px var(--shadow); list-style: none;
+  }
+  summary.icon-btn { cursor: pointer; }
+  summary::-webkit-details-marker { display: none; }
 
-  /* ── Daily Allowance ── */
-  .daily-allowance {
-    text-align: center; padding: 8px 0 2px;
-    animation: fadeIn 0.3s ease;
+  /* ── Menus (header overflow and row options) ── */
+  details.menu { position: relative; flex: none; }
+  details.menu > summary { list-style: none; cursor: pointer; -webkit-user-select: none; user-select: none; }
+  .menu-pop {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 232px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.20); padding: 6px; text-align: left;
   }
-  .daily-amount {
-    font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--sage-dark);
+  .menu-item {
+    display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px;
+    padding: 10px 12px; border: 0; border-radius: 10px; background: transparent;
+    font-size: 16px; font-weight: 500; color: var(--text1); text-align: left;
   }
-  .daily-amount.negative { color: var(--red); }
-  .daily-label { font-size: 11px; color: var(--text4); margin-top: 1px; }
+  .menu-item .ic { color: var(--text3); }
+  .menu-item.danger, .menu-item.danger .ic { color: var(--red); }
+  .menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+  .menu-account { display: flex; align-items: center; gap: 10px; padding: 8px 12px 6px; }
+  .menu-account-text { min-width: 0; }
+  .menu-account img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+  .menu-account-name { font-size: 14px; font-weight: 600; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-account-sub { font-size: 12px; color: var(--text3); }
 
-  /* ── Calendar Toggle ── */
-  .calendar-toggle {
-    width: 100%; margin-bottom: 14px; padding: 9px 14px;
-    border-radius: 12px; cursor: pointer; font-size: 13px;
-    transition: all 0.15s ease; display: flex; align-items: center;
-    justify-content: center; gap: 6px; border: 1px solid var(--border);
-    background: var(--chip); color: var(--text2);
+  /* ── Section picker ── */
+  .picker {
+    display: flex; gap: 4px; padding: 4px; margin-top: 14px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 999px;
   }
-  .calendar-toggle.active { background: var(--sage-light); border-color: var(--sage); color: #5a6e58; }
+  .picker-btn {
+    flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 999px; background: transparent;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    font-size: 15px; font-weight: 600; color: var(--text2); white-space: nowrap;
+  }
+  .picker-btn.active { background: var(--accent-dark); color: #fff; }
+
+  /* ── Scrolling content ── */
+  .content {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    /* The bottom clearance is deliberate: on Netlify's free plan a hosting
+       badge is pinned to the bottom-right corner, and the last row has to be
+       able to scroll clear of it. */
+    padding: 18px max(20px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  }
+  .stack { display: flex; flex-direction: column; gap: 22px; }
+
+  /* ── Notices and banners ── */
+  .notice {
+    padding: 12px 14px; border-radius: 16px; background: var(--notice-bg); color: var(--notice-text);
+    border: 1px solid var(--notice-border); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere;
+  }
+  .notice .btn { margin: 8px 8px 0 0; }
+  .banner {
+    display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; text-align: left;
+    background: var(--accent-light); color: var(--accent-text);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 16px;
+  }
+  .banner-body { flex: 1; min-width: 0; }
+  .banner-title { display: block; font-size: 15px; font-weight: 600; }
+  .banner-sub { display: block; font-size: 13px; opacity: .85; margin-top: 1px; }
+
+  /* ── Hero card ── */
+  .hero {
+    /* Fills sit on a saturated gradient here, so the status colours switch to
+       the bright variants iOS uses on its card. */
+    --sage: var(--mint); --amber: var(--amber-bright); --red: var(--red-bright);
+    background: var(--hero); color: #fff; border-radius: 24px; padding: 22px;
+    box-shadow: 0 10px 22px var(--hero-glow);
+    display: flex; flex-direction: column; gap: 20px;
+  }
+  .hero-top { display: flex; align-items: flex-start; gap: 12px; }
+  .hero-headline { flex: 1; min-width: 0; }
+  .hero-kicker { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.75); margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-caption { font-size: 12px; font-weight: 700; letter-spacing: 0.3px; color: rgba(255,255,255,0.80); text-transform: uppercase; }
+  .hero-amount {
+    font: 700 clamp(34px, 11.5vw, 44px)/1.08 var(--font-round); letter-spacing: -0.5px;
+    font-variant-numeric: tabular-nums; margin-top: 4px; overflow-wrap: anywhere;
+  }
+  .hero-edit {
+    width: 44px; height: 44px; flex: none; border: 0; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.96); color: var(--accent-dark);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+  }
+  @media (prefers-color-scheme: dark) { .hero-edit { color: rgb(40,48,43); } }
+  .hero-meter { display: flex; flex-direction: column; gap: 9px; }
+  .hero-track { position: relative; height: 8px; border-radius: 99px; background: rgba(255,255,255,0.16); }
+  .hero-fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; max-width: 100%; }
+  .hero-pace { position: absolute; top: -4px; width: 2px; height: 16px; background: rgba(255,255,255,0.92); border-radius: 1px; margin-left: -1px; }
+  .hero-labels { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.85); font-variant-numeric: tabular-nums; }
+  .hero-text { font-size: 13px; font-weight: 500; line-height: 1.4; color: rgba(255,255,255,0.85); }
+  .hero-divider { height: 1px; background: rgba(255,255,255,0.16); }
+  .hero-foot { display: flex; align-items: center; gap: 14px; }
+  .hero-foot-main { flex: 1; min-width: 0; }
+  .hero-foot-label { font-size: 12px; color: rgba(255,255,255,0.80); }
+  .hero-foot-value { font: 700 17px/1.25 var(--font-round); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .hero-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.92); text-align: right; }
+  .hero-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .hero-editor { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.20); border-radius: 16px; padding: 14px; }
+  .hero-editor-row { display: flex; align-items: center; gap: 8px; }
+  .hero-editor-row .currency { font: 700 20px var(--font-round); color: rgba(255,255,255,0.9); }
+  .hero .hero-editor input[type=text] {
+    flex: 1; min-width: 0; height: 44px; padding: 0 12px; border-radius: 12px; border: 0; outline: none;
+    background: rgba(255,255,255,0.96); color: rgb(18,31,24); font: 700 18px var(--font-round);
+  }
+  .hero-editor .btn-light {
+    height: 44px; padding: 0 18px; border: 0; border-radius: 999px;
+    background: rgba(255,255,255,0.96); color: rgb(18,31,24); font-size: 15px; font-weight: 600;
+  }
+  .hero-editor .btn-ghost {
+    width: 44px; height: 44px; flex: none; border: 0; border-radius: 50%; background: rgba(255,255,255,0.14); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .hero-editor-help { margin-top: 10px; font-size: 13px; line-height: 1.4; color: rgba(255,255,255,0.85); }
+  .hero-editor .notice { margin-top: 10px; }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 10px 18px; border-radius: 999px;
+    font-size: 16px; font-weight: 600; border: 1px solid var(--border); background: var(--card); color: var(--text1);
+    text-decoration: none;
+  }
+  .btn-primary { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+  .btn-tint { color: var(--accent-text); }
+  .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .btn-danger-text { color: var(--red); }
+  .btn-small { min-height: 36px; padding: 6px 14px; font-size: 14px; }
+  .actions { display: flex; gap: 12px; }
+  .actions .btn { flex: 1; min-width: 0; min-height: 52px; padding: 10px 12px; font-size: clamp(15px, 4.3vw, 17px); white-space: nowrap; box-shadow: 0 3px 8px var(--shadow); }
+  .actions-minor { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -8px; }
+
+  /* ── Section headings ── */
+  .section { display: flex; flex-direction: column; gap: 10px; }
+  .section-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: transparent; text-align: left; color: inherit; }
+  .section-title { font-size: 20px; font-weight: 700; color: var(--text1); }
+  .section-detail { font-size: 15px; color: var(--text3); font-variant-numeric: tabular-nums; }
+  .section-head .spacer { flex: 1; }
+  .section-head .ic { align-self: center; color: var(--text3); transition: transform .2s ease; }
+  .section-head.open .ic { transform: rotate(180deg); }
+
+  /* ── Quick-add chips ── */
+  .chips { display: flex; gap: 9px; overflow-x: auto; padding: 1px; margin: 0 -1px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; display: inline-flex; align-items: center; gap: 7px; max-width: 220px;
+    padding: 10px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--card);
+    font-size: 15px; font-weight: 500; color: var(--text1);
+  }
+  .chip span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Rows ── */
+  .list { display: flex; flex-direction: column; }
+  .row { display: flex; align-items: center; gap: 4px; position: relative; }
+  .row + .row::before { content: ""; position: absolute; top: 0; left: 52px; right: 0; height: 1px; background: var(--border); }
+  .row-main {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px 0;
+    border: 0; background: transparent; text-align: left; color: inherit;
+  }
+  .avatar {
+    width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--card-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 20px; line-height: 1;
+  }
+  .row-text { flex: 1; min-width: 0; display: block; }
+  .row-title { display: block; font-size: 17px; font-weight: 600; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-sub { display: block; font-size: 13px; color: var(--text3); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-sub.wrap { white-space: normal; }
+  .row-sub.over { color: var(--red); }
+  .row-amount { flex: none; font: 700 15px var(--font-round); font-variant-numeric: tabular-nums; color: var(--text1); padding-left: 6px; }
+  .row-amount.good, .tag-good { color: var(--sage-text); }
+  .row-amount.top { align-self: flex-start; padding-top: 2px; }
+  .row-sub.breakdown { margin-top: 6px; line-height: 1.5; }
+  .season-delete { margin-top: 10px; }
+  .tag-accent { color: var(--accent-text); }
+  .row-chevron { display: flex; flex: none; color: var(--text3); margin-left: 2px; }
+  .row-more {
+    width: 40px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--text3);
+    border-radius: 12px;
+  }
+  .mini-track { display: block; height: 4px; border-radius: 99px; background: var(--track); margin-top: 7px; overflow: hidden; }
+  .mini-fill { display: block; height: 100%; border-radius: 99px; background: var(--accent); max-width: 100%; }
+  .mini-fill.over { background: var(--red); }
+
+  /* ── Empty states ── */
+  .empty { text-align: center; padding: 26px 16px 10px; }
+  .empty .ic { margin: 0 auto 12px; color: var(--text3); }
+  .empty-title { font-size: 20px; font-weight: 700; color: var(--text1); }
+  .empty-text { font-size: 15px; color: var(--text3); margin-top: 6px; line-height: 1.4; }
+  .empty.plain { padding: 18px 8px; font-size: 15px; color: var(--text3); }
+
+  /* ── Search ── */
+  .search { position: relative; }
+  .search .ic { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text3); pointer-events: none; }
+  .content .search input[type=text] { padding-left: 38px; }
+
+  /* ── Forms ── */
+  .input, .content input[type=text], .content input[type=date], .settings-modal input[type=text], select {
+    width: 100%; min-width: 0; min-height: 46px; padding: 10px 14px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text1);
+    font-size: 17px; outline: none; -webkit-appearance: none; appearance: none;
+  }
+  .input:focus, .content input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  input::placeholder { color: var(--text3); opacity: 1; }
+  .content input[type=date] { min-width: 0; font-size: 16px; padding-left: 10px; padding-right: 8px; }
+  select {
+    padding-right: 34px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text3) 50%), linear-gradient(135deg, var(--text3) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  }
+  .form-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 18px;
+    box-shadow: 0 6px 18px var(--shadow); display: flex; flex-direction: column; gap: 14px;
+  }
+  .form-card input[type=text], .form-card input[type=date], .form-card select { background: var(--card-soft); }
+  .form-title { font-size: 20px; font-weight: 700; color: var(--text1); }
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+  .field-label { font-size: 13px; font-weight: 600; color: var(--text2); }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field.narrow { flex: 0 0 38%; }
+  .help { font-size: 13px; color: var(--text3); line-height: 1.45; }
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+  .choice {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 8px 14px; max-width: 100%;
+    border-radius: 999px; border: 1px solid var(--border); background: var(--card-soft);
+    font-size: 15px; font-weight: 500; color: var(--text1);
+  }
+  .choice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .choice.selected { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+  .choice.icon-only { width: 44px; padding: 0; justify-content: center; font-size: 20px; }
+  .check-row { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; color: var(--text1); line-height: 1.4; }
+  .check-row input[type=checkbox] { width: 22px; height: 22px; flex: none; accent-color: var(--accent-dark); margin-top: 1px; }
+  .form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .form-actions .btn { flex: 1; min-height: 48px; }
+  .form-actions .btn-primary { flex: 2; }
 
   /* ── Calendar ── */
-  .calendar-card {
-    background: var(--card); border-radius: 18px; padding: 16px; margin-bottom: 14px;
-    border: 1px solid var(--border); animation: fadeIn 0.2s ease;
-  }
-  .cal-month { text-align: center; font-family: var(--font-display); font-size: 18px; color: var(--text1); margin-bottom: 14px; font-weight: 500; }
+  .calendar-card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 16px; }
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-  .cal-day-label { text-align: center; font-size: 11px; color: var(--text3); padding: 4px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cal-day-label { text-align: center; font-size: 11px; font-weight: 600; color: var(--text3); padding: 4px 0; text-transform: uppercase; letter-spacing: 0.4px; }
   .cal-day {
-    aspect-ratio: 1; border: 1px solid transparent; border-radius: 10px;
-    background: transparent; cursor: pointer; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; padding: 2px; transition: all 0.15s ease;
-    font-family: var(--font-body);
+    aspect-ratio: 1; border: 1.5px solid transparent; border-radius: 12px; background: transparent;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2px; min-width: 0;
   }
-  .cal-day:hover { background: var(--chip); }
-  .cal-day.has-items { background: var(--chip); }
-  .cal-day.today { border: 2px solid var(--amber); }
+  .cal-day.has-items { background: var(--card-soft); }
+  .cal-day.today { border-color: var(--amber); }
   .cal-day.today .cal-num { color: var(--amber); font-weight: 700; }
-  .cal-day.selected { border: 2px solid var(--sage); background: var(--sage-light); }
-  .cal-num { font-size: 13px; color: var(--text1); }
-  .cal-amount { font-size: 9px; font-family: var(--font-mono); font-weight: 600; margin-top: 1px; color: var(--text2); }
-  .cal-amount.refund { color: var(--green); }
-  .cal-detail {
-    margin-top: 14px; background: var(--chip); border-radius: 14px;
-    padding: 14px; border: 1px solid var(--border); animation: fadeIn 0.2s ease;
-  }
-  .cal-detail-date { font-size: 13px; color: var(--text2); margin-bottom: 8px; font-weight: 500; }
-  .cal-detail-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px;
-  }
-  .cal-detail-net { display: flex; justify-content: flex-end; margin-top: 8px; font-size: 14px; font-weight: 600; color: #5a6e58; font-family: var(--font-mono); }
+  .cal-day.selected { border-color: var(--accent); background: var(--accent-light); }
+  .cal-num { font-size: 14px; color: var(--text1); }
+  .cal-amount { font: 700 clamp(8px, 2.2vw, 10px) var(--font-round); margin-top: 1px; color: var(--text2); overflow-wrap: anywhere; text-align: center; }
+  .cal-amount.refund { color: var(--sage-text); }
+  .cal-detail { margin-top: 14px; background: var(--card-soft); border-radius: 14px; padding: 14px; }
+  .cal-detail-date { font-size: 14px; color: var(--text2); margin-bottom: 8px; font-weight: 600; }
+  .cal-detail-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .cal-detail-row .amt { font: 700 14px var(--font-round); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cal-detail-net { display: flex; justify-content: flex-end; margin-top: 8px; font: 700 15px var(--font-round); color: var(--text1); }
+  .muted { color: var(--text3); }
 
-  /* ── Quick Add ── */
-  .quick-add-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 6px; }
-  .quick-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
-  .quick-chip {
-    background: var(--chip); border: 1px solid var(--border); border-radius: 99px;
-    padding: 5px 12px; cursor: pointer; font-size: 13px; color: #5a5048;
-    transition: all 0.15s ease; display: flex; align-items: center; gap: 4px;
-  }
-  .quick-chip:hover { background: var(--chip-hover); }
-
-  /* ── Add Buttons ── */
-  .add-buttons { display: flex; gap: 8px; margin-bottom: 14px; }
-  .btn-add {
-    flex: 1; padding: 12px; border: 2px dashed #d4cdc4; border-radius: 14px;
-    background: transparent; cursor: pointer; font-size: 14px; color: var(--text2);
-    transition: all 0.2s ease;
-  }
-  .btn-add:hover { border-color: var(--sage); color: #5a6e58; }
-  .btn-add.payment:hover { border-color: var(--green); color: var(--green); }
-
-  /* ── Add Form ── */
-  .add-form {
-    border-radius: 16px; padding: 16px; margin-bottom: 14px;
-    border: 1px solid var(--border); background: var(--chip);
-  }
-  .add-form.payment { background: var(--green-bg); border-color: var(--green-border); }
-  .form-header { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; color: var(--text2); }
-  .add-form.payment .form-header { color: var(--green); }
-  .emoji-picker { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
-  .emoji-btn {
-    background: var(--chip-hover); color: #5a5048; border: none; border-radius: 99px;
-    padding: 5px 10px; cursor: pointer; font-size: 13px; transition: all 0.15s ease;
-    display: flex; align-items: center; gap: 3px;
-  }
-  .emoji-btn.selected { background: var(--sage); color: #fff; }
-  .emoji-btn span:last-child { font-size: 11px; }
-  .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  .form-input {
-    flex: 1; padding: 10px 12px; border: 1px solid var(--input-border);
-    border-radius: 10px; font-size: 14px; font-family: var(--font-body);
-    background: #fff; color: var(--text1); outline: none;
-  }
-  .form-input:focus { border-color: var(--sage); }
-  .add-form.payment .form-input:focus { border-color: var(--green); }
-  .form-input.mono { font-family: var(--font-mono); width: 90px; flex: none; }
-  .form-input.small { font-size: 13px; }
-  .form-input.date { width: 130px; flex: none; font-size: 13px; }
-  .form-actions { display: flex; gap: 8px; margin-top: 2px; }
-  .btn-submit {
-    flex: 1; padding: 10px; border: none; border-radius: 10px;
-    background: var(--sage); color: #fff; font-size: 14px; font-weight: 600;
-    cursor: pointer; transition: background 0.15s ease;
-  }
-  .btn-submit:hover { background: var(--sage-dark); }
-  .add-form.payment .btn-submit { background: var(--green); }
-  .add-form.payment .btn-submit:hover { background: var(--green-dark); }
-  .btn-cancel {
-    padding: 10px 16px; border: 1px solid var(--input-border); border-radius: 10px;
-    background: #fff; color: var(--text2); font-size: 14px; cursor: pointer;
-  }
-
-  /* ── Transaction List ── */
-  .tx-header { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; margin-top: 2px; }
-  .tx-empty { text-align: center; padding: 28px 0; color: var(--text4); font-size: 14px; font-style: italic; }
-  .tx-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-  .tx-emoji { font-size: 22px; line-height: 1.2; }
-  .tx-body { flex: 1; min-width: 0; }
-  .tx-top { display: flex; justify-content: space-between; align-items: center; }
-  .tx-name { font-weight: 500; color: var(--text1); font-size: 14px; }
-  .tx-amount { font-family: var(--font-mono); font-weight: 500; font-size: 14px; white-space: nowrap; margin-left: 8px; color: #5a6e58; }
-  .tx-amount.payment { color: var(--green); }
-  .tx-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
-  .tx-meta { font-size: 12px; color: var(--text3); }
-  .tx-meta .payment-tag { color: var(--green); font-weight: 500; }
-  .tx-remove { background: none; border: none; cursor: pointer; color: var(--text4); font-size: 12px; padding: 2px 4px; }
-  .tx-remove:hover { color: var(--red); }
-
-  /* ── Login Screen ── */
-  .login-screen {
-    height: 100vh; height: 100dvh; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; background: var(--bg); padding: 40px;
-  }
-  .login-sprout { font-size: 56px; margin-bottom: 16px; }
-  .login-title { font-family: var(--font-display); font-size: 32px; font-weight: 500; color: var(--text1); margin-bottom: 6px; }
-  .login-sub { font-size: 15px; color: var(--text3); margin-bottom: 32px; }
+  /* ── Login ── */
+  .login-screen { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; }
+  .login-icon { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 10px 24px var(--shadow); margin-bottom: 20px; }
+  .login-title { font: 800 40px/1.1 var(--font-round); color: var(--text1); margin-bottom: 6px; letter-spacing: -0.5px; }
+  .login-sub { font-size: 17px; color: var(--text3); margin-bottom: 32px; }
   .btn-google {
-    display: flex; align-items: center; gap: 10px; padding: 12px 28px;
-    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    cursor: pointer; font-size: 15px; font-weight: 500; color: var(--text1);
-    box-shadow: 0 2px 12px rgba(0,0,0,0.06); transition: all 0.2s ease;
+    display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 12px 26px;
+    background: var(--card); border: 1px solid var(--border-dark); border-radius: 999px;
+    font-size: 17px; font-weight: 600; color: var(--text1); box-shadow: 0 3px 10px var(--shadow);
   }
-  .btn-google:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); transform: translateY(-1px); }
   .btn-google svg { width: 20px; height: 20px; }
-  .login-loading { font-size: 16px; color: var(--text3); }
+  .login-loading { font-size: 17px; color: var(--text3); }
+  .inline-error { max-width: 420px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 14px; background: var(--red-light); border: 1px solid var(--red); color: var(--text1); font-size: 14px; line-height: 1.45; }
 
-  /* ── User Bar ── */
-  .user-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 0 2px; margin-bottom: 0;
+  /* ── Dialogs ── */
+  .modal-overlay, .emoji-grid-overlay {
+    position: fixed; inset: 0; background: var(--scrim); z-index: 1000;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   }
-  .user-info { display: flex; align-items: center; gap: 8px; }
-  .user-avatar { width: 24px; height: 24px; border-radius: 99px; object-fit: cover; }
-  .user-name { font-size: 12px; color: var(--text3); }
-  .btn-signout { background: none; border: none; font-size: 11px; color: var(--text4); cursor: pointer; }
-  .btn-signout:hover { color: var(--red); }
-
-  /* ── Reset Modal ── */
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(61,54,48,0.3);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1000; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-  }
+  .emoji-grid-overlay { z-index: 1100; }
   .modal {
-    background: var(--bg); border-radius: 20px; padding: 28px; max-width: 340px; width: calc(100% - 40px);
-    text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+    background: var(--card); border-radius: 24px; padding: 24px; width: 100%; max-width: 360px;
+    max-height: 85dvh; overflow-y: auto; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.28);
   }
-  .modal-icon { font-size: 36px; margin-bottom: 12px; }
-  .modal-title { font-family: var(--font-display); font-size: 18px; color: var(--text1); margin-bottom: 8px; }
-  .modal-text { font-size: 13px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; }
-  .modal-actions { display: flex; gap: 8px; }
+  .modal-icon { font-size: 36px; margin-bottom: 10px; }
+  .modal-title { font-size: 20px; font-weight: 700; color: var(--text1); margin-bottom: 8px; }
+  .modal-text { font-size: 15px; color: var(--text2); margin-bottom: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+  .modal-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
   .modal-btn {
-    flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; cursor: pointer;
+    flex: 1; min-height: 48px; padding: 10px 14px; border-radius: 999px; font-size: 16px; font-weight: 600;
   }
-  .modal-btn.keep { background: #fff; border: 1px solid var(--input-border); color: var(--text2); }
-  .modal-btn.reset { background: var(--sage); border: none; color: #fff; font-weight: 600; }
+  .modal-btn.keep { background: var(--card-soft); border: 1px solid var(--border); color: var(--text1); }
+  .modal-btn.reset { background: var(--accent-dark); border: 1px solid var(--accent-dark); color: #fff; }
+  .modal-btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .modal .list { text-align: left; }
 
-  /* ── Settings Modal ── */
+  /* ── Settings sheet ── */
+  #settingsOverlay { align-items: flex-end; padding: 0; }
   .settings-modal {
-    background: var(--bg); border-radius: 20px; padding: 24px; max-width: 360px; width: calc(100% - 40px);
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: left; max-height: 80vh; overflow-y: auto;
+    background: var(--bg); width: 100%; max-width: 480px; max-height: 92dvh; overflow-y: auto;
+    border-radius: 24px 24px 0 0; padding: 20px 20px calc(28px + env(safe-area-inset-bottom));
+    box-shadow: 0 -10px 50px rgba(0,0,0,0.25); text-align: left;
   }
-  .settings-header {
-    display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;
+  @media (min-width: 560px) {
+    #settingsOverlay { align-items: center; padding: 20px; }
+    .settings-modal { border-radius: 24px; max-height: 86dvh; padding-bottom: 24px; }
   }
-  .settings-title { font-family: var(--font-display); font-size: 20px; color: var(--text1); font-weight: 500; }
-  .settings-close { background: none; border: none; font-size: 22px; color: var(--text3); cursor: pointer; padding: 4px; }
-  .settings-section-label {
-    font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.2px;
-    margin-bottom: 8px; margin-top: 16px;
-  }
-  .settings-section-label:first-of-type { margin-top: 0; }
-  .cat-list { display: flex; flex-direction: column; gap: 6px; }
-  .cat-row {
-    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-  }
-  .cat-emoji-btn {
-    font-size: 20px; background: none; border: none; cursor: pointer;
-    padding: 2px 4px; border-radius: 8px; transition: background 0.15s;
-  }
-  .cat-emoji-btn:hover { background: var(--chip-hover); }
-  .cat-name-input {
-    flex: 1; border: none; background: transparent; font-size: 14px;
-    font-family: var(--font-body); color: var(--text1); outline: none;
-    padding: 2px 0;
-  }
-  .cat-name-input:focus { border-bottom: 1px solid var(--sage); }
-  .cat-remove-btn {
-    background: none; border: none; cursor: pointer; color: var(--text4);
-    font-size: 16px; padding: 2px 6px; border-radius: 6px; transition: all 0.15s;
-  }
-  .cat-remove-btn:hover { color: var(--red); background: rgba(201,122,122,0.1); }
-  .cat-add-btn {
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-    width: 100%; padding: 10px; border: 2px dashed var(--border); border-radius: 12px;
-    background: transparent; cursor: pointer; font-size: 13px; color: var(--text3);
-    margin-top: 6px; transition: all 0.15s;
-  }
-  .cat-add-btn:hover { border-color: var(--sage); color: var(--sage); }
-  .settings-help {
-    font-size: 12px; color: var(--text3); line-height: 1.45; margin-bottom: 10px;
-  }
-  .history-empty {
-    font-size: 13px; color: var(--text3); line-height: 1.5;
-    padding: 12px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-  }
+  .settings-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .settings-title { font: 800 28px/1.1 var(--font-round); color: var(--text1); }
+  .settings-close { width: 36px; height: 36px; border: 0; border-radius: 50%; background: var(--chip); color: var(--text2); display: inline-flex; align-items: center; justify-content: center; }
+  .settings-section-label { font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin: 22px 0 8px; }
+  .settings-help { font-size: 13px; color: var(--text3); line-height: 1.45; margin-bottom: 10px; }
+  .settings-modal .form-actions { margin-bottom: 10px; }
+  .file-btn { position: relative; overflow: hidden; }
+  .file-btn input[type=file] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 0; }
+  .rule-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 14px; margin-bottom: 8px; }
+  .rule-card strong { font-size: 16px; }
+  .rule-card .settings-help { margin: 4px 0 10px; }
+  .cat-list { display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .cat-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+  .cat-row + .cat-row { border-top: 1px solid var(--border); }
+  .cat-emoji-btn { width: 40px; height: 40px; flex: none; font-size: 20px; background: var(--card-soft); border: 0; border-radius: 50%; }
+  /* `width: auto` matters: the shared input rule sets 100%, which pushed the
+     remove button out of the row and behind the list's clipped edge. */
+  .settings-modal input.cat-name-input { flex: 1; width: auto; min-width: 0; border: 0; background: transparent; min-height: 40px; padding: 4px 6px; border-radius: 8px; }
+  .cat-remove-btn { width: 36px; height: 36px; flex: none; background: transparent; border: 0; color: var(--text3); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+  .cat-add-btn { width: 100%; margin-top: 10px; }
+  .history-empty { font-size: 14px; color: var(--text3); line-height: 1.5; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; }
   .history-list { display: flex; flex-direction: column; gap: 10px; }
-  .history-row {
-    width: 100%; text-align: left; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    padding: 14px; cursor: pointer; transition: all 0.15s ease;
-  }
-  .history-row:hover { border-color: var(--sage); }
-  .history-row.active { border-color: var(--sage); background: var(--sage-light); }
-  .history-row-top {
-    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px;
-  }
-  .history-month { font-family: var(--font-display); font-size: 18px; color: var(--text1); font-weight: 500; }
-  .history-meta { font-size: 11px; color: var(--text3); margin-top: 3px; }
+  .history-row { width: 100%; text-align: left; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 14px; color: inherit; }
+  .history-row.active { border-color: var(--accent); background: var(--accent-light); }
+  .history-row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .history-month { font-size: 18px; font-weight: 700; color: var(--text1); }
+  .history-meta { font-size: 12px; color: var(--text3); margin-top: 3px; }
   .history-pill-row { display: flex; gap: 8px; }
-  .history-pill {
-    flex: 1; background: var(--chip); border-radius: 12px; padding: 10px 12px;
-    font-size: 12px; color: var(--text2); line-height: 1.35;
-  }
-  .history-pill strong { display: block; font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .history-pill { flex: 1; background: var(--card-soft); border-radius: 12px; padding: 10px 12px; font: 600 13px var(--font-round); color: var(--text2); line-height: 1.35; }
+  .history-pill strong { display: block; font: 700 11px var(--font); color: var(--text3); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
   .history-pill.negative { color: var(--red); }
-  .history-detail {
-    margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--bg);
-    border: 1px solid var(--border);
-  }
-  .history-detail-title {
-    font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 1.1px; margin-bottom: 10px;
-  }
-  .history-stats { display: flex; gap: 8px; margin-bottom: 12px; }
-  .history-stat {
-    flex: 1; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px;
-  }
-  .history-stat-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.9px; margin-bottom: 4px; }
-  .history-stat-value { font-size: 13px; color: var(--text1); font-weight: 600; font-family: var(--font-mono); }
+  .history-detail { padding: 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); }
+  .history-detail-title { font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+  .history-block { margin-bottom: 14px; }
+  .history-block .settings-section-label { margin: 0 0 8px; }
+  .history-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .history-stat { background: var(--card-soft); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .history-stat-label { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+  .history-stat-value { font: 700 14px var(--font-round); color: var(--text1); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .history-stat-value.negative { color: var(--red); }
   .history-tx-list { display: flex; flex-direction: column; gap: 8px; }
-  .history-tx-row {
-    background: #fff; border: 1px solid var(--border); border-radius: 12px;
-    padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start;
-  }
+  .history-tx-row { background: var(--card-soft); border-radius: 12px; padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start; }
   .history-tx-emoji { font-size: 20px; line-height: 1.2; }
   .history-tx-body { flex: 1; min-width: 0; }
   .history-tx-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .history-tx-name { font-size: 13px; color: var(--text1); font-weight: 500; }
-  .history-tx-amount { font-size: 13px; font-family: var(--font-mono); font-weight: 600; color: #5a6e58; white-space: nowrap; }
-  .history-tx-amount.payment { color: var(--green); }
-  .history-tx-meta { font-size: 11px; color: var(--text3); margin-top: 3px; line-height: 1.4; }
+  .history-tx-name { font-size: 15px; color: var(--text1); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history-tx-amount { font: 700 14px var(--font-round); color: var(--text1); white-space: nowrap; }
+  .history-tx-amount.payment { color: var(--sage-text); }
+  .history-tx-meta { font-size: 12px; color: var(--text3); margin-top: 3px; line-height: 1.4; }
 
-  /* ── Emoji Picker Grid (for changing category emoji) ── */
-  .emoji-grid-overlay {
-    position: fixed; inset: 0; background: rgba(61,54,48,0.3);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1100; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-  }
-  .emoji-grid-modal {
-    background: var(--bg); border-radius: 20px; padding: 20px; max-width: 300px; width: calc(100% - 40px);
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-  }
-  .emoji-grid-title {
-    font-family: var(--font-display); font-size: 16px; color: var(--text1);
-    margin-bottom: 14px; text-align: center; font-weight: 500;
-  }
-  .emoji-grid {
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
-  }
-  .emoji-grid button {
-    font-size: 22px; padding: 8px; background: none; border: none;
-    border-radius: 10px; cursor: pointer; transition: background 0.15s;
-  }
-  .emoji-grid button:hover { background: var(--chip-hover); }
-
-  /* ── Settings gear button ── */
-  .btn-settings {
-    background: var(--chip); border: 1px solid var(--border); border-radius: 10px;
-    padding: 7px 10px; cursor: pointer; font-size: 15px; color: var(--text2);
-    transition: all 0.15s ease; margin-left: 6px;
-  }
-  .btn-settings:hover { border-color: var(--sage); color: var(--sage); }
-  .notice { margin: 12px 0; padding: 12px; border-radius: 12px; background: #fff4dc; color: #62451f; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-  .notice button { margin: 4px; }
-  .modal-actions, .form-actions { flex-wrap: wrap; }
-  .modal { max-height: 85dvh; overflow-y: auto; }
-  .cal-amount { font-size: clamp(8px, 2.2vw, 11px); overflow-wrap: anywhere; }
-  .form-row label { min-width: 0; flex: 1; font-size: 13px; }
-  select { max-width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: white; }
-  input[type=file] { display: block; max-width: 210px; font-size: 12px; margin-top: 8px; }
-  button:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
+  /* ── Emoji grid ── */
+  .emoji-grid-modal { background: var(--card); border-radius: 24px; padding: 20px; width: 100%; max-width: 320px; box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
+  .emoji-grid-title { font-size: 18px; font-weight: 700; color: var(--text1); margin-bottom: 14px; text-align: center; }
+  .emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .emoji-grid button { font-size: 22px; padding: 8px 0; background: transparent; border: 0; border-radius: 12px; }
 </style>
 </head>
 <body>
@@ -1430,6 +1505,85 @@
 
 
   // ── Render ──
+  // ── Icons ──
+  // Inline, so the page stays one request and each glyph takes the colour of
+  // the text around it. Shapes are from Lucide (ISC licence).
+  const ICON_PATHS = {
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    more: '<circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/>',
+    gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
+    person: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    cart: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+    gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/>',
+    userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+    sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    rotate: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    list: '<path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/>',
+  };
+  function icon(name, size = 18) {
+    const solid = name === "more";
+    return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${solid ? "currentColor" : "none"}" stroke="${solid ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ""}</svg>`;
+  }
+
+  /** The "…" beside a row. A native <details>, so it opens and closes without
+   * app state and its items are ordinary buttons that `bindEvents` finds by
+   * the same data attributes the old inline links carried. */
+  function rowMenu(label, items) {
+    return `<details class="menu"><summary class="row-more" aria-label="${escapeHtml(label)}">${icon("more", 20)}</summary><div class="menu-pop">${items}</div></details>`;
+  }
+
+  /** Title, settings, overflow menu and the section picker.
+   *
+   * The picker sits at the top, as on iOS, rather than in a bar along the
+   * bottom edge. Besides matching, that keeps every control out of the
+   * bottom-right corner, where Netlify's free plan pins a hosting badge that
+   * used to sit on top of the Holiday tab. */
+  function renderHeader(onHoliday) {
+    const section = state.activeSection;
+    // Offered only where the old button row offered them: the holiday home
+    // view with no form open. A form in progress must not be replaced by a
+    // menu tap, and the per-person view has its own actions.
+    const holidayHome = onHoliday && !state.holidayForm && state.holidayDetailId === undefined;
+    let items = "";
+    if (!onHoliday) {
+      items += `<button class="menu-item" id="resetBtn">${icon("rotate")} Start a new month</button>`;
+    } else if (holidayHome) {
+      items += `<button class="menu-item" id="holidayRenameSeason">${icon("pencil")} Rename this season</button>
+        <button class="menu-item" id="holidayNewSeason"${Holiday.seasonIsEmpty(season()) ? " disabled" : ""}>${icon("sparkles")} Start a new season</button>
+        <button class="menu-item" id="holidayAddReturn">${icon("undo")} Record a return</button>
+        <button class="menu-item" id="holidayPastSeasons">${icon("clock")} Past seasons</button>`;
+    }
+    if (items) items += `<div class="menu-sep"></div>`;
+    items += `<div class="menu-account">
+        ${state.user.photoURL ? `<img src="${escapeHtml(state.user.photoURL)}" alt="" onerror="this.style.display='none'">` : ""}
+        <div class="menu-account-text"><div class="menu-account-name">${escapeHtml(state.user.displayName || "You")}</div><div class="menu-account-sub">Signed in with Google</div></div>
+      </div>
+      <button class="menu-item" id="signOutBtn">${icon("logout")} Sign out</button>`;
+
+    const tabs = [["personal", "Personal", "person"], ["grocery", "Grocery", "cart"], ["holiday", "Holiday", "gift"]];
+    return `<div class="header">
+      <div class="header-row">
+        <h1>Sprout</h1>
+        <button class="icon-btn" id="settingsBtn" aria-label="Settings">${icon("gear", 20)}</button>
+        <details class="menu" id="moreMenu"><summary class="icon-btn" aria-label="More">${icon("more", 20)}</summary><div class="menu-pop">${items}</div></details>
+      </div>
+      <div class="picker" role="tablist" aria-label="Section">
+        ${tabs.map(([key, label, glyph]) => `<button class="picker-btn${section === key ? " active" : ""}" data-tab="${key}" role="tab" aria-selected="${section === key}">${icon(glyph, 15)}<span>${label}</span></button>`).join("")}
+      </div>
+    </div>`;
+  }
+
   function render() {
     const app = document.getElementById("app");
 
@@ -1441,10 +1595,10 @@
     if (!state.user) {
       app.innerHTML = `
         <div class="login-screen">
-          <div class="login-sprout">🌱</div>
+          <img class="login-icon" src="icon-180.png" alt="">
           <div class="login-title">Sprout</div>
           <div class="login-sub">Budget beautifully.</div>
-          ${state.authError ? `<div class="inline-error" style="max-width: 420px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 14px; background: #fff1ef; border: 1px solid #f2c7c1; color: #8a3d32; font: 14px/1.45 system-ui, sans-serif;">${escapeHtml(state.authError)}</div>` : ""}
+          ${state.authError ? `<div class="inline-error">${escapeHtml(state.authError)}</div>` : ""}
           <button class="btn-google" id="signInBtn">
             <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
             Sign in with Google
@@ -1527,7 +1681,7 @@
           <div class="modal-text">${tx ? `${escapeHtml(tx.name)} on ${fmtDate(tx.date)} will be removed.` : "This transaction will be removed."}</div>
           <div class="modal-actions">
             <button class="modal-btn keep" id="deleteCancel">Cancel</button>
-            <button class="modal-btn reset" id="deleteConfirm">Remove</button>
+            <button class="modal-btn reset danger" id="deleteConfirm">Remove</button>
           </div>
         </div>
       </div>`;
@@ -1558,118 +1712,107 @@
     }
 
     // Header
-    html += `<div class="header">
-      <div class="user-bar">
-        <div class="user-info">
-          <img class="user-avatar" src="${escapeHtml(state.user.photoURL || '')}" alt="" onerror="this.style.display='none'">
-          <span class="user-name">${escapeHtml(state.user.displayName || 'You')}</span>
-        </div>
-        <button class="btn-signout" id="signOutBtn">Sign out</button>
-      </div>
-      <div class="header-row">
-        <h1>${title}</h1>
-        <div style="display:flex;align-items:center;">
-          ${onHoliday ? "" : `<button class="btn-reset" id="resetBtn">🌱 Reset</button>`}
-          <button class="btn-settings" id="settingsBtn" aria-label="Settings">⚙️</button>
-        </div>
-      </div>
-      <div class="header-date">${onHoliday ? escapeHtml(season().label) : fmtMonthYear()}</div>
-    </div>`;
+    html += renderHeader(onHoliday);
 
     // Content
-    html += `<div class="content"><div>`;
+    html += `<div class="content"><div class="stack">`;
     if (state.statusMessage) html += `<div class="notice" role="status">${escapeHtml(state.statusMessage)}</div>`;
     if (state.writeBlocked || state.hasRecoveryCopy) {
       html += `<div class="notice">`;
-      if (state.writeBlocked) html += `<button class="btn-cancel" id="recoveryExport">Export recovered data</button>`;
-      html += `<button class="btn-cancel" id="recoveryOriginal">Download original device save</button>`;
       if (state.writeBlocked) html += `<div>Import a valid backup in Settings to resume saving.</div>`;
+      if (state.writeBlocked) html += `<button class="btn btn-small" id="recoveryExport">Export recovered data</button>`;
+      html += `<button class="btn btn-small" id="recoveryOriginal">Download original device save</button>`;
       html += `</div>`;
     }
-    // Only on a budget tab: the Reset button it points at is hidden on Holiday,
-    // so saying "use Reset" there would name a control that is not on screen.
-    if (!onHoliday && state.currentMonth !== getCurrentMonth()) html += `<div class="notice">Showing ${escapeHtml(fmtMonthYear())}. Use Reset to choose what to do with this ledger.</div>`;
+    // Only on a budget tab: starting a new month is a budget-tab action, and
+    // the holiday tab has no month to close. Tappable, as the iOS banner is —
+    // this used to be a passive notice pointing at a button elsewhere.
+    if (!onHoliday && viewingClosedMonth) {
+      const behind = state.currentMonth < getCurrentMonth();
+      html += `<button class="banner" id="monthBanner">
+        ${icon("sparkles", 20)}
+        <span class="banner-body">
+          <span class="banner-title">${behind ? `${escapeHtml(fmtMonthYear())} is still open` : `Showing ${escapeHtml(fmtMonthYear())}`}</span>
+          <span class="banner-sub">${behind ? `These transactions still belong to ${escapeHtml(fmtMonthYear())}. Tap to close it out.` : "The saved month is ahead of this device's date. Tap to review."}</span>
+        </span>
+        ${icon("chevronRight", 16)}
+      </button>`;
+    }
 
     if (onHoliday) {
       html += renderHolidayBody();
       html += `</div></div>`;
-      html += renderTabBar();
       return finishRender(app, html);
     }
 
-    // Summary card
+    // Summary card. Same layout as Sprout-iOS `SummaryCardView`: the balance
+    // is the headline, the bar and its pace marker sit under it, and the
+    // per-day figure and the pace verdict share the bottom row.
     const carryover = getCarryover(cat);
-    html += `<div class="summary-card">
-      <div class="summary-top">`;
-
-    if (state.editingBudget) {
-      html += `<div class="budget-edit">
-        <span style="font-size:16px;color:var(--text2);font-family:var(--font-mono)">$</span>
-        <input class="budget-edit-input" type="text" inputmode="decimal" aria-label="Monthly budget" id="budgetInput" value="${escapeHtml(state.budgetInput)}">
-        <button class="budget-edit-save" id="budgetSave">Set</button>
-        <button class="budget-edit-cancel" id="budgetCancel">×</button>
-      </div>`;
+    const monthLabel = escapeHtml(fmtMonthYear());
+    let footLabel, footValue;
+    if (viewingClosedMonth) {
+      footLabel = remaining < 0 ? `${monthLabel} is over budget` : `Unspent in ${monthLabel}`;
+      footValue = fmtCurrency(Math.abs(remaining));
     } else {
-      html += `<button class="budget-setter" id="budgetEdit">Budget: ${fmtCurrency(budget)} <span class="edit-icon">✎</span></button>`;
+      footLabel = dailyAllowance < 0 ? "Daily overage" : `Daily allowance · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+      footValue = `${fmtCurrency(Math.abs(dailyAllowance))}/day`;
     }
-
-    html += `</div>`;
-    if (state.editingBudget) html += `<div class="settings-help">Your recurring monthly budget. Carryover is added separately.${state.budgetError ? `<div class="notice" role="alert">${escapeHtml(state.budgetError)}</div>` : ""}</div>`;
-    if (carryover > 0) {
-      html += `<div class="carryover-note">Monthly budget ${fmtCurrency(getBaseBudget(cat))} + ${fmtCurrency(carryover)} carryover</div>`;
+    html += `<div class="hero">
+      <div class="hero-top">
+        <div class="hero-headline">
+          <div class="hero-caption">${remaining < 0 ? "Over budget" : "Available"}</div>
+          <div class="hero-amount">${fmtCurrency(Math.abs(remaining))}</div>
+        </div>
+        ${state.editingBudget ? "" : `<button class="hero-edit" id="budgetEdit" aria-label="Edit ${cat} budget">${icon("pencil", 18)}</button>`}
+      </div>`;
+    if (state.editingBudget) {
+      html += `<div class="hero-editor">
+        <div class="hero-editor-row">
+          <span class="currency">$</span>
+          <input type="text" inputmode="decimal" aria-label="Monthly budget" id="budgetInput" value="${escapeHtml(state.budgetInput)}">
+          <button class="btn-light" id="budgetSave">Set</button>
+          <button class="btn-ghost" id="budgetCancel" aria-label="Cancel">${icon("x", 18)}</button>
+        </div>
+        <div class="hero-editor-help">Your recurring monthly budget. Carryover is added separately.</div>
+        ${state.budgetError ? `<div class="notice" role="alert">${escapeHtml(state.budgetError)}</div>` : ""}
+      </div>`;
     }
-    html += `
-      <div class="bar-labels">
-        <span>${spent < 0 ? `${fmtCurrency(-spent)} net payments` : `${fmtCurrency(spent)} spent`}</span>
-        <span class="bar-remaining ${remaining < 0 ? 'negative' : 'positive'}">
-          ${remaining < 0 ? "Over by " + fmtCurrency(Math.abs(remaining)) : fmtCurrency(remaining) + " left"}
-        </span>
+    html += `<div class="hero-meter">
+        <div class="hero-track" role="img" aria-label="Budget progress: ${Math.round(pct * 100)} percent spent">
+          <div class="hero-fill" style="width:${pct*100}%;background:${barColor}"></div>
+          <div class="hero-pace" style="left:${pacePct*100}%"></div>
+        </div>
+        <div class="hero-labels">
+          <span>${spent < 0 ? `${fmtCurrency(-spent)} net payments` : `${fmtCurrency(spent)} spent`}</span>
+          <span>of ${fmtCurrency(budget)}</span>
+        </div>
       </div>
-      <div class="bar-track">
-        <div class="bar-pace" style="width:${pacePct*100}%;"></div>
-        <div class="bar-fill" style="width:${pct*100}%;background:${barColor}"></div>
+      <div class="hero-divider"></div>
+      <div class="hero-foot">
+        <div class="hero-foot-main">
+          <div class="hero-foot-label">${footLabel}</div>
+          <div class="hero-foot-value">${footValue}</div>
+        </div>
+        <div class="hero-status"><span class="hero-dot" style="background:${pace.color}"></span>${pace.text}</div>
       </div>
-      <div class="remaining-display">
-        <div class="remaining-amount ${remaining < 0 ? 'negative' : ''}">${fmtCurrency(remaining)}</div>
-        <div class="remaining-label">remaining</div>
-      </div>
-      <div class="daily-allowance">
-        ${viewingClosedMonth
-          ? `<div class="daily-amount ${remaining < 0 ? 'negative' : ''}">${fmtCurrency(Math.abs(remaining))}</div>
-             <div class="daily-label">${remaining < 0 ? `${escapeHtml(fmtMonthYear())} is over budget` : `unspent in ${escapeHtml(fmtMonthYear())}`}</div>`
-          : `<div class="daily-amount ${dailyAllowance < 0 ? 'negative' : ''}">${fmtCurrency(Math.abs(dailyAllowance))}/day</div>
-             <div class="daily-label">${dailyAllowance < 0 ? 'over budget' : `for the next ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}</div>`}
-      </div>
-    </div>
-    <div class="bar-labels" style="margin-top:4px">
-      <span style="color:${pace.color}">● ${pace.text}</span>
-      <span></span>
+      ${carryover > 0 ? `<div class="hero-text">${fmtCurrency(carryover)} carried over, on top of the ${fmtCurrency(getBaseBudget(cat))} monthly budget</div>` : ""}
     </div>`;
 
-    // Calendar toggle
-    html += `<button class="calendar-toggle ${state.showCalendar ? 'active' : ''}" id="calToggle">
-      📅 ${state.showCalendar ? "Hide calendar" : "View calendar"}
-    </button>`;
-
-    // Calendar
-    if (state.showCalendar) {
-      html += renderCalendar(cat);
-    }
-
-    // Quick add + buttons
+    // Actions, then one-tap repeats of recent purchases.
     if (!state.showForm) {
+      html += `<div class="actions">
+        <button class="btn btn-primary" id="addExpense">${icon("plus")} Add expense</button>
+        <button class="btn btn-tint" id="addPayment">${icon("undo")} Payment</button>
+      </div>`;
       const recent = getRecent(cat);
       if (recent.length) {
-        html += `<div class="quick-add-label">Quick add</div><div class="quick-chips">`;
+        html += `<div class="section"><div class="section-head"><span class="section-title">Repeat</span><span class="section-detail">Recent purchases</span></div><div class="chips">`;
         recent.forEach(r => {
-          html += `<button class="quick-chip" data-quickname="${escapeHtml(r.name)}" data-quickemoji="${escapeHtml(r.emoji)}">${escapeHtml(r.emoji)} ${escapeHtml(r.name)}</button>`;
+          html += `<button class="chip" data-quickname="${escapeHtml(r.name)}" data-quickemoji="${escapeHtml(r.emoji)}"><span>${escapeHtml(r.emoji)}</span><span>${escapeHtml(r.name)}</span></button>`;
         });
-        html += `</div>`;
+        html += `</div></div>`;
       }
-      html += `<div class="add-buttons">
-        <button class="btn-add" id="addExpense">+ Add expense</button>
-        <button class="btn-add payment" id="addPayment">+ Add payment</button>
-      </div>`;
     }
 
     // Add form
@@ -1678,6 +1821,14 @@
     } else if (state.showForm === "payment") {
       html += renderAddForm(true, cat);
     }
+
+    // Calendar, behind its own heading.
+    html += `<div class="section">
+      <button class="section-head${state.showCalendar ? " open" : ""}" id="calToggle" aria-expanded="${state.showCalendar ? "true" : "false"}">
+        <span class="section-title">This month</span><span class="section-detail">${monthLabel}</span><span class="spacer"></span>${icon("chevronDown", 18)}
+      </button>
+      ${state.showCalendar ? renderCalendar(cat) : ""}
+    </div>`;
 
     // Transaction list. The search field appears at five or more rows and the
     // filter is inert whenever its control is off screen — otherwise deleting
@@ -1689,52 +1840,35 @@
           || (t.note || "").toLowerCase().includes(txQuery.toLowerCase()))
       : txs;
 
-    html += `<div class="tx-header">Transactions${txQuery ? ` <span style="color:var(--text4);font-weight:400">${matching.length} of ${txs.length}</span>` : ""}</div>`;
+    html += `<div class="section"><div class="section-head"><span class="section-title">Transactions</span><span class="section-detail">${txQuery ? `${matching.length} of ${txs.length}` : txs.length}</span></div>`;
     if (txSearchable) {
-      html += `<div class="form-row" style="margin-bottom:10px"><input type="text" id="txSearch" placeholder="Search transactions" value="${escapeHtml(state.txSearch)}"></div>`;
+      html += `<div class="search">${icon("search", 16)}<input type="text" id="txSearch" aria-label="Search transactions" placeholder="Search transactions" value="${escapeHtml(state.txSearch)}"></div>`;
     }
     if (txs.length === 0) {
-      html += `<div class="tx-empty">No transactions yet — you're doing great! 🌿</div>`;
+      html += `<div class="empty">${icon("list", 40)}<div class="empty-title">No transactions yet</div><div class="empty-text">Add your first ${cat} expense to start tracking this month.</div></div>`;
     } else if (matching.length === 0) {
-      html += `<div class="tx-empty">No transactions match “${escapeHtml(txQuery)}”</div>`;
+      html += `<div class="empty plain">No transactions match “${escapeHtml(txQuery)}”</div>`;
     } else {
-      const reversed = [...matching].reverse();
-      reversed.forEach(t => {
-        html += `<div class="tx-row">
-          <span class="tx-emoji">${t.isRefund ? "💸" : escapeHtml(t.emoji)}</span>
-          <div class="tx-body">
-            <div class="tx-top">
-              <span class="tx-name">${escapeHtml(t.name)}</span>
-              <span class="tx-amount ${t.isRefund ? 'payment' : ''}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
+      html += `<div class="list">`;
+      [...matching].reverse().forEach(t => {
+        html += `<div class="row">
+          <div class="row-main">
+            <div class="avatar">${t.isRefund ? "💸" : escapeHtml(t.emoji)}</div>
+            <div class="row-text">
+              <div class="row-title">${escapeHtml(t.name)}</div>
+              <div class="row-sub">${fmtDate(t.date)}${t.isRefund ? ' · <span class="tag-good">payment</span>' : ''}${t.note ? " · " + escapeHtml(t.note) : ""}</div>
             </div>
-            <div class="tx-bottom">
-              <span class="tx-meta">${fmtDate(t.date)}${t.isRefund ? ' <span class="payment-tag">· payment</span>' : ''}${t.note ? " · " + escapeHtml(t.note) : ""}</span>
-              <button class="tx-remove" data-editid="${escapeHtml(t.id)}">edit</button>
-              <button class="tx-remove" data-txid="${escapeHtml(t.id)}">remove</button>
-            </div>
+            <div class="row-amount${t.isRefund ? " good" : ""}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</div>
           </div>
+          ${rowMenu(`Options for ${t.name}`, `<button class="menu-item" data-editid="${escapeHtml(t.id)}">${icon("pencil")} Edit transaction</button><button class="menu-item danger" data-txid="${escapeHtml(t.id)}">${icon("trash")} Remove transaction</button>`)}
         </div>`;
       });
+      html += `</div>`;
     }
+    html += `</div>`; // close the transactions section
 
     html += `</div></div>`; // close content
-    html += renderTabBar();
     return finishRender(app, html);
-  }
-
-  function renderTabBar() {
-    const section = state.activeSection;
-    return `<div class="tab-bar">
-      <button class="tab-btn ${section === 'personal' ? 'active' : ''}" data-tab="personal">
-        <span class="tab-icon">🛍️</span><span class="tab-label">Personal</span>
-      </button>
-      <button class="tab-btn ${section === 'grocery' ? 'active' : ''}" data-tab="grocery">
-        <span class="tab-icon">🛒</span><span class="tab-label">Grocery</span>
-      </button>
-      <button class="tab-btn ${section === 'holiday' ? 'active' : ''}" data-tab="holiday">
-        <span class="tab-icon">🎁</span><span class="tab-label">Holiday</span>
-      </button>
-    </div>`;
   }
 
   /** Shared by both section branches: preserves focus, selection and scroll
@@ -1745,9 +1879,15 @@
     const selEnd = document.activeElement?.selectionEnd;
     const scrollTop = document.querySelector('.content')?.scrollTop || 0;
 
-    app.innerHTML = html;
+    // A form that has just appeared has to be in view: "Edit" on a row far down
+    // the list opened it near the top of the page, off screen.
+    const hadForm = Boolean(document.querySelector('.form-card'));
+
+    // One wrapper carries the active section, which is what every accent
+    // colour on the page keys off.
+    app.innerHTML = `<div class="shell" data-section="${escapeHtml(state.activeSection)}">${html}</div>`;
     const overlay = document.querySelector(".emoji-grid-overlay") || document.querySelector(".modal-overlay");
-    if (overlay) document.querySelectorAll(".header,.content,.tab-bar").forEach(el => { el.inert = true; });
+    if (overlay) document.querySelectorAll(".header,.content").forEach(el => { el.inert = true; });
     bindEvents();
 
     if (activeId) {
@@ -1762,6 +1902,8 @@
     if (overlay && !overlay.contains(document.activeElement)) overlay.querySelector("button,input,select")?.focus();
     const content = document.querySelector('.content');
     if (content) content.scrollTop = scrollTop;
+    const form = document.querySelector('.form-card');
+    if (form && !hadForm) form.scrollIntoView({ block: "nearest" });
   }
 
   // ── Holiday rendering ──
@@ -1778,49 +1920,62 @@
     const remaining = Holiday.seasonRemainingCents(current);
     const pct = Holiday.seasonProgress(current);
     const barColor = getProgressColor(fromCents(spent), fromCents(current.budget));
+    const planning = holidayPlanningFigure();
+    const tally = escapeHtml(holidayTallyText());
 
-    // The header already shows the season name where a budget tab shows the
-    // month, so repeating it here just printed it twice.
-    let h = `<div class="summary-card">
-      <div class="summary-top">`;
-    if (state.editingBudget) {
-      h += `<div class="budget-edit">
-        <span style="font-size:16px;color:var(--text2);font-family:var(--font-mono)">$</span>
-        <input class="budget-edit-input" type="text" inputmode="decimal" aria-label="Holiday budget" id="holidayBudgetInput" value="${escapeHtml(state.budgetInput)}">
-        <button class="budget-edit-save" id="holidayBudgetSave">Set</button>
-        <button class="budget-edit-cancel" id="holidayBudgetCancel">×</button>
+    // Same card as Sprout-iOS `HolidaySummaryCardView`. The season name is its
+    // own line above the label, because a custom name crammed in beside
+    // "AVAILABLE" shrank both to nothing.
+    let h = `<div class="hero">
+      <div class="hero-top">
+        <div class="hero-headline">
+          <div class="hero-kicker">${escapeHtml(current.label)}</div>
+          <div class="hero-caption">${!hasBudget ? "Spent so far" : remaining < 0 ? "Over budget" : "Available"}</div>
+          <div class="hero-amount">${holidayMoney(hasBudget ? Math.abs(remaining) : spent)}</div>
+        </div>
+        ${state.editingBudget ? "" : `<button class="hero-edit" id="holidayBudgetEdit" aria-label="${hasBudget ? "Edit holiday budget" : "Set holiday budget"}">${icon("pencil", 18)}</button>`}
       </div>`;
-    } else {
-      h += `<button class="budget-setter" id="holidayBudgetEdit">${hasBudget ? `Holiday budget: ${holidayMoney(current.budget)}` : "Set a holiday budget"} <span class="edit-icon">✎</span></button>`;
-    }
-    h += `</div>`;
 
     if (state.editingBudget) {
-      h += `<div class="settings-help">What you plan to spend on gifts this season. Kept entirely separate from your Personal and Grocery budgets. Set it to 0 to clear it.${state.budgetError ? `<div class="notice" role="alert">${escapeHtml(state.budgetError)}</div>` : ""}</div>`;
+      h += `<div class="hero-editor">
+        <div class="hero-editor-row">
+          <span class="currency">$</span>
+          <input type="text" inputmode="decimal" aria-label="Holiday budget" id="holidayBudgetInput" value="${escapeHtml(state.budgetInput)}">
+          <button class="btn-light" id="holidayBudgetSave">Set</button>
+          <button class="btn-ghost" id="holidayBudgetCancel" aria-label="Cancel">${icon("x", 18)}</button>
+        </div>
+        <div class="hero-editor-help">What you plan to spend on gifts this season. Kept entirely separate from your Personal and Grocery budgets. Set it to 0 to clear it.</div>
+        ${state.budgetError ? `<div class="notice" role="alert">${escapeHtml(state.budgetError)}</div>` : ""}
+      </div>`;
     }
 
     if (hasBudget) {
-      h += `<div class="bar-labels">
-        <span>${spent < 0 ? `${holidayMoney(-spent)} net returned` : `${holidayMoney(spent)} spent`}</span>
-        <span class="bar-remaining ${remaining < 0 ? 'negative' : 'positive'}">of ${holidayMoney(current.budget)}</span>
-      </div>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct*100}%;background:${barColor}"></div></div>
-      <div class="remaining-display">
-        <div class="remaining-amount ${remaining < 0 ? 'negative' : ''}">${holidayMoney(Math.abs(remaining))}</div>
-        <div class="remaining-label">${remaining < 0 ? "over budget" : "available"}</div>
+      h += `<div class="hero-meter">
+        <div class="hero-track" role="img" aria-label="Holiday budget progress: ${Math.round(pct * 100)} percent spent">
+          <div class="hero-fill" style="width:${pct*100}%;background:${barColor}"></div>
+        </div>
+        <div class="hero-labels">
+          <span>${spent < 0 ? `${holidayMoney(-spent)} net returned` : `${holidayMoney(spent)} spent`}</span>
+          <span>of ${holidayMoney(current.budget)}</span>
+        </div>
       </div>`;
-    } else {
+    } else if (!state.editingBudget) {
       // No bar, because there is nothing to fill. Saying so beats an empty
       // track that looks like a budget you have not touched.
-      h += `<div class="remaining-display">
-        <div class="remaining-amount">${holidayMoney(spent)}</div>
-        <div class="remaining-label">spent so far</div>
-      </div>
-      <div class="settings-help">No holiday budget set yet. It stays separate from your monthly budgets.</div>`;
+      h += `<div class="hero-text">No holiday budget set yet. Tap the pencil to add one — it stays separate from your monthly budgets.</div>`;
     }
 
-    h += `<div class="bar-labels" style="margin-top:10px">${renderHolidayPlanning()}<span>${escapeHtml(holidayTallyText())}</span></div>`;
-    return h + `</div>`;
+    h += `<div class="hero-divider"></div><div class="hero-foot">`;
+    if (planning) {
+      h += `<div class="hero-foot-main">
+          <div class="hero-foot-label">${planning.label}</div>
+          <div class="hero-foot-value">${planning.value}</div>
+        </div>
+        <div class="hero-status">${tally}</div>`;
+    } else {
+      h += `<div class="hero-status">${tally}</div>`;
+    }
+    return h + `</div></div>`;
   }
 
   /**
@@ -1831,13 +1986,15 @@
    * once the budget is gone, and when nobody has a target, where it would only
    * restate the tally beside it.
    */
-  function renderHolidayPlanning() {
+  function holidayPlanningFigure() {
     const current = season();
-    if (!Holiday.seasonHasBudget(current) || !Holiday.hasPerPersonTargets(current)) return `<span></span>`;
-    if (Holiday.seasonRemainingCents(current) < 0) return `<span></span>`;
+    if (!Holiday.seasonHasBudget(current) || !Holiday.hasPerPersonTargets(current)) return null;
+    if (Holiday.seasonRemainingCents(current) < 0) return null;
     const unreserved = Holiday.unreservedCents(current);
-    const label = unreserved < 0 ? "Targets exceed what's left by" : "Left to plan";
-    return `<span>${label} ${holidayMoney(Math.abs(unreserved))}</span>`;
+    return {
+      label: unreserved < 0 ? "Targets exceed what's left by" : "Left to plan",
+      value: holidayMoney(Math.abs(unreserved)),
+    };
   }
 
   /** Counts gifts, not rows: a return is money coming back, not something bought. */
@@ -1855,13 +2012,11 @@
   function renderHolidayActions() {
     if (state.holidayForm) return "";
     const atLimit = season().recipients.length >= Holiday.RECIPIENT_LIMIT;
-    return `<div class="form-actions" style="margin:14px 0">
-      <button class="btn-cancel" id="holidayAddGift">＋ Add gift</button>
-      <button class="btn-cancel" id="holidayAddPerson"${atLimit ? " disabled" : ""}>＋ Add person</button>
-      <button class="btn-cancel" id="holidayAddReturn">↩ Record a return</button>
-      <button class="btn-cancel" id="holidayRenameSeason">✎ Rename season</button>
-      <button class="btn-cancel" id="holidayNewSeason"${Holiday.seasonIsEmpty(season()) ? " disabled" : ""}>✨ New season</button>
-      <button class="btn-cancel" id="holidayPastSeasons">🕘 Past seasons</button>
+    // Two actions, as on iOS. Renaming, starting a new season, recording a
+    // return and past seasons are in the "…" menu in the header.
+    return `<div class="actions">
+      <button class="btn btn-primary" id="holidayAddGift">${icon("plus")} Add gift</button>
+      <button class="btn btn-tint" id="holidayAddPerson"${atLimit ? " disabled" : ""}>${icon("userPlus")} Add person</button>
     </div>`;
   }
 
@@ -1883,52 +2038,58 @@
     // in a scrolling row, so it was usually off screen while being the selected
     // option, and a gift saved straight away was filed against nobody.
     const picked = form.recipientChosen;
-    let h = `<div class="add-form${form.isReturn ? " payment" : ""}">
-      <div class="form-header">${editing ? (form.isReturn ? "Edit return" : "Edit gift") : (form.isReturn ? "↩ Record a return" : "Add gift")}</div>
-      <div class="form-row">
-        <input type="text" id="holidayGiftName" placeholder="${form.isReturn ? "What did you return?" : "What did you buy?"}" value="${escapeHtml(form.name)}">
-        <input type="text" id="holidayGiftAmount" inputmode="decimal" placeholder="0.00" value="${escapeHtml(form.amount)}" style="max-width:120px">
+    let h = `<div class="form-card">
+      <div class="form-title">${editing ? (form.isReturn ? "Edit return" : "Edit gift") : (form.isReturn ? "Record a return" : "Add gift")}</div>
+      <div class="field-row">
+        <label class="field"><span class="field-label">${form.isReturn ? "What did you return?" : "What did you buy?"}</span>
+          <input type="text" id="holidayGiftName" placeholder="${form.isReturn ? "Sweater, duplicate toy…" : "Scarf, book, toy…"}" value="${escapeHtml(form.name)}"></label>
+        <label class="field narrow"><span class="field-label">Amount</span>
+          <input type="text" id="holidayGiftAmount" inputmode="decimal" placeholder="0.00" value="${escapeHtml(form.amount)}"></label>
       </div>
-      <div class="form-row">
-        <input type="text" id="holidayGiftNote" placeholder="Note (optional)" value="${escapeHtml(form.note)}">
-        <input type="date" id="holidayGiftDate" value="${escapeHtml(form.date)}" style="max-width:160px">
+      <div class="field-row">
+        <label class="field"><span class="field-label">Note</span>
+          <input type="text" id="holidayGiftNote" placeholder="Optional" value="${escapeHtml(form.note)}"></label>
+        <label class="field"><span class="field-label">Date</span>
+          <input type="date" id="holidayGiftDate" value="${escapeHtml(form.date)}"></label>
       </div>
-      <div class="settings-help">Who it's for</div>
-      <div class="form-actions">`;
+      <div class="field"><span class="field-label">Who it's for</span>
+      <div class="choices">`;
     chips.forEach(person => {
       const selected = picked && (form.recipientID ?? null) === (person.id ?? null);
-      h += `<button class="btn-cancel${selected ? " active" : ""}" data-holidaypick="${person.id === null ? "" : escapeHtml(person.id)}" aria-pressed="${selected ? "true" : "false"}" style="${selected ? "border-color:var(--sage);color:var(--sage);font-weight:600" : ""}">${escapeHtml(person.emoji)} ${escapeHtml(person.name)}</button>`;
+      h += `<button class="choice${selected ? " selected" : ""}" data-holidaypick="${person.id === null ? "" : escapeHtml(person.id)}" aria-pressed="${selected ? "true" : "false"}"><span>${escapeHtml(person.emoji)} ${escapeHtml(person.name)}</span></button>`;
     });
-    h += `</div>
-      <div class="settings-help">${form.isReturn ? "Comes back off your holiday budget only." : "Counted against your holiday budget only."}${current.recipients.length === 0 ? " Add a person to track who each gift is for." : (picked ? "" : " Pick a person, or “" + Holiday.UNASSIGNED_LABEL + "”.")}</div>`;
+    h += `</div></div>
+      <div class="help">${form.isReturn ? "Comes back off your holiday budget only." : "Counted against your holiday budget only."}${current.recipients.length === 0 ? " Add a person to track who each gift is for." : (picked ? "" : " Pick a person, or “" + Holiday.UNASSIGNED_LABEL + "”.")}</div>`;
     if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
     h += `<div class="form-actions">
-        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
-        <button class="modal-btn reset" id="holidayGiftSave">${editing ? "Save changes" : (form.isReturn ? "Save return" : "Save gift")}</button>
+        <button class="btn" id="holidayFormCancel">Cancel</button>
+        <button class="btn btn-primary" id="holidayGiftSave">${editing ? "Save changes" : (form.isReturn ? "Save return" : "Save gift")}</button>
       </div></div>`;
     return h;
   }
 
   function renderHolidayPersonForm(form) {
     const editing = Boolean(form.id);
-    let h = `<div class="add-form">
-      <div class="form-header">${editing ? "Edit person" : "Add person"}</div>
-      <div class="form-row">
-        <input type="text" id="holidayPersonName" placeholder="Mom, Dad, Sam…" value="${escapeHtml(form.name)}">
-        <input type="text" id="holidayPersonPlanned" inputmode="decimal" placeholder="No target" value="${escapeHtml(form.planned)}" style="max-width:130px">
+    let h = `<div class="form-card">
+      <div class="form-title">${editing ? "Edit person" : "Add person"}</div>
+      <div class="field-row">
+        <label class="field"><span class="field-label">Name</span>
+          <input type="text" id="holidayPersonName" placeholder="Mom, Dad, Sam…" value="${escapeHtml(form.name)}"></label>
+        <label class="field narrow"><span class="field-label">Target</span>
+          <input type="text" id="holidayPersonPlanned" inputmode="decimal" placeholder="No target" value="${escapeHtml(form.planned)}"></label>
       </div>
-      <div class="settings-help">Icon</div>
-      <div class="form-actions">`;
+      <div class="field"><span class="field-label">Icon</span>
+      <div class="choices">`;
     Holiday.RECIPIENT_EMOJI_OPTIONS.forEach(emoji => {
       const selected = form.emoji === emoji;
-      h += `<button class="btn-cancel" data-holidayemoji="${escapeHtml(emoji)}" aria-pressed="${selected ? "true" : "false"}" style="${selected ? "border-color:var(--sage);background:var(--sage-mist)" : ""}">${escapeHtml(emoji)}</button>`;
+      h += `<button class="choice icon-only${selected ? " selected" : ""}" data-holidayemoji="${escapeHtml(emoji)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(emoji)}</button>`;
     });
-    h += `</div>
-      <div class="settings-help">Leave the target empty if you don't want a per-person figure. It only affects “Left to plan” — gifts always count against the holiday budget.</div>`;
+    h += `</div></div>
+      <div class="help">Leave the target empty if you don't want a per-person figure. It only affects “Left to plan” — gifts always count against the holiday budget.</div>`;
     if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
     h += `<div class="form-actions">
-        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
-        <button class="modal-btn reset" id="holidayPersonSave">${editing ? "Save changes" : "Add person"}</button>
+        <button class="btn" id="holidayFormCancel">Cancel</button>
+        <button class="btn btn-primary" id="holidayPersonSave">${editing ? "Save changes" : "Add person"}</button>
       </div></div>`;
     return h;
   }
@@ -1937,15 +2098,14 @@
    * only be fixed by archiving the season, and a label that arrived from a sync
    * cannot be cleaned up through the UI at all. */
   function renderHolidayRenameForm(form) {
-    let h = `<div class="add-form">
-      <div class="form-header">Rename season</div>
-      <div class="form-row">
-        <input type="text" id="holidayRenameName" placeholder="${escapeHtml(season().label)}" value="${escapeHtml(form.label)}">
-      </div>`;
+    let h = `<div class="form-card">
+      <div class="form-title">Rename season</div>
+      <label class="field"><span class="field-label">Season name</span>
+        <input type="text" id="holidayRenameName" placeholder="${escapeHtml(season().label)}" value="${escapeHtml(form.label)}"></label>`;
     if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
     return h + `<div class="form-actions">
-        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
-        <button class="modal-btn reset" id="holidayRenameSave">Save name</button>
+        <button class="btn" id="holidayFormCancel">Cancel</button>
+        <button class="btn btn-primary" id="holidayRenameSave">Save name</button>
       </div></div>`;
   }
 
@@ -1954,17 +2114,16 @@
     const gifts = Holiday.giftCount(current);
     const people = current.recipients.length;
     const archived = state.holidaySeasonHistory.length;
-    let h = `<div class="add-form">
-      <div class="form-header">Start a new season</div>
-      <div class="form-row">
-        <input type="text" id="holidaySeasonName" placeholder="${escapeHtml(Holiday.defaultSeasonLabel())}" value="${escapeHtml(form.label)}">
-      </div>
-      <div class="settings-help">Leave it empty to use “${escapeHtml(Holiday.defaultSeasonLabel())}”.</div>
-      <label class="form-row" style="gap:8px">
+    let h = `<div class="form-card">
+      <div class="form-title">Start a new season</div>
+      <label class="field"><span class="field-label">Season name</span>
+        <input type="text" id="holidaySeasonName" placeholder="${escapeHtml(Holiday.defaultSeasonLabel())}" value="${escapeHtml(form.label)}"></label>
+      <div class="help">Leave it empty to use “${escapeHtml(Holiday.defaultSeasonLabel())}”.</div>
+      <label class="check-row">
         <input type="checkbox" id="holidayCarry"${form.carry ? " checked" : ""}${people === 0 ? " disabled" : ""}>
         <span>Keep the same people${people === 0 ? " — none on the list yet" : ` (${people} ${people === 1 ? "person" : "people"} and their targets, without their gifts)`}</span>
       </label>
-      <div class="settings-help">
+      <div class="help">
         · ${escapeHtml(current.label)} moves to your past seasons${gifts === 0 ? "." : ` with its ${gifts} gift${gifts === 1 ? "" : "s"}.`}<br>
         · ${current.budget > 0 ? `Your ${holidayMoney(current.budget)} holiday budget carries over — you can change it afterwards.` : "The new season starts with no budget set."}<br>
         · Sprout keeps your ${Holiday.HISTORY_LIMIT} most recent seasons${archived >= Holiday.HISTORY_LIMIT ? ", so the oldest one will be dropped." : "."}<br>
@@ -1972,8 +2131,8 @@
       </div>`;
     if (state.holidayFormError) h += `<div class="notice" role="alert">${escapeHtml(state.holidayFormError)}</div>`;
     h += `<div class="form-actions">
-        <button class="btn-cancel" id="holidayFormCancel">Cancel</button>
-        <button class="modal-btn reset" id="holidaySeasonSave">Start new season</button>
+        <button class="btn" id="holidayFormCancel">Cancel</button>
+        <button class="btn btn-primary" id="holidaySeasonSave">Start new season</button>
       </div></div>`;
     return h;
   }
@@ -1981,17 +2140,18 @@
   function renderHolidayPeople() {
     const current = season();
     const people = Holiday.recipientsInDisplayOrder(current);
-    let h = `<div class="tx-header">People <span style="color:var(--text4);font-weight:400">${people.length}</span></div>`;
+    let h = `<div class="section"><div class="section-head"><span class="section-title">People</span><span class="section-detail">${people.length}</span></div>`;
     // Gated on the people list alone: requiring zero unassigned gifts too meant
     // logging one gift with nobody added flipped this to "People 0" and took
     // away the only instruction for adding people exactly when it was needed.
     if (people.length === 0) {
-      return h + `<div class="tx-empty">No one on the list yet. Add the people you're buying for, then log each gift as you buy it.</div>`;
+      return h + `<div class="empty">${icon("users", 40)}<div class="empty-title">No one on the list yet</div><div class="empty-text">Add the people you're buying for, then log each gift as you buy it.</div></div></div>`;
     }
+    h += `<div class="list">`;
     people.forEach(person => {
       h += renderHolidayPersonRow(person);
     });
-    return h;
+    return h + `</div></div>`;
   }
 
   function renderHolidayPersonRow(person) {
@@ -2010,21 +2170,19 @@
     } else {
       sub = `${holidayMoney(planned - tally.spentCents)} left of ${holidayMoney(planned)}`;
     }
-    return `<div class="tx-item">
-      <div class="tx-emoji">${escapeHtml(person.emoji)}</div>
-      <div class="tx-body">
-        <div class="tx-top">
-          <span class="tx-name">${escapeHtml(person.name)}</span>
-          <span class="tx-amount">${holidayMoney(tally.spentCents)}</span>
-        </div>
-        <div class="tx-bottom">
-          <span class="tx-meta" style="${over ? "color:var(--red)" : ""}">${escapeHtml(sub)}</span>
-          <button class="tx-remove" data-holidayopen="${escapeHtml(person.id)}">open</button>
-          <button class="tx-remove" data-holidayeditperson="${escapeHtml(person.id)}">edit</button>
-          <button class="tx-remove" data-holidayremoveperson="${escapeHtml(person.id)}">remove</button>
-        </div>
-        ${fraction === null ? "" : `<div class="bar-track" style="margin-top:6px;height:4px"><div class="bar-fill" style="width:${fraction*100}%;background:${over ? "var(--red)" : "var(--sage)"}"></div></div>`}
-      </div>
+    // The whole row opens the person, as it does on iOS. Editing and removing
+    // them live on that screen rather than as three links on every row.
+    return `<div class="row">
+      <button class="row-main" data-holidayopen="${escapeHtml(person.id)}">
+        <span class="avatar">${escapeHtml(person.emoji)}</span>
+        <span class="row-text">
+          <span class="row-title">${escapeHtml(person.name)}</span>
+          <span class="row-sub wrap${over ? " over" : ""}">${escapeHtml(sub)}</span>
+          ${fraction === null ? "" : `<span class="mini-track"><span class="mini-fill${over ? " over" : ""}" style="width:${fraction*100}%"></span></span>`}
+        </span>
+        <span class="row-amount">${holidayMoney(tally.spentCents)}</span>
+        <span class="row-chevron">${icon("chevronRight", 18)}</span>
+      </button>
     </div>`;
   }
 
@@ -2035,20 +2193,18 @@
     const current = season();
     const tally = Holiday.recipientTally(current, null);
     if (tally.rows === 0) return "";
-    return `<div class="tx-header">Not assigned to a person <span style="color:var(--text4);font-weight:400">${tally.rows}</span></div>
-      <div class="tx-item">
-        <div class="tx-emoji">🎁</div>
-        <div class="tx-body">
-          <div class="tx-top">
-            <span class="tx-name">${escapeHtml(Holiday.UNASSIGNED_LABEL)}</span>
-            <span class="tx-amount">${holidayMoney(tally.spentCents)}</span>
-          </div>
-          <div class="tx-bottom">
-            <span class="tx-meta">${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}${tally.returns > 0 ? ` · ${tally.returns} return${tally.returns === 1 ? "" : "s"}` : ""}</span>
-            <button class="tx-remove" data-holidayopen="">open</button>
-          </div>
-        </div>
-      </div>`;
+    return `<div class="section"><div class="section-head"><span class="section-title">Not assigned to a person</span><span class="section-detail">${tally.rows}</span></div>
+      <div class="list"><div class="row">
+        <button class="row-main" data-holidayopen="">
+          <span class="avatar">🎁</span>
+          <span class="row-text">
+            <span class="row-title">${escapeHtml(Holiday.UNASSIGNED_LABEL)}</span>
+            <span class="row-sub">${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}${tally.returns > 0 ? ` · ${tally.returns} return${tally.returns === 1 ? "" : "s"}` : ""}</span>
+          </span>
+          <span class="row-amount">${holidayMoney(tally.spentCents)}</span>
+          <span class="row-chevron">${icon("chevronRight", 18)}</span>
+        </button>
+      </div></div></div>`;
   }
 
   function holidayGiftMatches(purchase, query) {
@@ -2070,18 +2226,19 @@
     const query = searchable ? state.holidaySearch.trim() : "";
     const rows = query ? all.filter(row => holidayGiftMatches(row, query)) : all;
 
-    let h = `<div class="tx-header">All gifts <span style="color:var(--text4);font-weight:400">${query ? `${rows.length} of ${all.length}` : all.length}</span></div>`;
+    let h = `<div class="section"><div class="section-head"><span class="section-title">All gifts</span><span class="section-detail">${query ? `${rows.length} of ${all.length}` : all.length}</span></div>`;
     if (searchable) {
-      h += `<div class="form-row" style="margin-bottom:10px"><input type="text" id="holidaySearch" placeholder="Search gifts or people" value="${escapeHtml(state.holidaySearch)}"></div>`;
+      h += `<div class="search">${icon("search", 16)}<input type="text" id="holidaySearch" aria-label="Search gifts or people" placeholder="Search gifts or people" value="${escapeHtml(state.holidaySearch)}"></div>`;
     }
     if (all.length === 0) {
-      return h + `<div class="tx-empty">No gifts logged yet. Everything you add here counts against your holiday budget and nothing else.</div>`;
+      return h + `<div class="empty">${icon("gift", 40)}<div class="empty-title">No gifts logged yet</div><div class="empty-text">Every gift you add here counts against your holiday budget and nothing else.</div></div></div>`;
     }
     if (rows.length === 0) {
-      return h + `<div class="tx-empty">No gifts match “${escapeHtml(query)}”</div>`;
+      return h + `<div class="empty plain">No gifts match “${escapeHtml(query)}”</div></div>`;
     }
+    h += `<div class="list">`;
     rows.forEach(row => { h += renderHolidayGiftRow(row, true); });
-    return h;
+    return h + `</div></div>`;
   }
 
   function renderHolidayGiftRow(purchase, showPerson) {
@@ -2089,23 +2246,21 @@
     const person = Holiday.findRecipient(current, purchase.recipientID);
     const who = person ? person.name : Holiday.UNASSIGNED_LABEL;
     const meta = [];
-    if (showPerson) meta.push(escapeHtml(who));
+    if (showPerson) meta.push(`<span class="tag-accent">${escapeHtml(who)}</span>`);
     meta.push(fmtDate(holidayDayValue(purchase.date)));
-    if (purchase.isReturn) meta.push('<span class="payment-tag">returned</span>');
+    if (purchase.isReturn) meta.push('<span class="tag-good">returned</span>');
     if (purchase.note) meta.push(escapeHtml(purchase.note));
-    return `<div class="tx-item">
-      <div class="tx-emoji">${purchase.isReturn ? "↩️" : escapeHtml(person ? person.emoji : "🎁")}</div>
-      <div class="tx-body">
-        <div class="tx-top">
-          <span class="tx-name">${escapeHtml(purchase.name)}</span>
-          <span class="tx-amount" style="${purchase.isReturn ? "color:var(--green)" : ""}">${purchase.isReturn ? "+" : "−"}${holidayMoney(purchase.amount)}</span>
+    const kind = purchase.isReturn ? "return" : "gift";
+    return `<div class="row">
+      <div class="row-main">
+        <div class="avatar">${purchase.isReturn ? "↩️" : escapeHtml(person ? person.emoji : "🎁")}</div>
+        <div class="row-text">
+          <div class="row-title">${escapeHtml(purchase.name)}</div>
+          <div class="row-sub">${meta.join(" · ")}</div>
         </div>
-        <div class="tx-bottom">
-          <span class="tx-meta">${meta.join(" · ")}</span>
-          <button class="tx-remove" data-holidayeditgift="${escapeHtml(purchase.id)}">edit</button>
-          <button class="tx-remove" data-holidayremovegift="${escapeHtml(purchase.id)}">remove</button>
-        </div>
+        <div class="row-amount${purchase.isReturn ? " good" : ""}">${purchase.isReturn ? "+" : "−"}${holidayMoney(purchase.amount)}</div>
       </div>
+      ${rowMenu(`Options for ${purchase.name}`, `<button class="menu-item" data-holidayeditgift="${escapeHtml(purchase.id)}">${icon("pencil")} Edit ${kind}</button><button class="menu-item danger" data-holidayremovegift="${escapeHtml(purchase.id)}">${icon("trash")} Remove ${kind}</button>`)}
     </div>`;
   }
 
@@ -2122,42 +2277,56 @@
     const rows = Holiday.purchasesFor(current, id);
     const planned = person?.plannedAmount;
 
-    let h = `<div class="form-actions" style="margin-bottom:12px"><button class="btn-cancel" id="holidayBack">← All people</button></div>
-      <div class="summary-card">
-        <div class="settings-help" style="margin:0 0 6px">${escapeHtml(person ? person.emoji + " " + person.name : "🎁 " + Holiday.UNASSIGNED_LABEL)}</div>
-        <div class="remaining-display">
-          <div class="remaining-amount ${tally.spentCents < 0 ? 'negative' : ''}">${holidayMoney(tally.spentCents)}</div>
-          <div class="remaining-label">spent</div>
+    let h = `<div><button class="btn btn-small" id="holidayBack">${icon("chevronLeft", 16)} All people</button></div>
+      <div class="hero">
+        <div class="hero-top">
+          <div class="hero-headline">
+            <div class="hero-kicker">${escapeHtml(person ? person.emoji + " " + person.name : "🎁 " + Holiday.UNASSIGNED_LABEL)}</div>
+            <div class="hero-caption">Spent</div>
+            <div class="hero-amount">${holidayMoney(tally.spentCents)}</div>
+          </div>
+          ${person && !state.holidayForm ? `<button class="hero-edit" data-holidayeditperson="${escapeHtml(person.id)}" aria-label="Edit ${escapeHtml(person.name)}">${icon("pencil", 18)}</button>` : ""}
         </div>`;
     if (planned != null) {
       const left = planned - tally.spentCents;
       const fraction = Holiday.recipientProgress(current, person) ?? 0;
-      h += `<div class="bar-track"><div class="bar-fill" style="width:${fraction*100}%;background:${left < 0 ? "var(--red)" : "var(--sage)"}"></div></div>
-        <div class="settings-help">${left < 0
-          ? `${holidayMoney(-left)} over the ${holidayMoney(planned)} planned`
-          : `${holidayMoney(left)} left of the ${holidayMoney(planned)} planned`}</div>`;
+      h += `<div class="hero-meter">
+          <div class="hero-track"><div class="hero-fill" style="width:${fraction*100}%;background:${left < 0 ? "var(--red)" : "var(--sage)"}"></div></div>
+          <div class="hero-text">${left < 0
+            ? `${holidayMoney(-left)} over the ${holidayMoney(planned)} planned`
+            : `${holidayMoney(left)} left of the ${holidayMoney(planned)} planned`}</div>
+        </div>`;
     } else {
       const parts = [`${tally.gifts} gift${tally.gifts === 1 ? "" : "s"}`];
       if (tally.returns > 0) parts.push(`${tally.returns} return${tally.returns === 1 ? "" : "s"}`);
-      h += `<div class="settings-help">${tally.rows === 0 ? "No gifts yet." : parts.join(" · ") + " · no per-person target set"}</div>`;
+      h += `<div class="hero-text">${tally.rows === 0 ? "No gifts yet." : parts.join(" · ") + " · no per-person target set"}</div>`;
     }
     h += `</div>`;
 
     if (!state.holidayForm) {
-      h += `<div class="form-actions" style="margin:14px 0">
-        <button class="btn-cancel" id="holidayAddGift">＋ ${person ? "Add gift for " + escapeHtml(person.name) : "Add gift"}</button>
-        <button class="btn-cancel" id="holidayAddReturn">↩ Record a return</button>
-        ${person ? `<button class="btn-cancel" data-holidayeditperson="${escapeHtml(person.id)}">Edit person</button>
-        <button class="btn-cancel" data-holidayremoveperson="${escapeHtml(person.id)}">Remove person</button>` : ""}
+      h += `<div class="actions">
+        <button class="btn btn-primary" id="holidayAddGift">${icon("plus")} Add gift</button>
+        <button class="btn btn-tint" id="holidayAddReturn">${icon("undo")} Return</button>
       </div>`;
+      if (person) {
+        h += `<div class="actions-minor">
+          <button class="btn btn-small" data-holidayeditperson="${escapeHtml(person.id)}">${icon("pencil", 15)} Edit person</button>
+          <button class="btn btn-small btn-danger-text" data-holidayremoveperson="${escapeHtml(person.id)}">${icon("trash", 15)} Remove person</button>
+        </div>`;
+      }
     }
     h += renderHolidayForm();
 
-    h += `<div class="tx-header">Gifts <span style="color:var(--text4);font-weight:400">${rows.length}</span></div>`;
-    if (rows.length === 0) h += `<div class="tx-empty">Nothing logged here yet.</div>`;
-    // The heading already names who this list is for.
-    else rows.forEach(row => { h += renderHolidayGiftRow(row, false); });
-    return h;
+    h += `<div class="section"><div class="section-head"><span class="section-title">Gifts</span><span class="section-detail">${rows.length}</span></div>`;
+    if (rows.length === 0) {
+      h += `<div class="empty">${icon("gift", 40)}<div class="empty-title">Nothing logged here yet</div><div class="empty-text">${person ? `Gifts you add for ${escapeHtml(person.name)} will show up here.` : "Gifts that aren't for one person will show up here."}</div></div>`;
+    } else {
+      // The heading already names who this list is for.
+      h += `<div class="list">`;
+      rows.forEach(row => { h += renderHolidayGiftRow(row, false); });
+      h += `</div>`;
+    }
+    return h + `</div>`;
   }
 
   function renderHolidaySeasonsModal() {
@@ -2167,20 +2336,23 @@
     if (history.length === 0) {
       h += `<div class="modal-text">When you start a new holiday season, Sprout keeps the one you closed here for reference.</div>`;
     } else {
-      h += `<div class="modal-text">A past season can be opened or deleted, but not edited. Sprout keeps your ${Holiday.HISTORY_LIMIT} most recent.</div>`;
+      h += `<div class="modal-text">A past season can be opened or deleted, but not edited. Sprout keeps your ${Holiday.HISTORY_LIMIT} most recent.</div><div class="list">`;
       history.forEach(past => {
         const spent = Holiday.seasonSpentCents(past);
         const gifts = Holiday.giftCount(past);
         const people = past.recipients.length;
-        h += `<div class="tx-item"><div class="tx-emoji">🎁</div><div class="tx-body">
-          <div class="tx-top"><span class="tx-name">${escapeHtml(past.label)}</span><span class="tx-amount">${holidayMoney(spent)}</span></div>
-          <div class="tx-bottom">
-            <span class="tx-meta">${gifts} gift${gifts === 1 ? "" : "s"}${people > 0 ? ` for ${people} ${people === 1 ? "person" : "people"}` : " saved"}${Holiday.seasonHasBudget(past) ? ` · of ${holidayMoney(past.budget)}` : " · no budget set"}</span>
-            <button class="tx-remove" data-holidayremoveseason="${escapeHtml(past.id)}">delete</button>
+        h += `<div class="row"><div class="row-main">
+          <div class="avatar">🎁</div>
+          <div class="row-text">
+            <div class="row-title">${escapeHtml(past.label)}</div>
+            <div class="row-sub wrap">${gifts} gift${gifts === 1 ? "" : "s"}${people > 0 ? ` for ${people} ${people === 1 ? "person" : "people"}` : " saved"}${Holiday.seasonHasBudget(past) ? ` · of ${holidayMoney(past.budget)}` : " · no budget set"}</div>
+            ${renderHolidaySeasonBreakdown(past)}
+            <button class="btn btn-small btn-danger-text season-delete" data-holidayremoveseason="${escapeHtml(past.id)}">${icon("trash", 15)} Delete season</button>
           </div>
-          ${renderHolidaySeasonBreakdown(past)}
+          <div class="row-amount top">${holidayMoney(spent)}</div>
         </div></div>`;
       });
+      h += `</div>`;
     }
     h += `<div class="modal-actions"><button class="modal-btn keep" id="holidaySeasonsClose">Done</button></div>
       </div></div>`;
@@ -2193,7 +2365,7 @@
     const people = Holiday.recipientsInDisplayOrder(past);
     const unassigned = Holiday.recipientTally(past, null);
     if (people.length === 0 && unassigned.rows === 0) return "";
-    let h = `<div class="settings-help" style="margin-top:6px">`;
+    let h = `<div class="row-sub wrap breakdown">`;
     people.forEach(person => {
       h += `${escapeHtml(person.emoji)} ${escapeHtml(person.name)} · ${holidayMoney(Holiday.recipientTally(past, person.id).spentCents)}<br>`;
     });
@@ -2237,41 +2409,60 @@
       <div class="modal-text">${escapeHtml(text)}</div>
       <div class="modal-actions">
         <button class="modal-btn keep" id="holidayDeleteCancel">Cancel</button>
-        <button class="modal-btn reset" id="holidayDeleteConfirm">Remove</button>
+        <button class="modal-btn reset danger" id="holidayDeleteConfirm">Remove</button>
       </div></div></div>`;
   }
 
   function renderAddForm(isPayment, cat) {
-    let h = `<div class="add-form ${isPayment ? 'payment' : ''}">
-      <div class="form-header">${state.editingTransactionId ? "Edit transaction" : isPayment ? "💸 Add payment" : "Add expense"}</div>`;
+    const editing = Boolean(state.editingTransactionId);
+    let h = `<div class="form-card">
+      <div class="form-title">${editing ? "Edit transaction" : isPayment ? "Add payment" : "Add expense"}</div>`;
 
-    // Emoji picker only for personal expenses (not payments, not grocery)
+    // Category picker only for personal expenses (not payments, not grocery)
     if (!isPayment && cat === "personal") {
-      h += `<div class="emoji-picker">`;
+      h += `<div class="choices">`;
       state.personalCategories.forEach(c => {
-        h += `<button class="emoji-btn ${state.formEmoji === c.emoji ? 'selected' : ''}" data-emoji="${escapeHtml(c.emoji)}">
-          <span>${escapeHtml(c.emoji)}</span><span>${escapeHtml(c.label)}</span>
-        </button>`;
+        const selected = state.formEmoji === c.emoji;
+        h += `<button class="choice${selected ? " selected" : ""}" data-emoji="${escapeHtml(c.emoji)}" aria-pressed="${selected ? "true" : "false"}"><span>${escapeHtml(c.emoji)} ${escapeHtml(c.label)}</span></button>`;
       });
       h += `</div>`;
     }
 
-    h += `<div class="form-row">
-      <input class="form-input" aria-label="Transaction name" maxlength="200" placeholder="${isPayment ? 'What was returned?' : 'What was it?'}" id="formName" value="${escapeHtml(state.formName)}">
-      <input class="form-input mono" placeholder="$0.00" type="text" inputmode="decimal" aria-label="Amount in US dollars" id="formAmount" value="${escapeHtml(state.formAmount)}">
-    </div>
-    <div class="form-row">
-      <input class="form-input small" aria-label="Note" maxlength="2000" placeholder="Note (optional)" id="formNote" value="${escapeHtml(state.formNote)}">
-      <input class="form-input date" type="date" aria-label="Transaction date" id="formDate" value="${escapeHtml(state.formDate)}">
-    </div>
-    <div class="settings-help">Amounts are in US dollars.</div>
-    ${state.editingTransactionId ? `<label class="settings-help">Type <select id="formMode"><option value="expense" ${!isPayment ? "selected" : ""}>Expense</option><option value="payment" ${isPayment ? "selected" : ""}>Payment / refund</option></select></label><div class="settings-help">Editing an occurrence does not change its recurring rule.</div>` : `<label class="settings-help"><input type="checkbox" id="formRecurring" ${state.formRecurring ? "checked" : ""}> Repeat this transaction</label>
-    ${state.formRecurring ? `<div class="form-row"><label>Frequency <select id="formFrequency"><option value="weekly" ${state.formFrequency === "weekly" ? "selected" : ""}>Weekly</option><option value="monthly" ${state.formFrequency === "monthly" ? "selected" : ""}>Monthly</option><option value="yearly" ${state.formFrequency === "yearly" ? "selected" : ""}>Yearly</option></select></label><label>Next date <input class="form-input date" type="date" id="formNextDate" value="${escapeHtml(state.formNextDate || "")}"></label></div><div class="settings-help">Due entries are added when you open or return to Sprout.</div>` : ""}`}
-    ${state.formError ? `<div class="notice" role="alert">${escapeHtml(state.formError)}</div>` : ""}
-    <div class="form-actions">
-      <button class="btn-submit" id="formSubmit">${state.editingTransactionId ? "Save Changes" : isPayment ? "Add Payment" : "Add Expense"}</button>
-      <button class="btn-cancel" id="formCancel">Cancel</button>
-    </div></div>`;
+    h += `<div class="field-row">
+        <label class="field"><span class="field-label">${isPayment ? "What was returned?" : "What was it?"}</span>
+          <input type="text" aria-label="Transaction name" maxlength="200" placeholder="${isPayment ? "Refund, return…" : "Coffee, gas, dinner…"}" id="formName" value="${escapeHtml(state.formName)}"></label>
+        <label class="field narrow"><span class="field-label">Amount</span>
+          <input type="text" placeholder="0.00" inputmode="decimal" aria-label="Amount in US dollars" id="formAmount" value="${escapeHtml(state.formAmount)}"></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span class="field-label">Note</span>
+          <input type="text" aria-label="Note" maxlength="2000" placeholder="Optional" id="formNote" value="${escapeHtml(state.formNote)}"></label>
+        <label class="field"><span class="field-label">Date</span>
+          <input type="date" aria-label="Transaction date" id="formDate" value="${escapeHtml(state.formDate)}"></label>
+      </div>`;
+
+    if (editing) {
+      h += `<label class="field"><span class="field-label">Type</span>
+          <select id="formMode"><option value="expense" ${!isPayment ? "selected" : ""}>Expense</option><option value="payment" ${isPayment ? "selected" : ""}>Payment / refund</option></select></label>
+        <div class="help">Editing an occurrence does not change its recurring rule.</div>`;
+    } else {
+      h += `<label class="check-row"><input type="checkbox" id="formRecurring" ${state.formRecurring ? "checked" : ""}><span>Repeat this transaction</span></label>`;
+      if (state.formRecurring) {
+        h += `<div class="field-row">
+            <label class="field"><span class="field-label">Frequency</span>
+              <select id="formFrequency"><option value="weekly" ${state.formFrequency === "weekly" ? "selected" : ""}>Weekly</option><option value="monthly" ${state.formFrequency === "monthly" ? "selected" : ""}>Monthly</option><option value="yearly" ${state.formFrequency === "yearly" ? "selected" : ""}>Yearly</option></select></label>
+            <label class="field"><span class="field-label">Next date</span>
+              <input type="date" id="formNextDate" value="${escapeHtml(state.formNextDate || "")}"></label>
+          </div>
+          <div class="help">Due entries are added when you open or return to Sprout.</div>`;
+      }
+    }
+    h += `<div class="help">Amounts are in US dollars.</div>
+      ${state.formError ? `<div class="notice" role="alert">${escapeHtml(state.formError)}</div>` : ""}
+      <div class="form-actions">
+        <button class="btn" id="formCancel">Cancel</button>
+        <button class="btn btn-primary" id="formSubmit">${editing ? "Save changes" : isPayment ? "Add payment" : "Add expense"}</button>
+      </div></div>`;
     return h;
   }
 
@@ -2279,17 +2470,17 @@
     let h = `<div class="modal-overlay" id="settingsOverlay">
       <div class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="settings-header">
-          <div class="settings-title">⚙️ Settings</div>
-          <button class="settings-close" id="settingsClose" aria-label="Close settings">×</button>
+          <div class="settings-title">Settings</div>
+          <button class="settings-close" id="settingsClose" aria-label="Close settings">${icon("x", 18)}</button>
         </div>
         ${state.statusMessage ? `<div class="notice" role="status">${escapeHtml(state.statusMessage)}</div>` : ""}
         <div class="settings-section-label">Backup and recovery</div>
         <div class="settings-help">Export a portable backup for web or iOS. Import replaces this account's data after confirmation. Native iOS data is transferred by backup; it is not linked to this Google account.</div>
-        <div class="form-actions"><button class="btn-cancel" id="exportBackup">Export backup</button><label class="btn-cancel">Import backup<input type="file" id="importBackup" accept=".json,application/json" aria-label="Import backup"></label></div>
-        ${state.canUndoImport ? `<button class="btn-cancel" id="undoImport">Undo last import</button>` : ""}
+        <div class="form-actions"><button class="btn" id="exportBackup">Export backup</button><label class="btn file-btn">Import backup<input type="file" id="importBackup" accept=".json,application/json" aria-label="Import backup"></label></div>
+        ${state.canUndoImport ? `<button class="btn" id="undoImport">Undo last import</button>` : ""}
         <div class="settings-section-label">Recurring transactions</div>
         <div class="settings-help">Runs when Sprout is open. Removing a rule stops future entries; existing transactions stay.</div>
-        ${state.recurringRules.length ? state.recurringRules.map(rule => `<div class="history-detail"><strong>${escapeHtml(rule.emoji)} ${escapeHtml(rule.name)}</strong><div class="settings-help">${rule.type === "grocery" ? "Grocery" : "Personal"} · ${rule.isRefund ? "Payment" : "Expense"} ${fmtCurrency(rule.amount)} · ${escapeHtml(rule.frequency)} · Next ${fmtDate(rule.nextOccurrenceDate)}</div><button class="btn-cancel" data-removerule="${escapeHtml(rule.id)}">Stop repeating</button></div>`).join("") : `<div class="history-empty">No recurring entries. Add one from the transaction form.</div>`}
+        ${state.recurringRules.length ? state.recurringRules.map(rule => `<div class="rule-card"><strong>${escapeHtml(rule.emoji)} ${escapeHtml(rule.name)}</strong><div class="settings-help">${rule.type === "grocery" ? "Grocery" : "Personal"} · ${rule.isRefund ? "Payment" : "Expense"} ${fmtCurrency(rule.amount)} · ${escapeHtml(rule.frequency)} · Next ${fmtDate(rule.nextOccurrenceDate)}</div><button class="btn btn-small" data-removerule="${escapeHtml(rule.id)}">Stop repeating</button></div>`).join("") : `<div class="history-empty">No recurring entries. Add one from the transaction form.</div>`}
         <div class="settings-section-label">Recent months</div>
         <div class="settings-help">Reference your recent closed months without mixing them into your current budget.</div>`;
 
@@ -2334,14 +2525,14 @@
       h += `<div class="cat-row">
         <button class="cat-emoji-btn" data-catidx="${i}" aria-label="Change icon for ${escapeHtml(cat.label)}">${escapeHtml(cat.emoji)}</button>
         <input class="cat-name-input" data-catnameidx="${i}" aria-label="Category ${i + 1} name" value="${escapeHtml(cat.label)}" placeholder="Category name">
-        ${state.personalCategories.length > 1 ? `<button class="cat-remove-btn" data-catremoveidx="${i}" aria-label="Remove ${escapeHtml(cat.label)} category">×</button>` : ''}
+        ${state.personalCategories.length > 1 ? `<button class="cat-remove-btn" data-catremoveidx="${i}" aria-label="Remove ${escapeHtml(cat.label)} category">${icon("x", 16)}</button>` : ''}
       </div>`;
     });
 
     h += `</div>`;
 
     if (state.personalCategories.length < 10) {
-      h += `<button class="cat-add-btn" id="catAddBtn">+ Add category</button>`;
+      h += `<button class="btn cat-add-btn" id="catAddBtn">${icon("plus", 16)} Add category</button>`;
     }
 
     h += `</div></div>`;
@@ -2361,8 +2552,8 @@
       const carryover = section.key === "grocery" ? month.groceryCarryover : month.personalCarryover;
       const transactions = getArchivedTx(month, section.key);
 
-      h += `<div style="margin-bottom:14px;">
-        <div class="settings-section-label" style="margin-top:0;margin-bottom:8px;">${section.title}</div>
+      h += `<div class="history-block">
+        <div class="settings-section-label">${section.title}</div>
         <div class="history-stats">
           <div class="history-stat">
             <div class="history-stat-label">Budget</div>
@@ -2439,7 +2630,6 @@
     const mon = monthNumber - 1;
     const daysInMonth = new Date(year, mon+1, 0).getDate();
     const today = getToday();
-    const monthName = new Date(year, mon).toLocaleDateString(undefined,{month:"long",year:"numeric"});
     const { labels: weekLabels, offset: weekOffset } = getLocaleWeekdayLabels();
     const rawFirstDow = new Date(year, mon, 1).getDay();
     const firstDow = (rawFirstDow - weekOffset + 7) % 7;
@@ -2451,7 +2641,7 @@
     });
 
     const outside = getTx(cat).filter(t => t.date.slice(0,7) !== state.currentMonth).length;
-    let h = `<div class="calendar-card"><div class="cal-month">${monthName}</div>${outside ? `<div class="settings-help">${outside} transaction${outside === 1 ? " is" : "s are"} dated outside this month. They count toward your totals but are not shown in this calendar.</div>` : ""}<div class="cal-grid">`;
+    let h = `<div class="calendar-card">${outside ? `<div class="settings-help">${outside} transaction${outside === 1 ? " is" : "s are"} dated outside this month. They count toward your totals but are not shown in this calendar.</div>` : ""}<div class="cal-grid">`;
     weekLabels.forEach(d => {
       h += `<div class="cal-day-label">${d}</div>`;
     });
@@ -2480,12 +2670,12 @@
       h += `<div class="cal-detail">
         <div class="cal-detail-date">${fmtFullDay(state.selectedCalDay)}</div>`;
       if (items.length === 0) {
-        h += `<div style="font-size:13px;color:var(--text4);font-style:italic">No transactions this day</div>`;
+        h += `<div class="help">No transactions this day</div>`;
       } else {
         items.forEach(t => {
           h += `<div class="cal-detail-row">
             <span style="color:var(--text1)">${t.isRefund ? "💸" : escapeHtml(t.emoji)} ${escapeHtml(t.name)}${t.isRefund ? '<span style="color:var(--green);font-weight:500"> (payment)</span>' : ""}${t.note ? '<span style="color:var(--text3)"> · '+escapeHtml(t.note)+'</span>' : ""}</span>
-            <span style="font-family:var(--font-mono);font-weight:500;color:${t.isRefund ? 'var(--green)' : '#5a6e58'}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
+            <span class="amt${t.isRefund ? " tag-good" : ""}">${t.isRefund ? "+" : "−"}${fmtCurrency(t.amount)}</span>
           </div>`;
         });
         const netTotal = sumTransactions(items);
@@ -2536,6 +2726,7 @@
     document.getElementById("resetCancel")?.addEventListener("click", () => { state.showReset = false; render(); });
     // Reset
     document.getElementById("resetBtn")?.addEventListener("click", () => { state.showReset = true; render(); });
+    document.getElementById("monthBanner")?.addEventListener("click", () => { state.showReset = true; render(); });
     document.getElementById("resetKeep")?.addEventListener("click", () => {
       if (!canEdit()) return;
       keepLedger(state, getToday());
@@ -2841,8 +3032,17 @@
     });
   }
 
+  // The "…" menus are native <details>. They close themselves when one of
+  // their items re-renders the page; this closes them for a tap anywhere else.
+  function closeMenus(except) {
+    document.querySelectorAll("details.menu[open]").forEach(menu => { if (menu !== except) menu.open = false; });
+  }
+  document.addEventListener("click", event => {
+    closeMenus(event.target?.closest?.("details.menu") || null);
+  });
   document.addEventListener("keydown", event => {
     if (event.key !== "Escape") return;
+    closeMenus(null);
     const cancel = document.getElementById("actionCancel") || document.getElementById("importCancel") || document.getElementById("resetCancel") || document.getElementById("deleteCancel") || document.getElementById("settingsClose");
     if (state.emojiPickerForIndex !== null) { state.emojiPickerForIndex = null; render(); }
     else cancel?.click();
